@@ -1,11 +1,12 @@
 #!/bin/bash
 set -e
 
-# Fix /root permissions broken by Windows volume mount
+# Seed /root from image on first run (bind mount starts empty)
+if [ ! -f /root/.initialized ]; then
+    cp -a /etc/root-seed/. /root/
+    touch /root/.initialized
+fi
 chmod 750 /root
-mkdir -p /root/.ssh && chmod 700 /root/.ssh
-cp /etc/ssh/authorized_keys.bak /root/.ssh/authorized_keys
-chmod 600 /root/.ssh/authorized_keys
 
 # Start Docker daemon in background
 dockerd --host=unix:///var/run/docker.sock &
