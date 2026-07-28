@@ -19,7 +19,8 @@ RUN apt-get update && apt-get install -y \
 SHELL ["/bin/bash", "-c"]
 
 # Install nvm
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+RUN mkdir -p "$NVM_DIR" \
+    && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 
 # Clone repo
 RUN git clone --depth 1 --branch "$KIBANA_BRANCH" "$KIBANA_REPO_URL" /opt/kibana
