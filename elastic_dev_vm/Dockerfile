@@ -68,8 +68,8 @@ RUN printf 'export NVM_DIR="%s"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 # SSH setup
 RUN mkdir -p /var/run/sshd /root/.ssh && chmod 700 /root/.ssh
 
-COPY id_ed25519.pub /root/.ssh/authorized_keys
-RUN chmod 600 /root/.ssh/authorized_keys
+COPY id_ed25519.pub /etc/ssh/authorized_keys.bak
+RUN chmod 600 /etc/ssh/authorized_keys.bak
 
 RUN sed -i \
     -e 's/#PermitRootLogin.*/PermitRootLogin yes/' \

@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Restore SSH authorized_keys (volume mount overwrites /root)
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+cp /etc/ssh/authorized_keys.bak /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+
 # Start Docker daemon in background
 dockerd --host=unix:///var/run/docker.sock &
 
