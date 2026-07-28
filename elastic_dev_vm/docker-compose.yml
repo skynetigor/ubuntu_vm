@@ -4,7 +4,7 @@ services:
     container_name: elastic-dev-vm
     privileged: true
     ports:
-      - "2222:22"
+      - "3500:22"
     volumes:
       - G:\elastic-dev-vm\home:/root
     restart: unless-stopped
