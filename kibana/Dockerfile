@@ -51,6 +51,7 @@ RUN source "$NVM_DIR/nvm.sh" \
     && cd /opt/kibana-src \
     && nvm use \
     && node scripts/build \
+        --allow-root \
         --skip-initialize \
         --skip-archives \
         --skip-os-packages \
