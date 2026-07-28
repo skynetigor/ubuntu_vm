@@ -58,6 +58,9 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | b
     && ln -sf "$(. "$NVM_DIR/nvm.sh" && dirname $(nvm which current))/npm" /usr/local/bin/npm \
     && ln -sf "$(. "$NVM_DIR/nvm.sh" && dirname $(nvm which current))/npx" /usr/local/bin/npx
 
+# Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
 # Make nvm available in login shells (SSH sessions)
 RUN printf 'export NVM_DIR="%s"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"\n' \
       "$NVM_DIR" > /etc/profile.d/nvm.sh
