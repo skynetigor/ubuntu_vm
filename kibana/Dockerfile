@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
     libgbm1 libpango-1.0-0 libcairo2 libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
+SHELL ["/bin/bash", "-c"]
+
 # Install nvm
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 
@@ -23,7 +25,7 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | b
 RUN git clone --depth 1 --branch "$KIBANA_BRANCH" "$KIBANA_REPO_URL" /opt/kibana
 
 # Install Node.js from .nvmrc and bootstrap
-RUN . "$NVM_DIR/nvm.sh" \
+RUN source "$NVM_DIR/nvm.sh" \
     && cd /opt/kibana \
     && nvm install \
     && nvm use \
