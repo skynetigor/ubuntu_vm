@@ -1,17 +1,43 @@
 services:
-  kibana-dev:
+  elasticsearch:
+    # Use 9.x-SNAPSHOT for main branch. For released branches set ES_VERSION=8.17.0 etc.
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION:-9.x-SNAPSHOT}
+    environment:
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD=${KIBANA_BRANCH:-main}
+      - xpack.ml.enabled=false
+      - xpack.security.authc.api_key.enabled=true
+      - xpack.license.self_generated.type=trial
+    ports:
+      - "5012:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl -sf -u elastic:${KIBANA_BRANCH:-main} http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  kibana:
     build:
       context: .
       args:
-        KIBANA_REPO_URL: https://github.com/elastic/kibana
-        KIBANA_BRANCH: main
+        KIBANA_REPO_URL: ${KIBANA_REPO_URL:-https://github.com/elastic/kibana}
+        KIBANA_BRANCH: ${KIBANA_BRANCH:-main}
+    environment:
+      # Passed to entrypoint at runtime (password = branch name)
+      - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
     ports:
       - "5011:5601"   # Kibana
-      - "5012:9200"   # Elasticsearch
     volumes:
-      - es_snapshots:/home/kibana/.es   # downloaded ES snapshot cache
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  es_snapshots:
+  es_data:
