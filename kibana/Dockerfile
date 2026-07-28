@@ -25,15 +25,33 @@ RUN source "$NVM_DIR/nvm.sh" \
     && npm install -g yarn \
     && KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap --allow-root
 
-# Produce the distributable (bundles Node.js, excludes dev deps).
-# --skip-archives        no .tar.gz  (we copy the directory directly)
-# --skip-os-packages     no rpm/deb
+# node scripts/build bundles Node.js into the distributable, but it downloads it from
+# an Elastic-internal GCP proxy (kibana-ci-proxy-cache). Pre-download from nodejs.org
+# and place at the exact paths CreateArchivesSources expects, then use --skip-initialize
+# so the build skips DownloadNodeBuilds / VerifyExistingNodeBuilds entirely.
+# Both 'default' and 'glibc-217' variants use the same standard binary here — the
+# glibc-217 variant only matters on systems with glibc < 2.17 (Ubuntu 22.04 has 2.35).
+RUN NODE_VERSION=$(cat /opt/kibana-src/.nvmrc) \
+    && TARBALL="node-v${NODE_VERSION}-linux-x64.tar.gz" \
+    && curl -fL "https://nodejs.org/dist/v${NODE_VERSION}/${TARBALL}" -o "/tmp/${TARBALL}" \
+    && for VARIANT in default glibc-217; do \
+         mkdir -p "/opt/kibana-src/.node_binaries/${NODE_VERSION}/${VARIANT}/linux-x64/extract"; \
+         tar xzf "/tmp/${TARBALL}" \
+           -C "/opt/kibana-src/.node_binaries/${NODE_VERSION}/${VARIANT}/linux-x64/extract" \
+           --strip-components=1; \
+       done \
+    && rm "/tmp/${TARBALL}"
+
+# --skip-initialize  skip DownloadNodeBuilds/VerifyExistingNodeBuilds (handled above)
+# --skip-archives    no .tar.gz (we copy the directory directly)
+# --skip-os-packages no rpm/deb
 # --skip-cloud-dependencies-download  no beats/cloud deps
-# --skip-cdn-assets      no CDN upload artefacts
+# --skip-cdn-assets  no CDN upload artefacts
 RUN source "$NVM_DIR/nvm.sh" \
     && cd /opt/kibana-src \
     && nvm use \
     && node scripts/build \
+        --skip-initialize \
         --skip-archives \
         --skip-os-packages \
         --skip-cloud-dependencies-download \
