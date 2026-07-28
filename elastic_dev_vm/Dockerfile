@@ -64,6 +64,18 @@ RUN npm install -g yarn @anthropic-ai/claude-code
 RUN printf 'export NVM_DIR="%s"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"\n' \
       "$NVM_DIR" > /etc/profile.d/nvm.sh
 
+# User setup
+RUN useradd -m -s /bin/bash skynet_igor \
+    && echo "skynet_igor:skynet_igor" | chpasswd \
+    && usermod -aG sudo,docker skynet_igor \
+    && echo "skynet_igor ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && mkdir -p /home/skynet_igor/.ssh \
+    && chmod 700 /home/skynet_igor/.ssh
+
+COPY id_ed25519.pub /home/skynet_igor/.ssh/authorized_keys
+RUN chmod 600 /home/skynet_igor/.ssh/authorized_keys \
+    && chown -R skynet_igor:skynet_igor /home/skynet_igor/.ssh
+
 # SSH setup
 RUN mkdir -p /var/run/sshd /root/.ssh && chmod 700 /root/.ssh
 
