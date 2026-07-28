@@ -6,5 +6,5 @@ services:
     ports:
       - "3500:22"
     volumes:
-      - G:\elastic-dev-vm\home:/root
+      - E:\DOCKER_FILES\elastic-dev-vm\home:/root
     restart: unless-stopped
