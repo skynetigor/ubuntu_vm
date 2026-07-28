@@ -8,7 +8,7 @@ ARG KIBANA_BRANCH=main
 ENV KIBANA_BRANCH=$KIBANA_BRANCH
 
 RUN apt-get update && apt-get install -y \
-    git curl build-essential python3 \
+    git curl build-essential python3 gettext-base \
     libsecret-1-dev \
     libglib2.0-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
     libcups2 libdrm2 libdbus-1-3 libxcb1 libxkbcommon0 libx11-6 \
