@@ -2,7 +2,6 @@
 set -euo pipefail
 
 export NVM_DIR="/root/.nvm"
-# shellcheck source=/dev/null
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
 REPO_DIR="/opt/kibana"
@@ -20,16 +19,21 @@ nvm use
 # ── Kibana config ────────────────────────────────────────────────────────────
 echo "=== Writing config/kibana.dev.yml ==="
 envsubst < /etc/kibana-config/kibana.dev.yml > "$REPO_DIR/config/kibana.dev.yml"
+chown kibana:kibana "$REPO_DIR/config/kibana.dev.yml"
 
-# ── Start Elasticsearch ──────────────────────────────────────────────────────
+# ── Start Elasticsearch (must run as non-root) ───────────────────────────────
 echo "=== Starting Elasticsearch (password: $PASSWORD) ==="
-yarn es snapshot \
-  --license trial \
-  -E xpack.ml.enabled=false \
-  -E xpack.security.authc.api_key.enabled=true \
-  --kibanaUrl http://localhost:5601 \
-  --password "$PASSWORD" \
-  &
+su -s /bin/bash kibana -c "
+  source /root/.nvm/nvm.sh
+  cd /opt/kibana
+  nvm use
+  yarn es snapshot \
+    --license trial \
+    -E xpack.ml.enabled=false \
+    -E xpack.security.authc.api_key.enabled=true \
+    --kibanaUrl http://localhost:5601 \
+    --password '$PASSWORD'
+" &
 
 ES_PID=$!
 
@@ -48,4 +52,9 @@ echo "=== Elasticsearch is ready ==="
 
 # ── Start Kibana ─────────────────────────────────────────────────────────────
 echo "=== Starting Kibana ==="
-sudo yarn kbn start --allow-root
+exec su -s /bin/bash kibana -c "
+  source /root/.nvm/nvm.sh
+  cd /opt/kibana
+  nvm use
+  yarn kbn start
+"

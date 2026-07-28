@@ -32,6 +32,11 @@ RUN source "$NVM_DIR/nvm.sh" \
     && npm install -g yarn \
     && KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap --allow-root
 
+RUN useradd -m -s /bin/bash kibana \
+    && chown -R kibana:kibana /opt/kibana \
+    && chmod o+rx /root \
+    && chmod -R o+rx /root/.nvm
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

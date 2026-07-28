@@ -9,7 +9,7 @@ services:
       - "5011:5601"   # Kibana
       - "5012:9200"   # Elasticsearch
     volumes:
-      - es_snapshots:/root/.es         # downloaded ES snapshot cache
+      - es_snapshots:/home/kibana/.es   # downloaded ES snapshot cache
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
     restart: unless-stopped
 
