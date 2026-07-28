@@ -1,0 +1,23 @@
+services:
+  kibana-dev:
+    build: .
+    ports:
+      - "5011:5601"   # Kibana
+      - "5012:9200"   # Elasticsearch
+    environment:
+      KIBANA_REPO_URL: https://github.com/elastic/kibana
+      KIBANA_BRANCH: main
+    volumes:
+      - kibana_repo:/opt/kibana        # repo persists between restarts
+      - es_snapshots:/root/.es         # downloaded ES snapshot cache
+      - nvm_cache:/root/.nvm           # installed node versions
+      - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
+    # ES requires vm.max_map_count ≥ 262144 on the Docker host:
+    #   sudo sysctl -w vm.max_map_count=262144
+    # To make it permanent: echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+    restart: unless-stopped
+
+volumes:
+  kibana_repo:
+  es_snapshots:
+  nvm_cache:
