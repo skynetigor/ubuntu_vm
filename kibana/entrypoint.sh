@@ -6,47 +6,16 @@ export NVM_DIR="/root/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
 REPO_DIR="/opt/kibana"
-FORK_URL="${KIBANA_REPO_URL:-https://github.com/elastic/kibana}"
-BRANCH="${KIBANA_BRANCH:-main}"
-PASSWORD="$BRANCH"
+PASSWORD="${KIBANA_BRANCH:-main}"
 
 echo "========================================"
 echo " Kibana Dev Container"
-echo " Repo   : $FORK_URL"
-echo " Branch : $BRANCH"
+echo " Branch  : ${KIBANA_BRANCH:-main}"
 echo " Password: $PASSWORD"
 echo "========================================"
 
-# ── Clone or update ──────────────────────────────────────────────────────────
-if [ -d "$REPO_DIR/.git" ] && git -C "$REPO_DIR" rev-parse HEAD >/dev/null 2>&1; then
-  echo "=== Updating existing clone ==="
-  git -C "$REPO_DIR" remote set-url origin "$FORK_URL"
-  git -C "$REPO_DIR" fetch origin --prune
-  git -C "$REPO_DIR" checkout "$BRANCH" 2>/dev/null \
-    || git -C "$REPO_DIR" checkout -b "$BRANCH" "origin/$BRANCH"
-  git -C "$REPO_DIR" reset --hard "origin/$BRANCH"
-else
-  echo "=== Cloning $FORK_URL (branch: $BRANCH) ==="
-  rm -rf "$REPO_DIR"
-  git clone --depth 1 --branch "$BRANCH" "$FORK_URL" "$REPO_DIR"
-fi
-
 cd "$REPO_DIR"
-echo "HEAD: $(git log -1 --format='%H %s')"
-
-# ── Node.js ──────────────────────────────────────────────────────────────────
-echo "=== Installing Node.js from .nvmrc ==="
-nvm install
 nvm use
-
-# ── Bootstrap ────────────────────────────────────────────────────────────────
-echo "=== Bootstrapping ==="
-if ! command -v yarn >/dev/null 2>&1; then
-  npm install -g yarn
-fi
-# KBN_BOOTSTRAP_NO_PREBUILT skips webpack bundle builds (monaco, ui-shared-deps)
-# which are not needed for running Kibana in dev mode.
-KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
 
 # ── Kibana config ────────────────────────────────────────────────────────────
 echo "=== Writing config/kibana.dev.yml ==="
