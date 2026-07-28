@@ -30,7 +30,7 @@ RUN source "$NVM_DIR/nvm.sh" \
     && nvm install \
     && nvm use \
     && npm install -g yarn \
-    && KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
+    && KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap --allow-root
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

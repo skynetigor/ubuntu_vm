@@ -48,4 +48,4 @@ echo "=== Elasticsearch is ready ==="
 
 # ── Start Kibana ─────────────────────────────────────────────────────────────
 echo "=== Starting Kibana ==="
-sudo yarn kbn start
+sudo yarn kbn start --allow-root
