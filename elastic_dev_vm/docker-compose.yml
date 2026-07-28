@@ -1,0 +1,13 @@
+services:
+  dev-vm:
+    build: .
+    container_name: elastic-dev-vm
+    privileged: true
+    ports:
+      - "2222:22"
+    volumes:
+      - dev-vm-home:/root
+    restart: unless-stopped
+
+volumes:
+  dev-vm-home:
