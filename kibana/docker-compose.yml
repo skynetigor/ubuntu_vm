@@ -1,25 +1,27 @@
 services:
   elasticsearch:
-    # Use 9.x-SNAPSHOT for main branch. For released branches set ES_VERSION=8.17.0 etc.
-    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION:-9.x-SNAPSHOT}
+    build:
+      context: .
+      dockerfile: es.Dockerfile
     environment:
-      - discovery.type=single-node
-      - ELASTIC_PASSWORD=${KIBANA_BRANCH:-main}
-      - xpack.ml.enabled=false
-      - xpack.security.authc.api_key.enabled=true
-      - xpack.license.self_generated.type=trial
+      # ES_VERSION must match the Kibana branch (read from kibana's package.json: "version")
+      - ES_VERSION=${ES_VERSION:-9.6.0}
+      - ES_PASSWORD=${KIBANA_BRANCH:-main}
+      - ES_LICENSE=trial
+      - ES_BASE_DIR=/es
     ports:
       - "5012:9200"
     volumes:
-      - es_data:/usr/share/elasticsearch/data
+      - es_data:/es   # cache/ and install/<version>/ live here; survives restarts
     healthcheck:
+      # $$ES_PASSWORD: docker-compose escapes $$ → $, evaluated by container shell
       test:
         - CMD-SHELL
-        - 'curl -sf -u elastic:${KIBANA_BRANCH:-main} http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""'
+        - 'curl -sf -u elastic:$$ES_PASSWORD http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""'
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 60s
+      start_period: 120s  # time for download + extract on first run
 
   kibana:
     build:
@@ -28,10 +30,9 @@ services:
         KIBANA_REPO_URL: ${KIBANA_REPO_URL:-https://github.com/elastic/kibana}
         KIBANA_BRANCH: ${KIBANA_BRANCH:-main}
     environment:
-      # Passed to entrypoint at runtime (password = branch name)
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
     ports:
-      - "5011:5601"   # Kibana
+      - "5011:5601"
     volumes:
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
     depends_on:
