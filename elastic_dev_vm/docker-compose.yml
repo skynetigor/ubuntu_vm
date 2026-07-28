@@ -8,5 +8,5 @@ services:
     volumes:
       - D:\DOCKER_FILES\elastic-dev-vm\home:/root
     tmpfs:
-      - /ramdisk:size=10g
+      - /ramdisk:size=15g
     restart: unless-stopped
