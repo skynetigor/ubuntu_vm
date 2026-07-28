@@ -16,14 +16,19 @@ SHELL ["/bin/bash", "-c"]
 RUN mkdir -p "$NVM_DIR" \
     && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 
-RUN git clone --depth 1 --branch "$KIBANA_BRANCH" "$KIBANA_REPO_URL" /opt/kibana-src
+RUN useradd -m -s /bin/bash builder \
+    && chown -R builder:builder /opt/nvm
+RUN git clone --depth 1 --branch "$KIBANA_BRANCH" "$KIBANA_REPO_URL" /opt/kibana-src \
+    && chown -R builder:builder /opt/kibana-src
+
+USER builder
 
 RUN source "$NVM_DIR/nvm.sh" \
     && cd /opt/kibana-src \
     && nvm install \
     && nvm use \
     && npm install -g yarn \
-    && KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap --allow-root
+    && KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
 
 # node scripts/build bundles Node.js into the distributable, but it downloads it from
 # an Elastic-internal GCP proxy (kibana-ci-proxy-cache). Pre-download from nodejs.org
@@ -51,7 +56,6 @@ RUN source "$NVM_DIR/nvm.sh" \
     && cd /opt/kibana-src \
     && nvm use \
     && node scripts/build \
-        --allow-root \
         --skip-initialize \
         --skip-archives \
         --skip-os-packages \
