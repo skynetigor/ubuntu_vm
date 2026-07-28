@@ -46,23 +46,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# NVM + Node.js LTS
-ENV NVM_DIR=/root/.nvm
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash \
-    && . "$NVM_DIR/nvm.sh" \
-    && nvm install --lts \
-    && nvm use --lts \
-    && nvm alias default node \
-    && ln -sf "$(. "$NVM_DIR/nvm.sh" && nvm which current)" /usr/local/bin/node \
-    && ln -sf "$(. "$NVM_DIR/nvm.sh" && dirname $(nvm which current))/npm" /usr/local/bin/npm \
-    && ln -sf "$(. "$NVM_DIR/nvm.sh" && dirname $(nvm which current))/npx" /usr/local/bin/npx
+# Node.js LTS (system-wide via NodeSource, unaffected by /root volume mount)
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
 # Yarn + Claude Code CLI
-RUN npm install -g yarn @anthropic-ai/claude-code
-
-# Make nvm available in login shells (SSH sessions)
-RUN printf 'export NVM_DIR="%s"\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"\n' \
-      "$NVM_DIR" > /etc/profile.d/nvm.sh
+RUN npm install -g --allow-scripts yarn @anthropic-ai/claude-code
 
 # User setup
 RUN useradd -m -s /bin/bash skynet_igor \
@@ -79,8 +69,8 @@ RUN chmod 600 /home/skynet_igor/.ssh/authorized_keys \
 # SSH setup
 RUN mkdir -p /var/run/sshd /root/.ssh && chmod 700 /root/.ssh
 
-COPY id_ed25519.pub /root/.ssh/authorized_keys
-RUN chmod 600 /root/.ssh/authorized_keys
+COPY id_ed25519.pub /etc/ssh/authorized_keys.bak
+RUN chmod 600 /etc/ssh/authorized_keys.bak
 
 RUN sed -i \
     -e 's/#PermitRootLogin.*/PermitRootLogin yes/' \
@@ -90,9 +80,6 @@ RUN sed -i \
     /etc/ssh/sshd_config
 
 RUN ssh-keygen -A
-
-# Seed snapshot of /root — copied to the bind-mount volume on first start
-RUN cp -a /root /etc/root-seed
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
