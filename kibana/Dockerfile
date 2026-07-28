@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    NVM_DIR=/root/.nvm
+    NVM_DIR=/opt/nvm
 
 ARG KIBANA_REPO_URL=https://github.com/elastic/kibana
 ARG KIBANA_BRANCH=main
@@ -33,9 +33,7 @@ RUN source "$NVM_DIR/nvm.sh" \
     && KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap --allow-root
 
 RUN useradd -m -s /bin/bash kibana \
-    && chown -R kibana:kibana /opt/kibana \
-    && chmod o+rx /root \
-    && chmod -R o+rx /root/.nvm
+    && chown -R kibana:kibana /opt/kibana
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-export NVM_DIR="/root/.nvm"
+export NVM_DIR="/opt/nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
 REPO_DIR="/opt/kibana"
@@ -24,7 +24,7 @@ chown kibana:kibana "$REPO_DIR/config/kibana.dev.yml"
 # ── Start Elasticsearch (must run as non-root) ───────────────────────────────
 echo "=== Starting Elasticsearch (password: $PASSWORD) ==="
 su -s /bin/bash kibana -c "
-  source /root/.nvm/nvm.sh
+  source /opt/nvm/nvm.sh
   cd /opt/kibana
   nvm use
   yarn es snapshot \
@@ -53,7 +53,7 @@ echo "=== Elasticsearch is ready ==="
 # ── Start Kibana ─────────────────────────────────────────────────────────────
 echo "=== Starting Kibana ==="
 exec su -s /bin/bash kibana -c "
-  source /root/.nvm/nvm.sh
+  source /opt/nvm/nvm.sh
   cd /opt/kibana
   nvm use
   yarn kbn start
