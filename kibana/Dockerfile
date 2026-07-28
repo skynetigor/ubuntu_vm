@@ -20,7 +20,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NVM_DIR=/opt/nvm
 
 RUN apt-get update && apt-get install -y \
-    curl build-essential python3 libsecret-1-dev \
+    git curl build-essential python3 libsecret-1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/bash", "-c"]
