@@ -6,8 +6,5 @@ services:
     ports:
       - "2222:22"
     volumes:
-      - dev-vm-home:/root
+      - G:\elastic-dev-vm\home:/root
     restart: unless-stopped
-
-volumes:
-  dev-vm-home:
