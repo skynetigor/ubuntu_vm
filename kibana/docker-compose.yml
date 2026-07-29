@@ -6,7 +6,7 @@ services:
     environment:
       # ES_VERSION must match the Kibana branch (read from kibana's package.json: "version")
       - ES_VERSION=${ES_VERSION:-9.6.0}
-      - ES_PASSWORD=${KIBANA_BRANCH:-main}
+      - ES_PASSWORD=${ES_PASSWORD:-changeme}
       - ES_LICENSE=trial
       - ES_BASE_DIR=/es
     ports:
@@ -33,6 +33,7 @@ services:
         KIBANA_BRANCH: ${KIBANA_BRANCH:-main}
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
+      - ES_PASSWORD=${ES_PASSWORD:-changeme}
     network_mode: "service:elasticsearch"
     volumes:
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro

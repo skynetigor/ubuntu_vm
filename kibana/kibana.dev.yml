@@ -2,7 +2,7 @@ server.port: 5601
 
 elasticsearch.hosts: ['http://localhost:9200']
 elasticsearch.username: kibana_system
-elasticsearch.password: ${KIBANA_BRANCH}
+elasticsearch.password: ${ES_PASSWORD}
 
 uiSettings.overrides:
   workflows:ui:enabled: true

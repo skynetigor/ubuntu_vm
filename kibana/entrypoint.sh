@@ -1,13 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-PASSWORD="${KIBANA_BRANCH:-main}"
+ES_PASS="${ES_PASSWORD:-changeme}"
 
 echo "=== Kibana Dev Container ==="
 echo "    Branch  : ${KIBANA_BRANCH:-main}"
-echo "    Password: $PASSWORD"
 
-# Process config template — substitutes ${KIBANA_BRANCH} with the actual value
+# Process config template — substitutes ${KIBANA_BRANCH} and ${ES_PASSWORD}
 envsubst < /etc/kibana-config/kibana.dev.yml > /opt/kibana/config/kibana.yml
 
 # ES cluster health passes before the native security realm finishes initializing,
@@ -15,10 +14,10 @@ envsubst < /etc/kibana-config/kibana.dev.yml > /opt/kibana/config/kibana.yml
 echo "=== Setting kibana_system password ==="
 for i in $(seq 1 60); do
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-    -u "elastic:${PASSWORD}" \
+    -u "elastic:${ES_PASS}" \
     "http://localhost:9200/_security/user/kibana_system/_password" \
     -H 'Content-Type: application/json' \
-    -d "{\"password\": \"${PASSWORD}\"}")
+    -d "{\"password\": \"${ES_PASS}\"}")
   if [ "$STATUS" = "200" ]; then
     echo "kibana_system password set."
     break
