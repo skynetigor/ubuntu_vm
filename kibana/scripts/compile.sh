@@ -13,6 +13,14 @@ OUT_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/dist"
 
 cd "$SRC_DIR"
 
+# ── Node version ──────────────────────────────────────────────────────────────
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  source "$NVM_DIR/nvm.sh"
+  nvm install
+  nvm use
+fi
+
 NODE_VERSION=$(cat .nvmrc)
 
 # ── Build ─────────────────────────────────────────────────────────────────────
@@ -24,7 +32,7 @@ node scripts/build \
   --skip-os-packages \
   --skip-cloud-dependencies-download \
   --skip-cdn-assets
-
+  --allow-root
 # ── Move dist to output dir ───────────────────────────────────────────────────
 BUILD_DIR=$(ls -d build/default/kibana-*/ | head -1)
 rm -rf "$OUT_DIR"
