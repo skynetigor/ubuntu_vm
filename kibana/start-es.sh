@@ -94,7 +94,6 @@ export ES_JAVA_OPTS="${ES_JAVA_OPTS:--Xms1536m -Xmx1536m}"
 
 # cluster.ts lines 395-399: default -E flags always applied
 "$ES_INSTALL_DIR/bin/elasticsearch" \
-  -E http.host=0.0.0.0 \
   -E action.destructive_requires_name=true \
   -E cluster.routing.allocation.disk.threshold_enabled=false \
   -E ingest.geoip.downloader.enabled=false \
@@ -137,13 +136,13 @@ curl -sf -X PUT \
     "indices": [{"names":["*"],"privileges":["all"],"allow_restricted_indices":true}],
     "applications": [{"application":"*","privileges":["*"],"resources":["*"]}],
     "run_as": ["*"]
-  }' >/dev/null
+  }' >/dev/null || true
 
 curl -sf -X PUT \
   -u "elastic:${ES_PASSWORD}" \
   "http://localhost:9200/_security/user/system_indices_superuser" \
   -H 'Content-Type: application/json' \
-  -d "{\"password\":\"${ES_PASSWORD}\",\"roles\":[\"system_indices_superuser\"]}" >/dev/null
+  -d "{\"password\":\"${ES_PASSWORD}\",\"roles\":[\"system_indices_superuser\"]}" >/dev/null || true
 
 echo "=== Setup complete ==="
 

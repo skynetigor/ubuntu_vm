@@ -15,7 +15,7 @@ envsubst < /etc/kibana-config/kibana.dev.yml > /opt/kibana/config/kibana.yml
 echo "=== Setting kibana_system password ==="
 curl -sf -X POST \
   -u "elastic:${PASSWORD}" \
-  "http://elasticsearch:9200/_security/user/kibana_system/_password" \
+  "http://localhost:9200/_security/user/kibana_system/_password" \
   -H 'Content-Type: application/json' \
   -d "{\"password\": \"${PASSWORD}\"}"
 

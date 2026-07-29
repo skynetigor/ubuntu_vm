@@ -1,6 +1,6 @@
 server.port: 5601
 
-elasticsearch.hosts: ['http://elasticsearch:9200']
+elasticsearch.hosts: ['http://localhost:9200']
 elasticsearch.username: kibana_system
 elasticsearch.password: ${KIBANA_BRANCH}
 

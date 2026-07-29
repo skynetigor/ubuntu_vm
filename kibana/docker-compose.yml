@@ -10,6 +10,7 @@ services:
       - ES_LICENSE=trial
       - ES_BASE_DIR=/es
     ports:
+      - "5011:5601"
       - "5012:9200"
     volumes:
       - es_data:/es   # cache/ and install/<version>/ live here; survives restarts
@@ -32,8 +33,7 @@ services:
         KIBANA_BRANCH: ${KIBANA_BRANCH:-main}
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
-    ports:
-      - "5011:5601"
+    network_mode: "service:elasticsearch"
     volumes:
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
     depends_on:
