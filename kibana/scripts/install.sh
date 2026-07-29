@@ -84,24 +84,37 @@ else
 fi
 
 # ── Docker ───────────────────────────────────────────────────────────────────
-if command -v docker &>/dev/null; then
+DOCKER_OK=false
+if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
   DOCKER_VER=$(docker version --format '{{.Client.Version}}' 2>/dev/null || echo "installed")
   ok "docker $DOCKER_VER"
+  DOCKER_OK=true
+elif command -v docker &>/dev/null; then
+  # Binary exists but daemon is unreachable (common in WSL2 without Desktop integration)
+  if grep -qi "microsoft\|wsl" /proc/version 2>/dev/null; then
+    echo "  [warn] docker binary found but not connected to Docker Desktop"
+    echo "         Enable WSL integration: Docker Desktop -> Settings -> Resources -> WSL Integration"
+  else
+    echo "  [warn] docker daemon unreachable — is it running?"
+  fi
 else
   info "installing docker"
   if [ "$OS" = "Darwin" ]; then
-    echo "  ERROR: Docker Desktop must be installed manually on macOS: https://www.docker.com/products/docker-desktop/"
+    echo "  ERROR: Docker Desktop must be installed manually on macOS"
     exit 1
   else
     curl -fsSL https://get.docker.com | sh
     sudo usermod -aG docker "$USER"
     info "added $USER to docker group — re-login or run: newgrp docker"
+    DOCKER_OK=true
   fi
 fi
 
 # ── docker compose (plugin v2) ────────────────────────────────────────────────
 if docker compose version &>/dev/null 2>&1; then
   ok "docker compose $(docker compose version --short 2>/dev/null || echo "installed")"
+elif [ "$DOCKER_OK" = false ]; then
+  echo "  [skip] docker compose — skipped because docker is not working"
 else
   info "installing docker compose plugin"
   if [ "$OS" = "Darwin" ]; then
@@ -109,14 +122,16 @@ else
     exit 1
   else
     # docker-compose-plugin is only in Docker's official apt repo, not Ubuntu's.
-    # Install the binary directly as a Docker CLI plugin instead.
+    # Download to a temp file then sudo mv (sudo curl -o can fail with error 23 on some systems).
     COMPOSE_VERSION=$(curl -fsSL "https://api.github.com/repos/docker/compose/releases/latest" \
       | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
     COMPOSE_DEST="/usr/local/lib/docker/cli-plugins/docker-compose"
-    sudo mkdir -p "$(dirname "$COMPOSE_DEST")"
-    sudo curl -fsSL \
+    COMPOSE_TMP=$(mktemp)
+    curl -fsSL \
       "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
-      -o "$COMPOSE_DEST"
+      -o "$COMPOSE_TMP"
+    sudo mkdir -p "$(dirname "$COMPOSE_DEST")"
+    sudo mv "$COMPOSE_TMP" "$COMPOSE_DEST"
     sudo chmod +x "$COMPOSE_DEST"
     ok "docker compose $COMPOSE_VERSION (installed from GitHub)"
   fi
