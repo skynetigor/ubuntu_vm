@@ -85,7 +85,8 @@ fi
 
 # ── Docker ───────────────────────────────────────────────────────────────────
 if command -v docker &>/dev/null; then
-  ok "docker $(docker --version | awk '{print $3}' | tr -d ',')"
+  DOCKER_VER=$(docker version --format '{{.Client.Version}}' 2>/dev/null || echo "installed")
+  ok "docker $DOCKER_VER"
 else
   info "installing docker"
   if [ "$OS" = "Darwin" ]; then
@@ -98,16 +99,26 @@ else
   fi
 fi
 
-# ── docker compose (plugin, not standalone docker-compose) ───────────────────
+# ── docker compose (plugin v2) ────────────────────────────────────────────────
 if docker compose version &>/dev/null 2>&1; then
-  ok "docker compose $(docker compose version --short 2>/dev/null || docker compose version | awk '{print $4}')"
+  ok "docker compose $(docker compose version --short 2>/dev/null || echo "installed")"
 else
   info "installing docker compose plugin"
   if [ "$OS" = "Darwin" ]; then
     echo "  ERROR: docker compose plugin comes with Docker Desktop on macOS"
     exit 1
   else
-    apt_install docker-compose-plugin
+    # docker-compose-plugin is only in Docker's official apt repo, not Ubuntu's.
+    # Install the binary directly as a Docker CLI plugin instead.
+    COMPOSE_VERSION=$(curl -fsSL "https://api.github.com/repos/docker/compose/releases/latest" \
+      | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'].lstrip('v'))")
+    COMPOSE_DEST="/usr/local/lib/docker/cli-plugins/docker-compose"
+    sudo mkdir -p "$(dirname "$COMPOSE_DEST")"
+    sudo curl -fsSL \
+      "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+      -o "$COMPOSE_DEST"
+    sudo chmod +x "$COMPOSE_DEST"
+    ok "docker compose $COMPOSE_VERSION (installed from GitHub)"
   fi
 fi
 
