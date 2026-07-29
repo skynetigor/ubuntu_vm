@@ -6,7 +6,5 @@ services:
     ports:
       - "3500:22"
     volumes:
-      - D:\DOCKER_FILES\elastic-dev-vm\home:/root
-    tmpfs:
-      - /ramdisk:size=15g,exec
+      - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
     restart: unless-stopped
