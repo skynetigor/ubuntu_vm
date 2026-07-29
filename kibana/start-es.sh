@@ -21,17 +21,17 @@ ARCH=$(uname -m)
 
 mkdir -p "$ES_CACHE_DIR" "$ES_INSTALL_DIR"
 
-# ── Resolve download URL ───────────────────────────────────────────────────────
-# artifact.ts lines 150-164: daily manifest first, permanent as fallback
-echo "=== Resolving ES ${ES_VERSION} snapshot (${OS}-${ARCH}) ==="
-MANIFEST=$(curl -sf \
-    "https://storage.googleapis.com/kibana-ci-es-snapshots-daily/${ES_VERSION}/manifest-latest-verified.json" \
-  || curl -sf \
-    "https://storage.googleapis.com/kibana-ci-es-snapshots-permanent/${ES_VERSION}/manifest.json")
+# ── Download, extract, and configure (skip entirely if already installed) ──────
+if [[ ! -f "$ES_INSTALL_DIR/bin/elasticsearch" ]]; then
+  # artifact.ts lines 150-164: daily manifest first, permanent as fallback
+  echo "=== Resolving ES ${ES_VERSION} snapshot (${OS}-${ARCH}) ==="
+  MANIFEST=$(curl -sf \
+      "https://storage.googleapis.com/kibana-ci-es-snapshots-daily/${ES_VERSION}/manifest-latest-verified.json" \
+    || curl -sf \
+      "https://storage.googleapis.com/kibana-ci-es-snapshots-permanent/${ES_VERSION}/manifest.json")
 
-# artifact.ts line 180: match platform + arch + license='default'
-# (--license only controls elasticsearch.yml, not which artifact is fetched)
-ARTIFACT_URL=$(echo "$MANIFEST" | python3 -c "
+  # artifact.ts line 180: match platform + arch + license='default'
+  ARTIFACT_URL=$(echo "$MANIFEST" | python3 -c "
 import json, sys
 m = json.load(sys.stdin)
 match = next(
@@ -44,29 +44,26 @@ if not match:
 print(match['url'])
 ")
 
-FILENAME=$(basename "$ARTIFACT_URL")
-DEST="$ES_CACHE_DIR/$FILENAME"
+  FILENAME=$(basename "$ARTIFACT_URL")
+  DEST="$ES_CACHE_DIR/$FILENAME"
 
-# ── Download (skip if cached) ─────────────────────────────────────────────────
-if [[ ! -f "$DEST" ]]; then
-  echo "=== Downloading $FILENAME ==="
-  curl -L --progress-bar -o "${DEST}.tmp" "$ARTIFACT_URL"
+  if [[ ! -f "$DEST" ]]; then
+    echo "=== Downloading $FILENAME ==="
+    curl -L --progress-bar -o "${DEST}.tmp" "$ARTIFACT_URL"
 
-  echo "=== Verifying checksum ==="
-  EXPECTED=$(curl -sf "${ARTIFACT_URL}.sha512" | awk '{print $1}')
-  ACTUAL=$(sha512sum "${DEST}.tmp" | awk '{print $1}')
-  if [[ "$EXPECTED" != "$ACTUAL" ]]; then
-    echo "ERROR: Checksum mismatch"
-    rm -f "${DEST}.tmp"
-    exit 1
+    echo "=== Verifying checksum ==="
+    EXPECTED=$(curl -sf "${ARTIFACT_URL}.sha512" | awk '{print $1}')
+    ACTUAL=$(sha512sum "${DEST}.tmp" | awk '{print $1}')
+    if [[ "$EXPECTED" != "$ACTUAL" ]]; then
+      echo "ERROR: Checksum mismatch"
+      rm -f "${DEST}.tmp"
+      exit 1
+    fi
+    mv "${DEST}.tmp" "$DEST"
+  else
+    echo "=== Using cached $FILENAME ==="
   fi
-  mv "${DEST}.tmp" "$DEST"
-else
-  echo "=== Using cached $FILENAME ==="
-fi
 
-# ── Extract and configure (skip if already done) ──────────────────────────────
-if [[ ! -f "$ES_INSTALL_DIR/bin/elasticsearch" ]]; then
   echo "=== Extracting to $ES_INSTALL_DIR ==="
   tar xzf "$DEST" -C "$ES_INSTALL_DIR" --strip-components=1
 
@@ -81,7 +78,9 @@ EOF
 
   # install_archive.ts lines 84-87: bootstrap keystore password
   "$ES_INSTALL_DIR/bin/elasticsearch-keystore" create
-  echo "$ES_PASSWORD" | "$ES_INSTALL_DIR/bin/elasticsearch-keystore" add bootstrap.password -x
+  printf '%s' "$ES_PASSWORD" | "$ES_INSTALL_DIR/bin/elasticsearch-keystore" add bootstrap.password -x
+else
+  echo "=== ES ${ES_VERSION} already installed, skipping download ==="
 fi
 
 # ── Start Elasticsearch ───────────────────────────────────────────────────────
@@ -114,16 +113,29 @@ do
 done
 echo "=== Elasticsearch is ready ==="
 
+# ── Wait for security API (cluster health passes before native realm is ready) ─
+echo "=== Waiting for security API ==="
+for i in $(seq 1 60); do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+    -u "elastic:${ES_PASSWORD}" \
+    "http://localhost:9200/_security/user/elastic")
+  [ "$STATUS" = "200" ] && break
+  [ "$i" -eq 60 ] && { echo "ERROR: security API not ready after 60 attempts"; kill $ES_PID; exit 1; }
+  echo "  attempt $i/60: HTTP $STATUS — retrying in 3s..."
+  sleep 3
+done
+echo "=== Security API ready ==="
+
 # ── Set passwords for all reserved users ─────────────────────────────────────
 # native_realm.ts lines 79-86: iterate reserved users, set password
 echo "=== Configuring users ==="
 for USER in elastic kibana_system logstash_system beats_system apm_system remote_monitoring_user; do
-  curl -sf -X POST \
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
     -u "elastic:${ES_PASSWORD}" \
     "http://localhost:9200/_security/user/${USER}/_password" \
     -H 'Content-Type: application/json' \
-    -d "{\"password\":\"${ES_PASSWORD}\"}" >/dev/null \
-    && echo "  password set: $USER" || echo "  skipped: $USER (user may not exist)"
+    -d "{\"password\":\"${ES_PASSWORD}\"}")
+  [ "$STATUS" = "200" ] && echo "  password set: $USER" || echo "  skipped: $USER (HTTP $STATUS)"
 done
 
 # native_realm.ts lines 138-171: system_indices_superuser role + user
