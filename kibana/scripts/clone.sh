@@ -13,7 +13,9 @@ LOCAL_DIR="${LOCAL_DIR:-dist}"
 SRC_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/src"
 
 if [ -d "$SRC_DIR" ]; then
-  echo "=== Skipping clone — $SRC_DIR already exists ==="
+  echo "=== Source exists — pulling latest $KIBANA_BRANCH ==="
+  git -C "$SRC_DIR" fetch --depth 1 origin "$KIBANA_BRANCH"
+  git -C "$SRC_DIR" reset --hard "origin/$KIBANA_BRANCH"
 else
   echo "=== Cloning $KIBANA_FORK ($KIBANA_BRANCH) ==="
   git clone --depth 1 --branch "$KIBANA_BRANCH" "$KIBANA_FORK" "$SRC_DIR"
