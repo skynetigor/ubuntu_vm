@@ -94,6 +94,7 @@ export ES_JAVA_OPTS="${ES_JAVA_OPTS:--Xms1536m -Xmx1536m}"
 
 # cluster.ts lines 395-399: default -E flags always applied
 "$ES_INSTALL_DIR/bin/elasticsearch" \
+  -E http.host=0.0.0.0 \
   -E action.destructive_requires_name=true \
   -E cluster.routing.allocation.disk.threshold_enabled=false \
   -E ingest.geoip.downloader.enabled=false \

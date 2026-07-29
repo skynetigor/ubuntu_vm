@@ -22,6 +22,7 @@ services:
       timeout: 5s
       retries: 30
       start_period: 120s  # time for download + extract on first run
+    restart: unless-stopped
 
   kibana:
     build:
