@@ -11,7 +11,7 @@ services:
       - ES_BASE_DIR=/es
     ports:
       - "5011:9200"   # ES API
-      - "5601:5601"   # Kibana (shares ES network namespace via network_mode: service:elasticsearch)
+      - "5012:5601"   # Kibana (shares ES network namespace via network_mode: service:elasticsearch)
     volumes:
       - es_data:/es   # cache/ and install/<version>/ live here; survives restarts
     healthcheck:
