@@ -20,7 +20,7 @@ fi
 echo "=== Starting Kibana stack ==="
 docker compose -f "$KIBANA_DIR/docker-compose.yml" up --build -d "$@"
 
-if [ "${DIST:-false}" = "true" ]; then
+if [ "${DELETE_DIST:-false}" = "true" ]; then
   echo "=== Deleting dist directory ==="
   rm -rf "$DIST"
 fi

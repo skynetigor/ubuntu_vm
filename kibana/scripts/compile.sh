@@ -11,6 +11,10 @@ LOCAL_DIR="${LOCAL_DIR:-dist}"
 SRC_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/src"
 OUT_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/dist"
 
+if [ ! -d "$SRC_DIR" ]; then
+  echo "ERROR: source directory not found: $SRC_DIR — run clone.sh and bootstrap.sh first"
+  exit 1
+fi
 cd "$SRC_DIR"
 
 # ── Node version ──────────────────────────────────────────────────────────────
@@ -24,6 +28,10 @@ fi
 NODE_VERSION=$(cat .nvmrc)
 
 # ── Build ─────────────────────────────────────────────────────────────────────
+# ALLOW_ROOT propagates to all child processes (yarn kbn build-shared, etc.)
+# so they don't also block on the root check.
+export ALLOW_ROOT=true
+
 rm -rf build/
 echo "=== Building ==="
 node scripts/build \
@@ -31,10 +39,14 @@ node scripts/build \
   --skip-archives \
   --skip-os-packages \
   --skip-cloud-dependencies-download \
-  --skip-cdn-assets
+  --skip-cdn-assets \
   --allow-root
 # ── Move dist to output dir ───────────────────────────────────────────────────
-BUILD_DIR=$(ls -d build/default/kibana-*/ | head -1)
+BUILD_DIR=$(ls -d build/default/kibana-*/ 2>/dev/null | head -1)
+if [ -z "$BUILD_DIR" ]; then
+  echo "ERROR: build output not found under build/default/ — the build may have failed"
+  exit 1
+fi
 rm -rf "$OUT_DIR"
 mkdir -p "$(dirname "$OUT_DIR")"
 mv "$BUILD_DIR" "$OUT_DIR"

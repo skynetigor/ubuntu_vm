@@ -63,7 +63,10 @@ fi
 
 # ── Node (version from .nvmrc if available, otherwise lts/*) ─────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NVMRC="$SCRIPT_DIR/../dist/kibana/src/.nvmrc"
+KIBANA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [ -f "$KIBANA_DIR/.env" ]; then set -a; source "$KIBANA_DIR/.env"; set +a; fi
+LOCAL_DIR="${LOCAL_DIR:-dist}"
+NVMRC="$KIBANA_DIR/$LOCAL_DIR/kibana/src/.nvmrc"
 if [ -f "$NVMRC" ]; then
   NODE_VERSION=$(cat "$NVMRC")
   info "node version from .nvmrc: $NODE_VERSION"

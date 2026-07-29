@@ -10,6 +10,10 @@ fi
 LOCAL_DIR="${LOCAL_DIR:-dist}"
 SRC_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/src"
 
+if [ ! -d "$SRC_DIR" ]; then
+  echo "ERROR: source directory not found: $SRC_DIR — run clone.sh first"
+  exit 1
+fi
 cd "$SRC_DIR"
 
 # ── Node version ──────────────────────────────────────────────────────────────
@@ -21,6 +25,9 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
 fi
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
+# ALLOW_ROOT propagates to all child processes spawned during bootstrap.
+export ALLOW_ROOT=true
+
 # yarn install must run first so node_modules exist before `yarn kbn` is invoked
 echo "=== Installing dependencies ==="
 yarn install
