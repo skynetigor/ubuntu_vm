@@ -21,6 +21,10 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
 fi
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
+# yarn install must run first so node_modules exist before `yarn kbn` is invoked
+echo "=== Installing dependencies ==="
+yarn install
+
 echo "=== Bootstrapping ==="
 KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
 
