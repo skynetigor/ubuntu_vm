@@ -77,8 +77,9 @@ xpack.license.self_generated.type: ${ES_LICENSE}
 EOF
 
   # install_archive.ts lines 84-87: bootstrap keystore password
+  # -xf: read from stdin (-x), force overwrite if key exists (-f)
   "$ES_INSTALL_DIR/bin/elasticsearch-keystore" create
-  printf '%s' "$ES_PASSWORD" | "$ES_INSTALL_DIR/bin/elasticsearch-keystore" add bootstrap.password -x
+  printf '%s' "$ES_PASSWORD" | "$ES_INSTALL_DIR/bin/elasticsearch-keystore" add -xf bootstrap.password
 else
   echo "=== ES ${ES_VERSION} already installed, skipping download ==="
 fi
@@ -92,6 +93,7 @@ export ES_TMPDIR="$ES_INSTALL_DIR/ES_TMPDIR"
 export ES_JAVA_OPTS="${ES_JAVA_OPTS:--Xms1536m -Xmx1536m}"
 
 # cluster.ts lines 395-399: default -E flags always applied
+# enrollment.enabled=false prevents ES 8+/9+ auto-configuration from overriding bootstrap.password
 "$ES_INSTALL_DIR/bin/elasticsearch" \
   -E action.destructive_requires_name=true \
   -E cluster.routing.allocation.disk.threshold_enabled=false \
@@ -99,16 +101,20 @@ export ES_JAVA_OPTS="${ES_JAVA_OPTS:--Xms1536m -Xmx1536m}"
   -E search.check_ccs_compatibility=true \
   -E xpack.ml.enabled=false \
   -E xpack.security.authc.api_key.enabled=true \
+  -E xpack.security.enrollment.enabled=false \
   &
 
 ES_PID=$!
 trap "echo '=== Stopping Elasticsearch ==='; kill $ES_PID 2>/dev/null || true" EXIT INT TERM
 
 # ── Wait for cluster to be yellow or green ────────────────────────────────────
+# First wait for ES to accept connections (ignoring auth), then verify credentials work.
 echo "=== Waiting for Elasticsearch ==="
-until curl -sf -u "elastic:${ES_PASSWORD}" "http://localhost:9200/_cluster/health" | \
-  python3 -c "import json,sys; s=json.load(sys.stdin)['status']; sys.exit(0 if s != 'red' else 1)" 2>/dev/null
-do
+until curl -s "http://localhost:9200/_cluster/health" -o /dev/null 2>/dev/null; do
+  sleep 3
+done
+echo "=== Elasticsearch is responding, waiting for auth ==="
+until curl -sf -u "elastic:${ES_PASSWORD}" "http://localhost:9200/_cluster/health" >/dev/null 2>&1; do
   sleep 3
 done
 echo "=== Elasticsearch is ready ==="
