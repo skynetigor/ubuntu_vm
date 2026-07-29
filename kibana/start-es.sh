@@ -102,6 +102,7 @@ export ES_JAVA_OPTS="${ES_JAVA_OPTS:--Xms1536m -Xmx1536m}"
   -E xpack.ml.enabled=false \
   -E xpack.security.authc.api_key.enabled=true \
   -E xpack.security.enrollment.enabled=false \
+  -E xpack.security.http.ssl.enabled=false \
   &
 
 ES_PID=$!

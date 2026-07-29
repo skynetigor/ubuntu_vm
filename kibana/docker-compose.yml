@@ -10,7 +10,8 @@ services:
       - ES_LICENSE=trial
       - ES_BASE_DIR=/es
     ports:
-      - "5011:9200"
+      - "5011:9200"   # ES API
+      - "5601:5601"   # Kibana (shares ES network namespace via network_mode: service:elasticsearch)
     volumes:
       - es_data:/es   # cache/ and install/<version>/ live here; survives restarts
     healthcheck:
@@ -33,8 +34,6 @@ services:
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
-    ports:
-      - "5601:5012"
     network_mode: "service:elasticsearch"
     volumes:
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
