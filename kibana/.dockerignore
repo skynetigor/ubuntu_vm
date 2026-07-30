@@ -6,7 +6,6 @@ dist/kibana/src/
 
 # Scripts and config not needed inside the image
 scripts/
-*.sh
 *.yml
 *.env
 .env*
