@@ -40,7 +40,7 @@ node scripts/build \
   --skip-os-packages \
   --skip-cloud-dependencies-download \
   --skip-cdn-assets \
-  --allow-root
+
 # ── Move dist to output dir ───────────────────────────────────────────────────
 BUILD_DIR=$(ls -d build/default/kibana-*/ 2>/dev/null | head -1)
 if [ -z "$BUILD_DIR" ]; then

@@ -33,7 +33,7 @@ echo "=== Installing dependencies ==="
 yarn install
 
 echo "=== Bootstrapping ==="
-KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap --allow-root
+KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
 
 # ── Pre-populate platform node binaries (required by the build tasks) ─────────
 NODE_VERSION=$(cat .nvmrc)
