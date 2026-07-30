@@ -1,0 +1,12 @@
+# Source maps — large, not needed at runtime
+dist/kibana/dist/**/*.map
+
+# Source directory (cleaned up by compile.sh, but guard against leftover)
+dist/kibana/src/
+
+# Scripts and config not needed inside the image
+scripts/
+*.sh
+*.yml
+*.env
+.env*
