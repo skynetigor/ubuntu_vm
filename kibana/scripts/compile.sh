@@ -61,10 +61,5 @@ else
   echo "NODE_VERSION=${NODE_VERSION}" >> "$KIBANA_DIR/.env"
 fi
 
-# ── Clean up source ───────────────────────────────────────────────────────────
-echo "=== Cleaning up source ==="
-cd "$KIBANA_DIR"
-rm -rf "$SRC_DIR"
-
 echo ""
 echo "=== Done! Built Kibana at: $OUT_DIR ==="
