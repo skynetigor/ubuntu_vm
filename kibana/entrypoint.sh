@@ -18,7 +18,7 @@ for i in $(seq 1 60); do
     -u "elastic:${ES_PASS}" \
     "${ES_URL}/_security/user/kibana_system/_password" \
     -H 'Content-Type: application/json' \
-    -d "{\"password\": \"${ES_PASS}\"}")
+    -d "{\"password\": \"${ES_PASS}\"}" 2>/dev/null) || STATUS="000"
   if [ "$STATUS" = "200" ]; then
     echo "kibana_system password set."
     break
