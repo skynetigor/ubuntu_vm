@@ -18,14 +18,14 @@ if [ -d "$SRC_DIR" ]; then
   git -C "$SRC_DIR" remote set-url origin "$KIBANA_FORK"
   echo "=== Fetching $KIBANA_BRANCH from $KIBANA_FORK ==="
   git -C "$SRC_DIR" fetch --depth 1 origin "$KIBANA_BRANCH"
-  REMOTE_COMMIT=$(git -C "$SRC_DIR" rev-parse "origin/$KIBANA_BRANCH")
+  REMOTE_COMMIT=$(git -C "$SRC_DIR" rev-parse FETCH_HEAD)
   STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
   if [ "$REMOTE_COMMIT" = "$STORED_COMMIT" ]; then
     echo "=== Skipping clone — already at $REMOTE_COMMIT ==="
     exit 0
   fi
   echo "=== Pulling $KIBANA_BRANCH ($REMOTE_COMMIT) ==="
-  git -C "$SRC_DIR" reset --hard "origin/$KIBANA_BRANCH"
+  git -C "$SRC_DIR" reset --hard FETCH_HEAD
 else
   echo "=== Cloning $KIBANA_FORK ($KIBANA_BRANCH) ==="
   mkdir -p "$CLONE_BASE"
