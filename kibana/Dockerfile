@@ -1,6 +1,6 @@
 FROM ubuntu:22.04
 
-RUN apt-get update && apt-get install -y curl gettext-base && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl gettext-base openssh-client && rm -rf /var/lib/apt/lists/*
 
 # Create user before COPY so --chown can reference it
 RUN useradd -m -s /bin/bash kibana
