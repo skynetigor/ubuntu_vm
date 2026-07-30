@@ -100,6 +100,7 @@ export ES_JAVA_OPTS="${ES_JAVA_OPTS:--Xms1536m -Xmx1536m}"
   -E action.destructive_requires_name=true \
   -E cluster.routing.allocation.disk.threshold_enabled=false \
   -E ingest.geoip.downloader.enabled=false \
+  -E network.host=0.0.0.0 \
   -E search.check_ccs_compatibility=true \
   -E xpack.ml.enabled=false \
   -E xpack.security.authc.api_key.enabled=true \
