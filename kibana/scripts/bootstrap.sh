@@ -28,10 +28,6 @@ fi
 # When running as root, wrap yarn so all `kbn` subcommands get --allow-root.
 source "$(dirname "$0")/setup-root.sh"
 
-# yarn install must run first so node_modules exist before `yarn kbn` is invoked
-echo "=== Installing dependencies ==="
-yarn install
-
 echo "=== Bootstrapping ==="
 KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
 
