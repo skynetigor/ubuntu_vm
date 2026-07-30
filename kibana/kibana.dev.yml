@@ -2,7 +2,7 @@ server.port: 5601
 server.host: "0.0.0.0"
 xpack.encryptedSavedObjects.encryptionKey: "dev-encryption-key-32-chars-minimum"
 
-elasticsearch.hosts: ['http://${ES_HOST:-elasticsearch}:9200']
+elasticsearch.hosts: ['http://elasticsearch:9200']
 elasticsearch.username: kibana_system
 elasticsearch.password: ${ES_PASSWORD}
 

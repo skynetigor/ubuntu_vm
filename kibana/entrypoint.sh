@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ES_PASS="${ES_PASSWORD:-changeme}"
-ES_URL="http://${ES_HOST:-elasticsearch}:9200"
+ES_URL="http://elasticsearch:9200"
 
 echo "=== Kibana Dev Container ==="
 echo "    Branch  : ${KIBANA_BRANCH:-main}"
