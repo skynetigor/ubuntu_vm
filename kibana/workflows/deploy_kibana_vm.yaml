@@ -1,0 +1,112 @@
+version: '1'
+name: Deploy Kibana Preview
+description: |
+  Clones the ubuntu_vm repo to /opt/deploy, writes kibana/.env from inputs,
+  then runs clone → bootstrap → compile → docker compose up for the given
+  Kibana fork and branch. The branch name is used as the Docker Compose project
+  name so multiple branches can run side-by-side.
+tags:
+  - kibana
+  - preview
+  - deploy
+  - remote-host
+
+triggers:
+  - type: manual
+    inputs:
+      additionalProperties: false
+      properties:
+        kibana_fork:
+          type: string
+          description: Kibana repository URL to clone.
+          default: https://github.com/elastic/kibana
+        kibana_branch:
+          type: string
+          description: Kibana branch to build and deploy.
+          default: main
+
+steps:
+  # ── Step 1: Clone / update ubuntu_vm and write .env ──────────────────────
+  - name: setup
+    type: remoteHost.runCommand
+    connector-id: ihor-vm
+    with:
+      code: |
+        DEPLOY_DIR="/opt/deploy"
+        UBUNTU_VM_REPO="https://github.com/skynetigor/ubuntu_vm.git"
+
+        if [ -d "$DEPLOY_DIR/.git" ]; then
+          echo "=== Updating ubuntu_vm ==="
+          git -C "$DEPLOY_DIR" pull --ff-only
+        else
+          echo "=== Cloning ubuntu_vm ==="
+          sudo mkdir -p "$DEPLOY_DIR"
+          sudo chown "$USER:$USER" "$DEPLOY_DIR"
+          git clone --depth 1 "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
+        fi
+
+        cat > "$DEPLOY_DIR/kibana/.env" << 'ENVEOF'
+KIBANA_FORK={{ inputs.kibana_fork }}
+KIBANA_BRANCH={{ inputs.kibana_branch }}
+LOCAL_DIR=dist
+ES_VERSION=9.6.0
+DOCKER_DEFAULT_PLATFORM=linux/amd64
+ENVEOF
+        echo "=== .env written ==="
+        cat "$DEPLOY_DIR/kibana/.env"
+
+  # ── Step 2: Clone Kibana source ──────────────────────────────────────────
+  - name: clone
+    type: remoteHost.runCommand
+    connector-id: ihor-vm
+    with:
+      code: |
+        bash /opt/deploy/kibana/scripts/clone.sh
+
+  # ── Step 3: Bootstrap dependencies ───────────────────────────────────────
+  - name: bootstrap
+    type: remoteHost.runCommand
+    connector-id: ihor-vm
+    with:
+      code: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+        bash /opt/deploy/kibana/scripts/bootstrap.sh
+
+  # ── Step 4: Compile / build distribution ─────────────────────────────────
+  - name: compile
+    type: remoteHost.runCommand
+    connector-id: ihor-vm
+    with:
+      code: |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+        bash /opt/deploy/kibana/scripts/compile.sh
+
+  # ── Step 5: Start the stack ───────────────────────────────────────────────
+  # Branch name is sanitised and used as the Compose project name so each
+  # branch gets its own container group (e.g. main, feature-foo).
+  - name: start
+    type: remoteHost.runCommand
+    connector-id: ihor-vm
+    with:
+      code: |
+        KIBANA_DIR="/opt/deploy/kibana"
+        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
+          | tr '[:upper:]/' '[:lower:]-' \
+          | sed 's/[^a-z0-9-]/-/g')
+        docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" up --build -d
+        echo "=== Stack started (project: $PROJECT) ==="
+        docker compose -p "$PROJECT" ps
+
+  # ── Summary ───────────────────────────────────────────────────────────────
+  - name: summary
+    type: console
+    with:
+      message: |
+        ═══════════════════════════════════════════
+          Kibana Preview Deployed
+        ═══════════════════════════════════════════
+          Fork   : {{ inputs.kibana_fork }}
+          Branch : {{ inputs.kibana_branch }}
+        ═══════════════════════════════════════════
