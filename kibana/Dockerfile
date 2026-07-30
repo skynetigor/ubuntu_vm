@@ -7,7 +7,7 @@ RUN useradd -m -s /bin/bash kibana
 
 # --chown sets ownership in one pass (no recursive chown needed after)
 # --link decouples this layer from previous ones so BuildKit can cache it independently
-COPY --link --chown=kibana:kibana dist/kibana/dist /opt/kibana
+COPY --chown=kibana:kibana dist/kibana/dist /opt/kibana
 
 # The build runs on Mac (darwin-arm64) so the bundled Node is a darwin binary.
 # Replace it with the linux-arm64 binary so it runs inside the Linux container.
