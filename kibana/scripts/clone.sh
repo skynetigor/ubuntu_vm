@@ -10,19 +10,28 @@ fi
 KIBANA_FORK="${KIBANA_FORK:-https://github.com/elastic/kibana}"
 KIBANA_BRANCH="${KIBANA_BRANCH:-main}"
 LOCAL_DIR="${LOCAL_DIR:-dist}"
-SRC_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/src"
+CLONE_BASE="$KIBANA_DIR/$LOCAL_DIR/kibana"
+SRC_DIR="$CLONE_BASE/src"
+COMMIT_FILE="$CLONE_BASE/.clonecommit"
 
 if [ -d "$SRC_DIR" ]; then
-  if [ "${PULL:-false}" = "true" ]; then
-    echo "=== Pulling latest $KIBANA_BRANCH ==="
-    # Update remote URL in case KIBANA_FORK changed in .env
-    git -C "$SRC_DIR" remote set-url origin "$KIBANA_FORK"
-    git -C "$SRC_DIR" fetch --depth 1 origin "$KIBANA_BRANCH"
-    git -C "$SRC_DIR" reset --hard "origin/$KIBANA_BRANCH"
-  else
-    echo "=== Skipping clone — $SRC_DIR already exists (set PULL=true to pull latest) ==="
+  git -C "$SRC_DIR" remote set-url origin "$KIBANA_FORK"
+  echo "=== Fetching $KIBANA_BRANCH from $KIBANA_FORK ==="
+  git -C "$SRC_DIR" fetch --depth 1 origin "$KIBANA_BRANCH"
+  REMOTE_COMMIT=$(git -C "$SRC_DIR" rev-parse "origin/$KIBANA_BRANCH")
+  STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
+  if [ "$REMOTE_COMMIT" = "$STORED_COMMIT" ]; then
+    echo "=== Skipping clone — already at $REMOTE_COMMIT ==="
+    exit 0
   fi
+  echo "=== Pulling $KIBANA_BRANCH ($REMOTE_COMMIT) ==="
+  git -C "$SRC_DIR" reset --hard "origin/$KIBANA_BRANCH"
 else
   echo "=== Cloning $KIBANA_FORK ($KIBANA_BRANCH) ==="
+  mkdir -p "$CLONE_BASE"
   git clone --depth 1 --branch "$KIBANA_BRANCH" "$KIBANA_FORK" "$SRC_DIR"
 fi
+
+COMMIT=$(git -C "$SRC_DIR" rev-parse HEAD)
+echo "$COMMIT" > "$COMMIT_FILE"
+echo "=== Done at $COMMIT ==="

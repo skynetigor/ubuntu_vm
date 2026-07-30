@@ -10,11 +10,20 @@ fi
 LOCAL_DIR="${LOCAL_DIR:-dist}"
 SRC_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/src"
 OUT_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/dist"
+COMMIT_FILE="$KIBANA_DIR/$LOCAL_DIR/kibana/.compilecommit"
 
 if [ ! -d "$SRC_DIR" ]; then
   echo "ERROR: source directory not found: $SRC_DIR — run clone.sh and bootstrap.sh first"
   exit 1
 fi
+
+CURRENT_COMMIT=$(git -C "$SRC_DIR" rev-parse HEAD)
+STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
+if [ "$CURRENT_COMMIT" = "$STORED_COMMIT" ]; then
+  echo "=== Skipping compile — already at $CURRENT_COMMIT ==="
+  exit 0
+fi
+
 cd "$SRC_DIR"
 
 # ── Node version ──────────────────────────────────────────────────────────────
@@ -61,5 +70,6 @@ else
   echo "NODE_VERSION=${NODE_VERSION}" >> "$KIBANA_DIR/.env"
 fi
 
+echo "$CURRENT_COMMIT" > "$COMMIT_FILE"
 echo ""
-echo "=== Done! Built Kibana at: $OUT_DIR ==="
+echo "=== Done! Built Kibana at: $OUT_DIR ($CURRENT_COMMIT) ==="

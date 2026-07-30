@@ -9,11 +9,20 @@ fi
 
 LOCAL_DIR="${LOCAL_DIR:-dist}"
 SRC_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/src"
+COMMIT_FILE="$KIBANA_DIR/$LOCAL_DIR/kibana/.bootstrapcommit"
 
 if [ ! -d "$SRC_DIR" ]; then
   echo "ERROR: source directory not found: $SRC_DIR — run clone.sh first"
   exit 1
 fi
+
+CURRENT_COMMIT=$(git -C "$SRC_DIR" rev-parse HEAD)
+STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
+if [ "$CURRENT_COMMIT" = "$STORED_COMMIT" ]; then
+  echo "=== Skipping bootstrap — already at $CURRENT_COMMIT ==="
+  exit 0
+fi
+
 cd "$SRC_DIR"
 
 # ── Node version ──────────────────────────────────────────────────────────────
@@ -73,3 +82,6 @@ else
   done
   rm "/tmp/${TARBALL}"
 fi
+
+echo "$CURRENT_COMMIT" > "$COMMIT_FILE"
+echo "=== Bootstrap done at $CURRENT_COMMIT ==="
