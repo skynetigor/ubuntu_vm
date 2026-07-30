@@ -5,7 +5,7 @@ services:
     privileged: true
     ports:
       - "2222:22"
-      - "5002-5999:5002-5999"
+      - "5003-5999:5002-5999"
     volumes:
       - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
     networks:
