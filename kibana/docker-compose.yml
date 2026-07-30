@@ -11,7 +11,8 @@ services:
       - ES_BASE_DIR=/es
     ports:
       - "5000:9200"   # ES API
-      - "5001:5601"   # Kibana (shares ES network namespace via network_mode: service:elasticsearch)
+    networks:
+      - elastic
     volumes:
       - es_data:/es   # cache/ and install/<version>/ live here; survives restarts
     healthcheck:
@@ -33,7 +34,11 @@ services:
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
-    network_mode: "service:elasticsearch"
+      - ES_HOST=${ES_HOST:-elasticsearch}
+    ports:
+      - "5001:5601"   # Kibana UI
+    networks:
+      - elastic
     volumes:
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
     depends_on:
@@ -43,3 +48,7 @@ services:
 
 volumes:
   es_data:
+
+networks:
+  elastic:
+    driver: bridge

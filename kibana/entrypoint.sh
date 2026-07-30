@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ES_PASS="${ES_PASSWORD:-changeme}"
+ES_URL="http://${ES_HOST:-elasticsearch}:9200"
 
 echo "=== Kibana Dev Container ==="
 echo "    Branch  : ${KIBANA_BRANCH:-main}"
@@ -15,7 +16,7 @@ echo "=== Setting kibana_system password ==="
 for i in $(seq 1 60); do
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
     -u "elastic:${ES_PASS}" \
-    "http://elasticsearch:9200/_security/user/kibana_system/_password" \
+    "${ES_URL}/_security/user/kibana_system/_password" \
     -H 'Content-Type: application/json' \
     -d "{\"password\": \"${ES_PASS}\"}")
   if [ "$STATUS" = "200" ]; then

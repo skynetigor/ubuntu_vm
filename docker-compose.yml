@@ -45,6 +45,7 @@ services:
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
+      - ES_HOST=${ES_HOST:-elasticsearch}
     ports:
       - "5001:5601"
     volumes:
