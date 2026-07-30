@@ -10,7 +10,7 @@ services:
       - ES_LICENSE=trial
       - ES_BASE_DIR=/es
     ports:
-      - "5000:9200"   # ES API
+      - "5002:9200"   # ES API — host port must be in 5002-5999 (dev-vm forwards that range)
     networks:
       - elastic
     volumes:
