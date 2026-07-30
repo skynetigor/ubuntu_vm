@@ -9,10 +9,11 @@ RUN useradd -m -s /bin/bash kibana
 # --link decouples this layer from previous ones so BuildKit can cache it independently
 COPY --link --chown=kibana:kibana dist/kibana/dist /opt/kibana
 
-# The build runs on Mac (darwin-arm64) so the bundled Node is a darwin binary.
-# Replace it with the linux-arm64 binary so it runs inside the Linux container.
+# The dist bundles a darwin Node binary — replace it with the correct linux binary.
+# Arch is detected at build time: aarch64 → arm64, x86_64 → x64.
 ARG NODE_VERSION
-RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-arm64.tar.gz" \
+RUN ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/') \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${ARCH}.tar.gz" \
        -o /tmp/node.tar.gz \
     && rm -rf /opt/kibana/node \
     && mkdir -p /opt/kibana/node/default \
