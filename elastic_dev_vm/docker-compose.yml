@@ -5,6 +5,7 @@ services:
     privileged: true
     ports:
       - "3500:22"
+      - "5002-5999:5002-5999"
     volumes:
       - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
     restart: unless-stopped
