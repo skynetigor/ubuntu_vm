@@ -25,8 +25,8 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
 fi
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
-# ALLOW_ROOT propagates to all child processes spawned during bootstrap.
-export ALLOW_ROOT=true
+# When running as root, wrap yarn so all `kbn` subcommands get --allow-root.
+source "$(dirname "$0")/setup-root.sh"
 
 # yarn install must run first so node_modules exist before `yarn kbn` is invoked
 echo "=== Installing dependencies ==="

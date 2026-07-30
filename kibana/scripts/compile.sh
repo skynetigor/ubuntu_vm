@@ -28,9 +28,9 @@ fi
 NODE_VERSION=$(cat .nvmrc)
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-# ALLOW_ROOT propagates to all child processes (yarn kbn build-shared, etc.)
-# so they don't also block on the root check.
-export ALLOW_ROOT=true
+# When running as root, wrap yarn so all `kbn` subcommands spawned by the build
+# (e.g. yarn kbn build-shared) get --allow-root automatically.
+source "$(dirname "$0")/setup-root.sh"
 
 rm -rf build/
 echo "=== Building ==="
@@ -39,7 +39,7 @@ node scripts/build \
   --skip-archives \
   --skip-os-packages \
   --skip-cloud-dependencies-download \
-  --skip-cdn-assets \
+  --skip-cdn-assets
 
 # ── Move dist to output dir ───────────────────────────────────────────────────
 BUILD_DIR=$(ls -d build/default/kibana-*/ 2>/dev/null | head -1)
