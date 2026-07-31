@@ -1,6 +1,7 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NVM_DIR=/opt/nvm
 
 # Base tools + git
 RUN apt-get update && apt-get install -y \
@@ -46,13 +47,31 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js LTS (system-wide via NodeSource, unaffected by /root volume mount)
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+# NVM + Node LTS + Yarn + Claude (system-wide at /opt/nvm)
+RUN mkdir -p "$NVM_DIR" \
+    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh \
+       | NVM_DIR="$NVM_DIR" PROFILE=/dev/null bash \
+    && . "$NVM_DIR/nvm.sh" \
+    && nvm install --lts \
+    && nvm alias default node \
+    && npm install -g yarn @anthropic-ai/claude-code \
+    # Symlink into /usr/local/bin so all shells (interactive and non-interactive) find them
+    && NODE_BIN="$(dirname "$(nvm which default)")" \
+    && ln -sf "$NODE_BIN/node"   /usr/local/bin/node \
+    && ln -sf "$NODE_BIN/npm"    /usr/local/bin/npm \
+    && ln -sf "$NODE_BIN/npx"    /usr/local/bin/npx \
+    && ln -sf "$NODE_BIN/yarn"   /usr/local/bin/yarn \
+    && ln -sf "$NODE_BIN/claude" /usr/local/bin/claude
 
-# Yarn + Claude Code CLI
-RUN npm install -g --allow-scripts yarn @anthropic-ai/claude-code
+# Make NVM available in all shell types:
+#   /etc/profile.d  — login shells (ssh -l, su -, interactive login)
+#   /etc/bash.bashrc — non-login interactive shells
+#   /etc/environment — sets NVM_DIR for PAM-based sessions (non-interactive SSH)
+RUN printf 'export NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
+      > /etc/profile.d/nvm.sh \
+    && printf '\nexport NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
+      >> /etc/bash.bashrc \
+    && echo 'NVM_DIR=/opt/nvm' >> /etc/environment
 
 # User setup
 RUN useradd -m -s /bin/bash skynet_igor \
@@ -61,6 +80,10 @@ RUN useradd -m -s /bin/bash skynet_igor \
     && echo "skynet_igor ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
     && mkdir -p /home/skynet_igor/.ssh \
     && chmod 700 /home/skynet_igor/.ssh
+
+# NVM in skynet_igor's bashrc (for non-login interactive shells opened after su)
+RUN printf '\nexport NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
+      >> /home/skynet_igor/.bashrc
 
 COPY id_ed25519.pub /home/skynet_igor/.ssh/authorized_keys
 RUN chmod 600 /home/skynet_igor/.ssh/authorized_keys \

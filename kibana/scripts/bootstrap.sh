@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Debug
-echo Hello from bootstrap.sh
 set -euo pipefail
 
 KIBANA_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,11 +26,23 @@ fi
 cd "$SRC_DIR"
 
 # ── Node version ──────────────────────────────────────────────────────────────
+# NVM_DIR is set system-wide (/opt/nvm); fall back to ~/.nvm for local Mac use
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+for _nvm_candidate in "$NVM_DIR" /opt/nvm "$HOME/.nvm"; do
+  if [ -s "$_nvm_candidate/nvm.sh" ]; then
+    NVM_DIR="$_nvm_candidate"
+    break
+  fi
+done
+unset _nvm_candidate
+
 if [ -s "$NVM_DIR/nvm.sh" ]; then
-  source "$NVM_DIR/nvm.sh"
+  # shellcheck disable=SC1091
+  set +u; source "$NVM_DIR/nvm.sh"; set -u
   nvm install
   nvm use
+else
+  echo "WARNING: nvm not found — using system node ($(node --version 2>/dev/null || echo 'not found'))"
 fi
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
