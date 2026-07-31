@@ -30,7 +30,7 @@ steps:
   # ── Step 1: Clone / update ubuntu_vm and write .env ──────────────────────
   - name: setup
     type: remoteHost.runCommand
-    connector-id: ihor-vm
+    connector-id: dev-vm
     with:
       code: |
         DEPLOY_DIR="/opt/deploy"
@@ -71,7 +71,7 @@ steps:
           set -a; source "$PORT_FILE"; set +a
           echo "=== Reusing ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         else
-          ES_PORT=$(find_free_port 5002)
+          ES_PORT=$(find_free_port 5003)
           KIBANA_PORT=$(find_free_port $((ES_PORT + 1)))
           printf 'ES_PORT=%s\nKIBANA_PORT=%s\n' "$ES_PORT" "$KIBANA_PORT" > "$PORT_FILE"
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
@@ -79,21 +79,21 @@ steps:
 
         # ── Write .env ────────────────────────────────────────────────────
         cat > "$DEPLOY_DIR/kibana/.env" << ENVEOF
-KIBANA_FORK={{ inputs.kibana_fork }}
-KIBANA_BRANCH={{ inputs.kibana_branch }}
-ES_PORT=${ES_PORT}
-KIBANA_PORT=${KIBANA_PORT}
-LOCAL_DIR=dist
-ES_VERSION=9.6.0
-DOCKER_DEFAULT_PLATFORM=linux/amd64
-ENVEOF
+        KIBANA_FORK={{ inputs.kibana_fork }}
+        KIBANA_BRANCH={{ inputs.kibana_branch }}
+        ES_PORT=${ES_PORT}
+        KIBANA_PORT=${KIBANA_PORT}
+        LOCAL_DIR=dist
+        ES_VERSION=9.6.0
+        DOCKER_DEFAULT_PLATFORM=linux/amd64
+        ENVEOF
         echo "=== .env written ==="
         cat "$DEPLOY_DIR/kibana/.env"
 
   # ── Step 2: Clone Kibana source ──────────────────────────────────────────
   - name: clone
     type: remoteHost.runCommand
-    connector-id: ihor-vm
+    connector-id: dev-vm
     with:
       code: |
         bash /opt/deploy/kibana/scripts/clone.sh
@@ -101,7 +101,7 @@ ENVEOF
   # ── Step 3: Bootstrap dependencies ───────────────────────────────────────
   - name: bootstrap
     type: remoteHost.runCommand
-    connector-id: ihor-vm
+    connector-id: dev-vm
     with:
       code: |
         export NVM_DIR="$HOME/.nvm"
@@ -111,7 +111,7 @@ ENVEOF
   # ── Step 4: Compile / build distribution ─────────────────────────────────
   - name: compile
     type: remoteHost.runCommand
-    connector-id: ihor-vm
+    connector-id: dev-vm
     with:
       code: |
         export NVM_DIR="$HOME/.nvm"
@@ -121,7 +121,7 @@ ENVEOF
   # ── Step 5: Start the stack ───────────────────────────────────────────────
   - name: start
     type: remoteHost.runCommand
-    connector-id: ihor-vm
+    connector-id: dev-vm
     with:
       code: |
         KIBANA_DIR="/opt/deploy/kibana"
@@ -135,7 +135,7 @@ ENVEOF
   # ── Summary ───────────────────────────────────────────────────────────────
   - name: summary
     type: remoteHost.runCommand
-    connector-id: ihor-vm
+    connector-id: dev-vm
     with:
       code: |
         PROJECT=$(echo "{{ inputs.kibana_branch }}" \
