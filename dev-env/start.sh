@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-echo $REPO_DIR
+DEV_ENV_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$DEV_ENV_DIR/.." && pwd)"
 KIBANA_DIR="$REPO_DIR/kibana"
 
 chmod 600 "$REPO_DIR/elastic_dev_vm/id_ed25519"
@@ -18,7 +18,7 @@ DIST="$KIBANA_DIR/$LOCAL_DIR"
 "$KIBANA_DIR/scripts/bootstrap.sh"
 "$KIBANA_DIR/scripts/compile.sh"
 
-docker compose -f "$REPO_DIR/docker-compose.yml" up --build -d "$@"
+docker compose -f "$DEV_ENV_DIR/docker-compose.yml" up --build -d "$@"
 
 if [ "${DELETE_DIST:-false}" = "true" ]; then
   echo "=== Deleting dist directory ==="
