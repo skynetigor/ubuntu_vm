@@ -18,7 +18,6 @@ settings:
 consts:
   UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
   UBUNTU_VM_BRANCH: main
-  CF_BASE_DOMAIN: skynetapp.dev
 
 triggers:
   - type: manual
@@ -233,7 +232,7 @@ steps:
         set -a; source "/opt/deploy-ports/$PROJECT"; set +a
 
         CNAME=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
-        export CF_HOSTNAME="${CNAME}.{{ consts.CF_BASE_DOMAIN }}"
+        export CF_HOSTNAME="${CNAME}.${CF_BASE_DOMAIN}"
         export CF_SERVICE_URL="http://elastic-dev-vm:${KIBANA_PORT}"
 
         echo "=== Registering tunnel: $CF_HOSTNAME → $CF_SERVICE_URL ==="
@@ -262,6 +261,6 @@ steps:
         echo "  Kibana  : http://192.168.1.7:${KIBANA_PORT}"
         CNAME=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
         if [ -n "${CF_API_TOKEN:-}" ]; then
-        echo "  Public  : https://${CNAME}.{{ consts.CF_BASE_DOMAIN }}"
+        echo "  Public  : https://${CNAME}.${CF_BASE_DOMAIN}"
         fi
         echo "═══════════════════════════════════════════"
