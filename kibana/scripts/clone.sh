@@ -14,6 +14,13 @@ CLONE_BASE="$KIBANA_DIR/$LOCAL_DIR/kibana"
 SRC_DIR="$CLONE_BASE/src"
 COMMIT_FILE="$CLONE_BASE/.clonecommit"
 
+# Remove partial/broken clone so we fall through to a fresh clone below
+if [ -d "$SRC_DIR" ] && ! git -C "$SRC_DIR" rev-parse HEAD >/dev/null 2>&1; then
+  echo "=== Detected broken/partial clone — removing and re-cloning ==="
+  rm -rf "$SRC_DIR"
+  rm -f "$COMMIT_FILE"
+fi
+
 if [ -d "$SRC_DIR" ]; then
   git -C "$SRC_DIR" remote set-url origin "$KIBANA_FORK"
   echo "=== Fetching $KIBANA_BRANCH from $KIBANA_FORK ==="
@@ -21,10 +28,10 @@ if [ -d "$SRC_DIR" ]; then
   REMOTE_COMMIT=$(git -C "$SRC_DIR" rev-parse FETCH_HEAD)
   STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
   if [ "$REMOTE_COMMIT" = "$STORED_COMMIT" ]; then
-    echo "=== Skipping clone — already at $REMOTE_COMMIT ==="
+    echo "=== Skipping — already at $REMOTE_COMMIT ==="
     exit 0
   fi
-  echo "=== Pulling $KIBANA_BRANCH ($REMOTE_COMMIT) ==="
+  echo "=== New commits on $KIBANA_BRANCH — updating to $REMOTE_COMMIT ==="
   git -C "$SRC_DIR" reset --hard FETCH_HEAD
 else
   echo "=== Cloning $KIBANA_FORK ($KIBANA_BRANCH) ==="
