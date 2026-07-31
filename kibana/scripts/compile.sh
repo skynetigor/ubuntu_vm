@@ -21,18 +21,6 @@ CURRENT_COMMIT=$(git -C "$SRC_DIR" rev-parse HEAD)
 STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
 if [ "$CURRENT_COMMIT" = "$STORED_COMMIT" ]; then
   echo "=== Skipping compile — already at $CURRENT_COMMIT ==="
-  # Still sync NODE_VERSION so docker-compose always has it (setup step wipes .env)
-  _NV=$(cat "$SRC_DIR/.nvmrc" 2>/dev/null | tr -d '[:space:]')
-  if [ -n "$_NV" ]; then
-    if grep -q "^NODE_VERSION=" "$KIBANA_DIR/.env" 2>/dev/null; then
-      tmp=$(mktemp)
-      sed "s/^NODE_VERSION=.*/NODE_VERSION=${_NV}/" "$KIBANA_DIR/.env" > "$tmp"
-      mv "$tmp" "$KIBANA_DIR/.env"
-    else
-      echo "NODE_VERSION=${_NV}" >> "$KIBANA_DIR/.env"
-    fi
-    echo "=== NODE_VERSION=${_NV} written to .env ==="
-  fi
   exit 0
 fi
 
@@ -63,14 +51,7 @@ node scripts/build \
   --skip-cdn-assets
 
 # ── Move dist to output dir ───────────────────────────────────────────────────
-# Pick the platform-matching directory (uname detects darwin vs linux, x64 vs arm64)
-_BUILD_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-_BUILD_ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/')
-BUILD_DIR=$(ls -d "build/default/kibana-"*"-${_BUILD_OS}-${_BUILD_ARCH}/" 2>/dev/null | head -1)
-if [ -z "$BUILD_DIR" ]; then
-  # Fallback: first matching dir (legacy behaviour)
-  BUILD_DIR=$(ls -d build/default/kibana-*/ 2>/dev/null | head -1)
-fi
+BUILD_DIR=$(ls -d build/default/kibana-*/ 2>/dev/null | head -1)
 if [ -z "$BUILD_DIR" ]; then
   echo "ERROR: build output not found under build/default/ — the build may have failed"
   exit 1
