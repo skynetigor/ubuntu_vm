@@ -235,7 +235,7 @@ steps:
         export SUBDOMAIN
         export CF_SERVICE_URL="http://elastic-dev-vm:${KIBANA_PORT}"
 
-        echo "=== Registering tunnel: $CF_HOSTNAME → $CF_SERVICE_URL ==="
+        echo "=== Registering tunnel: ${SUBDOMAIN}.${DNS} → $CF_SERVICE_URL ==="
         bash /opt/deploy/kibana/scripts/register-tunnel.sh
 
   # ── Summary ───────────────────────────────────────────────────────────────

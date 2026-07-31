@@ -5,8 +5,9 @@
 #   CF_API_TOKEN   — API token with Cloudflare Tunnel:Edit permission
 #   CF_ACCOUNT_ID  — Account ID (Cloudflare dashboard → right sidebar)
 #   CF_TUNNEL_ID   — Tunnel ID (Zero Trust → Networks → Tunnels → tunnel name)
-#   CF_HOSTNAME    — Public hostname to register, e.g. wf.skynetapp.dev
-#   CF_SERVICE_URL — Backend service URL,        e.g. http://kibana:5601
+#   DNS            — Base domain, e.g. skynetapp.dev
+#   SUBDOMAIN      — Subdomain prefix, e.g. wf
+#   CF_SERVICE_URL — Backend service URL, e.g. http://kibana:5601
 set -euo pipefail
 
 KIBANA_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,7 +22,7 @@ fi
 : "${SUBDOMAIN:?SUBDOMAIN is required}"
 : "${CF_SERVICE_URL:?CF_SERVICE_URL is required}"
 
-CF_HOSTNAME="${SUBDOMAIN}.${DNS}"
+export CF_HOSTNAME="${SUBDOMAIN}.${DNS}"
 
 API="https://api.cloudflare.com/client/v4"
 AUTH=(-H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json")
