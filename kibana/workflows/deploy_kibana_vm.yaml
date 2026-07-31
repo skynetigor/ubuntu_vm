@@ -17,7 +17,7 @@ settings:
     key: '{{workflow.id}}'
     strategy: queue
 
-variables:
+consts:
   UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
   UBUNTU_VM_BRANCH: main
 
