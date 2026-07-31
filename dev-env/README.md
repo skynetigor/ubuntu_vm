@@ -7,6 +7,7 @@ Docker Compose setup that runs the full local development stack: the SSH dev box
 | File | Description |
 |---|---|
 | `docker-compose.yml` | Defines all four services (`dev-vm`, `elasticsearch`, `kibana`, `cloudflared`) |
+| `register-tunnel.sh` | Registers a service as a public hostname in the Cloudflare tunnel |
 | `start.sh` | Builds Kibana from source, then brings up the stack |
 | `ssh.sh` | Opens an SSH session into the dev-vm |
 
@@ -55,3 +56,8 @@ Create a `kibana/.env` file (see `kibana/README.md`). The compose file also read
 | `KIBANA_SSH_PRIVATE_KEY_BASE64` | _(empty)_ | Base64-encoded private key written to `/opt/kibana/config/dev-vm-key` |
 | `KIBANA_PUBLIC_URL` | `http://localhost:5601` | Kibana's externally reachable URL |
 | `CLOUDFLARE_TUNNEL_TOKEN` | _(required for cloudflared)_ | Token from the Cloudflare Zero Trust dashboard |
+| `CF_API_TOKEN` | _(required for register-tunnel.sh)_ | API token with Tunnel:Edit permission |
+| `CF_ACCOUNT_ID` | _(required for register-tunnel.sh)_ | Cloudflare account ID (dashboard right sidebar) |
+| `CF_TUNNEL_ID` | _(required for register-tunnel.sh)_ | Tunnel ID (Zero Trust → Networks → Tunnels) |
+| `CF_HOSTNAME` | _(required for register-tunnel.sh)_ | Public hostname to register, e.g. `wf.skynetapp.dev` |
+| `CF_SERVICE_URL` | _(required for register-tunnel.sh)_ | Backend URL, e.g. `http://kibana:5601` |
