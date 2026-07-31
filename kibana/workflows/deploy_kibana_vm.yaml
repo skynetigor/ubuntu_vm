@@ -3,7 +3,7 @@ name: Deploy Kibana Preview
 description: |
   Resolves a GitHub PR / branch / commit URL, then runs
   clone → bootstrap → compile → docker compose up inside the dev-vm.
-  Ports are auto-assigned from 5003–5999 and reused on re-deploy.
+  Ports are auto-assigned from 5003-5999 and reused on re-deploy.
 tags:
   - kibana
   - preview
@@ -23,6 +23,8 @@ triggers:
   - type: manual
     inputs:
       additionalProperties: false
+      required:
+        - kibana_target
       properties:
         kibana_target:
           type: string
