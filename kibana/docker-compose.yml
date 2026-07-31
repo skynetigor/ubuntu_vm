@@ -34,6 +34,7 @@ services:
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
+      - KIBANA_PUBLIC_URL=http://localhost:${KIBANA_PORT:-5601}
 
     ports:
       - "${KIBANA_PORT:-5601}:5601"
