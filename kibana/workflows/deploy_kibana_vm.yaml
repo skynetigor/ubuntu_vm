@@ -231,11 +231,11 @@ steps:
         set -a; source /opt/deploy-resolve/latest; set +a
         set -a; source "/opt/deploy-ports/$PROJECT"; set +a
 
-        SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
-        export SUBDOMAIN
+        CF_SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
+        export CF_SUBDOMAIN
         export CF_SERVICE_URL="http://elastic-dev-vm:${KIBANA_PORT}"
 
-        echo "=== Registering tunnel: ${SUBDOMAIN}.${CF_DOMAIN} → $CF_SERVICE_URL ==="
+        echo "=== Registering tunnel: ${CF_SUBDOMAIN}.${CF_DOMAIN} → $CF_SERVICE_URL ==="
         bash /opt/deploy/kibana/scripts/register-tunnel.sh
 
   # ── Summary ───────────────────────────────────────────────────────────────
@@ -259,8 +259,8 @@ steps:
         fi
         echo "  ES      : localhost:${ES_PORT}"
         echo "  Kibana  : http://192.168.1.7:${KIBANA_PORT}"
-        SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
+        CF_SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
         if [ -n "${CF_API_TOKEN:-}" ]; then
-        echo "  Public  : https://${SUBDOMAIN}.${CF_DOMAIN}"
+        echo "  Public  : https://${CF_SUBDOMAIN}.${CF_DOMAIN}"
         fi
         echo "═══════════════════════════════════════════"

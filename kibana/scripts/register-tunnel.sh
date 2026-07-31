@@ -6,7 +6,7 @@
 #   CF_ACCOUNT_ID  — Account ID (Cloudflare dashboard → right sidebar)
 #   CF_TUNNEL_ID   — Tunnel ID (Zero Trust → Networks → Tunnels → tunnel name)
 #   CF_DOMAIN      — Base domain, e.g. skynetapp.dev
-#   SUBDOMAIN      — Subdomain prefix, e.g. wf
+#   CF_SUBDOMAIN      — Subdomain prefix, e.g. wf
 #   CF_SERVICE_URL — Backend service URL, e.g. http://kibana:5601
 set -euo pipefail
 
@@ -17,12 +17,12 @@ fi
 
 if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ACCOUNT_ID:-}" ] || \
    [ -z "${CF_TUNNEL_ID:-}" ] || [ -z "${CF_DOMAIN:-}" ] || \
-   [ -z "${SUBDOMAIN:-}" ] || [ -z "${CF_SERVICE_URL:-}" ]; then
+   [ -z "${CF_SUBDOMAIN:-}" ] || [ -z "${CF_SERVICE_URL:-}" ]; then
   echo "No Cloudflare configuration (CF_*). Skipping"
   exit 0
 fi
 
-export CF_HOSTNAME="${SUBDOMAIN}.${CF_DOMAIN}"
+export CF_HOSTNAME="${CF_SUBDOMAIN}.${CF_DOMAIN}"
 
 API="https://api.cloudflare.com/client/v4"
 AUTH=(-H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json")
