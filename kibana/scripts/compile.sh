@@ -27,23 +27,11 @@ fi
 cd "$SRC_DIR"
 
 # ── Node version ──────────────────────────────────────────────────────────────
-NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-for _nvm_candidate in "$NVM_DIR" /opt/nvm "$HOME/.nvm"; do
-  if [ -s "$_nvm_candidate/nvm.sh" ]; then
-    NVM_DIR="$_nvm_candidate"
-    break
-  fi
-done
-unset _nvm_candidate
-
-if [ -s "$NVM_DIR/nvm.sh" ]; then
-  # shellcheck disable=SC1091
-  set +u; source "$NVM_DIR/nvm.sh"; set -u
-  nvm install
-  nvm use
-else
-  echo "WARNING: nvm not found — using system node ($(node --version 2>/dev/null || echo 'not found'))"
-fi
+# set +u: nvm.sh uses unbound variables internally
+# shellcheck disable=SC1091
+set +u; source "${NVM_DIR:-/opt/nvm}/nvm.sh"; set -u
+nvm install
+nvm use
 
 NODE_VERSION=$(cat .nvmrc)
 
