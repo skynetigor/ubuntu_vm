@@ -31,6 +31,8 @@ cd "$SRC_DIR"
 set +u; source "${NVM_DIR:-/opt/nvm}/nvm.sh"; set -u
 nvm install
 nvm use
+# Ensure yarn is available in this exact node version (the NVM LTS may differ)
+npm ls -g yarn --depth=0 2>/dev/null | grep -q yarn || npm install -g yarn
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 # When running as root, wrap yarn so all `kbn` subcommands get --allow-root.

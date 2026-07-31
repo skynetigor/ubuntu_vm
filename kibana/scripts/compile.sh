@@ -44,6 +44,7 @@ cd "$SRC_DIR"
 set +u; source "${NVM_DIR:-/opt/nvm}/nvm.sh"; set -u
 nvm install
 nvm use
+npm ls -g yarn --depth=0 2>/dev/null | grep -q yarn || npm install -g yarn
 
 NODE_VERSION=$(cat .nvmrc)
 
