@@ -24,6 +24,14 @@ triggers:
           type: string
           description: Kibana branch to build and deploy.
           default: main
+        es_port:
+          type: number
+          description: Host port for Elasticsearch API (must be in 5002-5999 range).
+          default: 5002
+        kibana_port:
+          type: number
+          description: Host port for Kibana UI (must be in 5002-5999 range).
+          default: 5601
 
 steps:
   # ── Step 1: Clone / update ubuntu_vm and write .env ──────────────────────
@@ -48,6 +56,8 @@ steps:
         cat > "$DEPLOY_DIR/kibana/.env" << 'ENVEOF'
 KIBANA_FORK={{ inputs.kibana_fork }}
 KIBANA_BRANCH={{ inputs.kibana_branch }}
+ES_PORT={{ inputs.es_port }}
+KIBANA_PORT={{ inputs.kibana_port }}
 LOCAL_DIR=dist
 ES_VERSION=9.6.0
 DOCKER_DEFAULT_PLATFORM=linux/amd64
@@ -107,6 +117,8 @@ ENVEOF
         ═══════════════════════════════════════════
           Kibana Preview Deployed
         ═══════════════════════════════════════════
-          Fork   : {{ inputs.kibana_fork }}
-          Branch : {{ inputs.kibana_branch }}
+          Fork    : {{ inputs.kibana_fork }}
+          Branch  : {{ inputs.kibana_branch }}
+          ES      : localhost:{{ inputs.es_port }}
+          Kibana  : localhost:{{ inputs.kibana_port }}
         ═══════════════════════════════════════════
