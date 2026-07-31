@@ -1,11 +1,9 @@
 version: '1'
 name: Deploy Kibana Preview
 description: |
-  Clones the ubuntu_vm repo to /opt/deploy, writes kibana/.env from inputs,
-  then runs clone → bootstrap → compile → docker compose up for the given
-  Kibana fork and branch. The branch name is used as the Docker Compose project
-  name so multiple branches can run side-by-side.
-  Ports are auto-assigned from the 5002-5999 range and reused on re-deploy.
+  Resolves a GitHub PR / branch / commit URL, then runs
+  clone → bootstrap → compile → docker compose up inside the dev-vm.
+  Ports are auto-assigned from 5003–5999 and reused on re-deploy.
 tags:
   - kibana
   - preview
@@ -26,14 +24,13 @@ triggers:
     inputs:
       additionalProperties: false
       properties:
-        kibana_fork:
+        kibana_target:
           type: string
-          description: Kibana repository URL to clone.
-          default: https://github.com/elastic/kibana
-        kibana_branch:
-          type: string
-          description: Kibana branch to build and deploy.
-          default: main
+          description: |
+            GitHub URL to deploy. Accepted formats:
+              PR     — https://github.com/<owner>/<repo>/pull/<number>
+              Branch — https://github.com/<owner>/<repo>/tree/<branch>
+              Commit — https://github.com/<owner>/<repo>/commit/<sha>
 
 steps:
   # ── Step 1: Clone / update the ubuntu_vm repo ────────────────────────────
@@ -58,17 +55,73 @@ steps:
         fi
         echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
 
-  # ── Step 2: Assign ports for this project ────────────────────────────────
+  # ── Step 2: Resolve target URL → fork / branch / commit / project name ───
+  - name: resolve
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    with:
+      code: |
+        TARGET="{{ inputs.kibana_target }}"
+        mkdir -p /opt/deploy-resolve
+
+        if echo "$TARGET" | grep -qE 'github\.com/[^/]+/[^/]+/pull/[0-9]+'; then
+          # ── PR URL ─────────────────────────────────────────────────────────
+          OWNER=$(echo "$TARGET"  | sed -E 's|https://github\.com/([^/]+)/.*|\1|')
+          REPO=$(echo "$TARGET"   | sed -E 's|https://github\.com/[^/]+/([^/]+)/.*|\1|')
+          PR_NUM=$(echo "$TARGET" | sed -E 's|.*/pull/([0-9]+).*|\1|')
+
+          echo "=== Resolving PR #$PR_NUM in $OWNER/$REPO ==="
+          RESOLVED=$(gh api "repos/$OWNER/$REPO/pulls/$PR_NUM" \
+            --jq '[.head.repo.clone_url, .head.ref, .head.sha] | join("\n")')
+          KIBANA_FORK=$(echo "$RESOLVED"   | sed -n '1p')
+          KIBANA_BRANCH=$(echo "$RESOLVED" | sed -n '2p')
+          KIBANA_COMMIT=$(echo "$RESOLVED" | sed -n '3p')
+          PROJECT="pr-${PR_NUM}"
+
+        elif echo "$TARGET" | grep -qE 'github\.com/[^/]+/[^/]+/tree/'; then
+          # ── Branch URL ─────────────────────────────────────────────────────
+          OWNER=$(echo "$TARGET" | sed -E 's|https://github\.com/([^/]+)/.*|\1|')
+          REPO=$(echo "$TARGET"  | sed -E 's|https://github\.com/[^/]+/([^/]+)/.*|\1|')
+          KIBANA_FORK="https://github.com/$OWNER/$REPO"
+          KIBANA_BRANCH=$(echo "$TARGET" | sed -E "s|https://github\.com/[^/]+/[^/]+/tree/||")
+          KIBANA_COMMIT=""
+          PROJECT=$(echo "$KIBANA_BRANCH" \
+            | tr '[:upper:]/' '[:lower:]-' \
+            | sed 's/[^a-z0-9-]/-/g' \
+            | cut -c1-50)
+
+        elif echo "$TARGET" | grep -qE 'github\.com/[^/]+/[^/]+/commit/[0-9a-f]+'; then
+          # ── Commit URL ─────────────────────────────────────────────────────
+          OWNER=$(echo "$TARGET" | sed -E 's|https://github\.com/([^/]+)/.*|\1|')
+          REPO=$(echo "$TARGET"  | sed -E 's|https://github\.com/[^/]+/([^/]+)/.*|\1|')
+          KIBANA_FORK="https://github.com/$OWNER/$REPO"
+          KIBANA_BRANCH=""
+          KIBANA_COMMIT=$(echo "$TARGET" | sed -E 's|.*/commit/([0-9a-f]+).*|\1|')
+          PROJECT="commit-${KIBANA_COMMIT:0:8}"
+
+        else
+          echo "ERROR: unrecognised URL — expected one of:"
+          echo "  https://github.com/<owner>/<repo>/pull/<number>"
+          echo "  https://github.com/<owner>/<repo>/tree/<branch>"
+          echo "  https://github.com/<owner>/<repo>/commit/<sha>"
+          exit 1
+        fi
+
+        printf 'KIBANA_FORK=%s\nKIBANA_BRANCH=%s\nKIBANA_COMMIT=%s\nPROJECT=%s\n' \
+          "$KIBANA_FORK" "$KIBANA_BRANCH" "$KIBANA_COMMIT" "$PROJECT" \
+          > /opt/deploy-resolve/latest
+
+        echo "=== Resolved ==="
+        cat /opt/deploy-resolve/latest
+
+  # ── Step 3: Assign ports for this project ────────────────────────────────
   - name: assign_ports
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
+        set -a; source /opt/deploy-resolve/latest; set +a
         PORTS_DIR="/opt/deploy-ports"
-        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
-          | tr '[:upper:]/' '[:lower:]-' \
-          | sed 's/[^a-z0-9-]/-/g')
-
         mkdir -p "$PORTS_DIR"
         PORT_FILE="$PORTS_DIR/$PROJECT"
 
@@ -94,21 +147,20 @@ steps:
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         fi
 
-  # ── Step 3: Write kibana/.env from inputs and assigned ports ─────────────
+  # ── Step 4: Write kibana/.env from resolved values and assigned ports ─────
   - name: write_env
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         DEPLOY_DIR="/opt/deploy"
-        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
-          | tr '[:upper:]/' '[:lower:]-' \
-          | sed 's/[^a-z0-9-]/-/g')
+        set -a; source /opt/deploy-resolve/latest; set +a
         set -a; source "/opt/deploy-ports/$PROJECT"; set +a
 
         cat > "$DEPLOY_DIR/kibana/.env" << ENVEOF
-        KIBANA_FORK={{ inputs.kibana_fork }}
-        KIBANA_BRANCH={{ inputs.kibana_branch }}
+        KIBANA_FORK=${KIBANA_FORK}
+        KIBANA_BRANCH=${KIBANA_BRANCH}
+        KIBANA_COMMIT=${KIBANA_COMMIT}
         ES_PORT=${ES_PORT}
         KIBANA_PORT=${KIBANA_PORT}
         LOCAL_DIR=dist
@@ -118,7 +170,7 @@ steps:
         echo "=== .env written ==="
         cat "$DEPLOY_DIR/kibana/.env"
 
-  # ── Step 4: Clone Kibana source ──────────────────────────────────────────
+  # ── Step 5: Clone Kibana source ──────────────────────────────────────────
   - name: clone
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -126,7 +178,7 @@ steps:
       code: |
         bash /opt/deploy/kibana/scripts/clone.sh
 
-  # ── Step 5: Bootstrap dependencies ───────────────────────────────────────
+  # ── Step 6: Bootstrap dependencies ───────────────────────────────────────
   - name: bootstrap
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -134,7 +186,7 @@ steps:
       code: |
         bash /opt/deploy/kibana/scripts/bootstrap.sh
 
-  # ── Step 6: Compile / build distribution ─────────────────────────────────
+  # ── Step 7: Compile / build distribution ─────────────────────────────────
   - name: compile
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -142,16 +194,14 @@ steps:
       code: |
         bash /opt/deploy/kibana/scripts/compile.sh
 
-  # ── Step 7: Start the stack ───────────────────────────────────────────────
+  # ── Step 8: Start the stack ───────────────────────────────────────────────
   - name: start
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
+        set -a; source /opt/deploy-resolve/latest; set +a
         KIBANA_DIR="/opt/deploy/kibana"
-        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
-          | tr '[:upper:]/' '[:lower:]-' \
-          | sed 's/[^a-z0-9-]/-/g')
         docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" up --build -d
         echo "=== Stack started (project: $PROJECT) ==="
         docker compose -p "$PROJECT" ps
@@ -162,15 +212,19 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
-          | tr '[:upper:]/' '[:lower:]-' \
-          | sed 's/[^a-z0-9-]/-/g')
+        set -a; source /opt/deploy-resolve/latest; set +a
         set -a; source "/opt/deploy-ports/$PROJECT"; set +a
         echo "═══════════════════════════════════════════"
         echo "  Kibana Preview Deployed"
         echo "═══════════════════════════════════════════"
-        echo "  Fork    : {{ inputs.kibana_fork }}"
-        echo "  Branch  : {{ inputs.kibana_branch }}"
+        echo "  Target  : {{ inputs.kibana_target }}"
+        echo "  Fork    : ${KIBANA_FORK}"
+        if [ -n "$KIBANA_BRANCH" ]; then
+        echo "  Branch  : ${KIBANA_BRANCH}"
+        fi
+        if [ -n "$KIBANA_COMMIT" ]; then
+        echo "  Commit  : ${KIBANA_COMMIT}"
+        fi
         echo "  ES      : localhost:${ES_PORT}"
         echo "  Kibana  : http://192.168.1.7:${KIBANA_PORT}"
         echo "═══════════════════════════════════════════"
