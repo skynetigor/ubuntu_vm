@@ -54,7 +54,7 @@ services:
     ports:
       - "5002:5601"
     volumes:
-      - ./kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
+      - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
     depends_on:
       elasticsearch:
         condition: service_healthy
