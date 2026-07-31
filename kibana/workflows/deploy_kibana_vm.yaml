@@ -5,6 +5,7 @@ description: |
   then runs clone → bootstrap → compile → docker compose up for the given
   Kibana fork and branch. The branch name is used as the Docker Compose project
   name so multiple branches can run side-by-side.
+  Ports are auto-assigned from the 5002-5999 range and reused on re-deploy.
 tags:
   - kibana
   - preview
@@ -24,14 +25,6 @@ triggers:
           type: string
           description: Kibana branch to build and deploy.
           default: main
-        es_port:
-          type: number
-          description: Host port for Elasticsearch API (must be in 5002-5999 range).
-          default: 5002
-        kibana_port:
-          type: number
-          description: Host port for Kibana UI (must be in 5002-5999 range).
-          default: 5601
 
 steps:
   # ── Step 1: Clone / update ubuntu_vm and write .env ──────────────────────
@@ -41,7 +34,12 @@ steps:
     with:
       code: |
         DEPLOY_DIR="/opt/deploy"
+        PORTS_DIR="/opt/deploy-ports"
         UBUNTU_VM_REPO="https://github.com/skynetigor/ubuntu_vm.git"
+
+        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
+          | tr '[:upper:]/' '[:lower:]-' \
+          | sed 's/[^a-z0-9-]/-/g')
 
         if [ -d "$DEPLOY_DIR/.git" ]; then
           echo "=== Updating ubuntu_vm ==="
@@ -53,11 +51,38 @@ steps:
           git clone --depth 1 "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
         fi
 
-        cat > "$DEPLOY_DIR/kibana/.env" << 'ENVEOF'
+        # ── Port assignment ───────────────────────────────────────────────
+        mkdir -p "$PORTS_DIR"
+        PORT_FILE="$PORTS_DIR/$PROJECT"
+
+        find_free_port() {
+          local start=$1
+          for port in $(seq "$start" 5998); do
+            if ! ss -tlnp 2>/dev/null | grep -q ":${port}[^0-9]"; then
+              echo "$port"
+              return 0
+            fi
+          done
+          echo "ERROR: no free port found from $start" >&2
+          return 1
+        }
+
+        if [ -f "$PORT_FILE" ]; then
+          set -a; source "$PORT_FILE"; set +a
+          echo "=== Reusing ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
+        else
+          ES_PORT=$(find_free_port 5002)
+          KIBANA_PORT=$(find_free_port $((ES_PORT + 1)))
+          printf 'ES_PORT=%s\nKIBANA_PORT=%s\n' "$ES_PORT" "$KIBANA_PORT" > "$PORT_FILE"
+          echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
+        fi
+
+        # ── Write .env ────────────────────────────────────────────────────
+        cat > "$DEPLOY_DIR/kibana/.env" << ENVEOF
 KIBANA_FORK={{ inputs.kibana_fork }}
 KIBANA_BRANCH={{ inputs.kibana_branch }}
-ES_PORT={{ inputs.es_port }}
-KIBANA_PORT={{ inputs.kibana_port }}
+ES_PORT=${ES_PORT}
+KIBANA_PORT=${KIBANA_PORT}
 LOCAL_DIR=dist
 ES_VERSION=9.6.0
 DOCKER_DEFAULT_PLATFORM=linux/amd64
@@ -94,8 +119,6 @@ ENVEOF
         bash /opt/deploy/kibana/scripts/compile.sh
 
   # ── Step 5: Start the stack ───────────────────────────────────────────────
-  # Branch name is sanitised and used as the Compose project name so each
-  # branch gets its own container group (e.g. main, feature-foo).
   - name: start
     type: remoteHost.runCommand
     connector-id: ihor-vm
@@ -111,14 +134,19 @@ ENVEOF
 
   # ── Summary ───────────────────────────────────────────────────────────────
   - name: summary
-    type: console
+    type: remoteHost.runCommand
+    connector-id: ihor-vm
     with:
-      message: |
-        ═══════════════════════════════════════════
-          Kibana Preview Deployed
-        ═══════════════════════════════════════════
-          Fork    : {{ inputs.kibana_fork }}
-          Branch  : {{ inputs.kibana_branch }}
-          ES      : localhost:{{ inputs.es_port }}
-          Kibana  : localhost:{{ inputs.kibana_port }}
-        ═══════════════════════════════════════════
+      code: |
+        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
+          | tr '[:upper:]/' '[:lower:]-' \
+          | sed 's/[^a-z0-9-]/-/g')
+        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
+        echo "═══════════════════════════════════════════"
+        echo "  Kibana Preview Deployed"
+        echo "═══════════════════════════════════════════"
+        echo "  Fork    : {{ inputs.kibana_fork }}"
+        echo "  Branch  : {{ inputs.kibana_branch }}"
+        echo "  ES      : localhost:${ES_PORT}"
+        echo "  Kibana  : localhost:${KIBANA_PORT}"
+        echo "═══════════════════════════════════════════"
