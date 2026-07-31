@@ -17,6 +17,10 @@ settings:
     key: '{{workflow.id}}'
     strategy: queue
 
+variables:
+  UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
+  UBUNTU_VM_BRANCH: main
+
 triggers:
   - type: manual
     inputs:
@@ -40,20 +44,22 @@ steps:
       code: |
         DEPLOY_DIR="/opt/deploy"
         PORTS_DIR="/opt/deploy-ports"
-        UBUNTU_VM_REPO="https://github.com/skynetigor/ubuntu_vm.git"
+        UBUNTU_VM_REPO="{{ variables.UBUNTU_VM_REPO }}"
+        UBUNTU_VM_BRANCH="{{ variables.UBUNTU_VM_BRANCH }}"
 
         PROJECT=$(echo "{{ inputs.kibana_branch }}" \
           | tr '[:upper:]/' '[:lower:]-' \
           | sed 's/[^a-z0-9-]/-/g')
 
         if [ -d "$DEPLOY_DIR/.git" ]; then
-          echo "=== Updating ubuntu_vm ==="
-          git -C "$DEPLOY_DIR" pull --ff-only
+          echo "=== Updating ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
+          git -C "$DEPLOY_DIR" fetch --depth 1 origin "$UBUNTU_VM_BRANCH"
+          git -C "$DEPLOY_DIR" reset --hard FETCH_HEAD
         else
-          echo "=== Cloning ubuntu_vm ==="
+          echo "=== Cloning ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
           sudo mkdir -p "$DEPLOY_DIR"
           sudo chown "$USER:$USER" "$DEPLOY_DIR"
-          git clone --depth 1 "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
+          git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
         fi
         echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
 
