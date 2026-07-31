@@ -19,7 +19,7 @@ echo "=== Starting Kibana stack ==="
 docker compose -f "$KIBANA_DIR/docker-compose.yml" up --build -d "$@"
 
 if [ -n "${CF_API_TOKEN:-}" ] && [ -n "${CF_ACCOUNT_ID:-}" ] && \
-   [ -n "${CF_TUNNEL_ID:-}" ] && [ -n "${DNS:-}" ] && \
+   [ -n "${CF_TUNNEL_ID:-}" ] && [ -n "${CF_DOMAIN:-}" ] && \
    [ -n "${SUBDOMAIN:-}" ] && [ -n "${CF_SERVICE_URL:-}" ]; then
   bash "$KIBANA_DIR/scripts/register-tunnel.sh"
 else

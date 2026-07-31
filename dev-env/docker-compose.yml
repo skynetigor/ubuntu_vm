@@ -8,7 +8,7 @@ services:
       - "5003-5999:5003-5999"
     environment:
       - SSH_KEYS_BASE64=${SSH_KEYS_BASE64:-}
-      - DNS=${DNS:-}
+      - CF_DOMAIN=${CF_DOMAIN:-}
       - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
       - CF_API_TOKEN=${CF_API_TOKEN:-}
       - CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}
@@ -54,7 +54,7 @@ services:
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
-      - KIBANA_PUBLIC_URL=https://${SUBDOMAIN:-}.${DNS:-}
+      - KIBANA_PUBLIC_URL=https://${SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
       - KIBANA_SSH_PRIVATE_KEY_BASE64=${KIBANA_SSH_PRIVATE_KEY_BASE64:-}
 
