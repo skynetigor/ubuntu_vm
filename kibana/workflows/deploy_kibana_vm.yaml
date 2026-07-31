@@ -12,6 +12,11 @@ tags:
   - deploy
   - remote-host
 
+settings:
+  concurrency:
+    key: '{{workflow.id}}'
+    strategy: queue
+
 triggers:
   - type: manual
     inputs:
