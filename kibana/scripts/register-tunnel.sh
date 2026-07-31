@@ -18,7 +18,7 @@ fi
 if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ACCOUNT_ID:-}" ] || \
    [ -z "${CF_TUNNEL_ID:-}" ] || [ -z "${CF_DOMAIN:-}" ] || \
    [ -z "${CF_SUBDOMAIN:-}" ] || [ -z "${CF_SERVICE_URL:-}" ]; then
-  echo "No Cloudflare configuration (CF_*). Skipping"
+  echo "=== No Cloudflare configuration (CF_*). Skipping. === "
   exit 0
 fi
 
