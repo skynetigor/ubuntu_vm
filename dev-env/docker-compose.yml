@@ -10,6 +10,7 @@ services:
       - SSH_KEYS_BASE64=${SSH_KEYS_BASE64:-}
     volumes:
       - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
+      - dev-vm-docker:/var/lib/docker
     networks:
       - elastic
     restart: unless-stopped
@@ -68,3 +69,4 @@ networks:
 
 volumes:
   es_data:
+  dev-vm-docker:
