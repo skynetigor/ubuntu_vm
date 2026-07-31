@@ -71,11 +71,14 @@ steps:
           PR_NUM=$(echo "$TARGET" | sed -E 's|.*/pull/([0-9]+).*|\1|')
 
           echo "=== Resolving PR #$PR_NUM in $OWNER/$REPO ==="
-          RESOLVED=$(gh api "repos/$OWNER/$REPO/pulls/$PR_NUM" \
-            --jq '[.head.repo.clone_url, .head.ref, .head.sha] | join("\n")')
-          KIBANA_FORK=$(echo "$RESOLVED"   | sed -n '1p')
-          KIBANA_BRANCH=$(echo "$RESOLVED" | sed -n '2p')
-          KIBANA_COMMIT=$(echo "$RESOLVED" | sed -n '3p')
+          PR_JSON=$(curl -sf "https://api.github.com/repos/$OWNER/$REPO/pulls/$PR_NUM")
+          if [ -z "$PR_JSON" ]; then
+            echo "ERROR: GitHub API returned no data — check the PR URL"
+            exit 1
+          fi
+          KIBANA_FORK=$(echo "$PR_JSON"   | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['head']['repo']['clone_url'])")
+          KIBANA_BRANCH=$(echo "$PR_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['head']['ref'])")
+          KIBANA_COMMIT=$(echo "$PR_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['head']['sha'])")
           PROJECT="pr-${PR_NUM}"
 
         elif echo "$TARGET" | grep -qE 'github\.com/[^/]+/[^/]+/tree/'; then
@@ -104,6 +107,11 @@ steps:
           echo "  https://github.com/<owner>/<repo>/pull/<number>"
           echo "  https://github.com/<owner>/<repo>/tree/<branch>"
           echo "  https://github.com/<owner>/<repo>/commit/<sha>"
+          exit 1
+        fi
+
+        if [ -z "$KIBANA_FORK" ] || [ -z "$PROJECT" ]; then
+          echo "ERROR: resolve produced empty KIBANA_FORK or PROJECT — aborting"
           exit 1
         fi
 
