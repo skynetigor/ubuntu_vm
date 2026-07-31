@@ -222,12 +222,6 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ACCOUNT_ID:-}" ] || \
-           [ -z "${CF_TUNNEL_ID:-}" ]; then
-          echo "=== Skipping tunnel registration (CF_* vars not set) ==="
-          exit 0
-        fi
-
         set -a; source /opt/deploy-resolve/latest; set +a
         set -a; source "/opt/deploy-ports/$PROJECT"; set +a
 

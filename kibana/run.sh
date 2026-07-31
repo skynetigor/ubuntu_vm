@@ -18,13 +18,7 @@ DIST="$KIBANA_DIR/$LOCAL_DIR"
 echo "=== Starting Kibana stack ==="
 docker compose -f "$KIBANA_DIR/docker-compose.yml" up --build -d "$@"
 
-if [ -n "${CF_API_TOKEN:-}" ] && [ -n "${CF_ACCOUNT_ID:-}" ] && \
-   [ -n "${CF_TUNNEL_ID:-}" ] && [ -n "${CF_DOMAIN:-}" ] && \
-   [ -n "${CF_SUBDOMAIN:-}" ] && [ -n "${CF_SERVICE_URL:-}" ]; then
-  bash "$KIBANA_DIR/scripts/register-tunnel.sh"
-else
-  echo "=== Skipping tunnel registration (CF_* vars not set) ==="
-fi
+bash "$KIBANA_DIR/scripts/register-tunnel.sh"
 
 if [ "${DELETE_DIST:-false}" = "true" ]; then
   echo "=== Deleting dist directory ==="
