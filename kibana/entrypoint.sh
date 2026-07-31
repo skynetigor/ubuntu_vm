@@ -7,8 +7,8 @@ ES_URL="http://elasticsearch:9200"
 echo "=== Kibana Dev Container ==="
 echo "    Branch  : ${KIBANA_BRANCH:-main}"
 
-if [ -n "${KIBANA_SSH_PRIVATE_KEY:-}" ]; then
-  echo "$KIBANA_SSH_PRIVATE_KEY" | base64 -d > /opt/kibana/config/dev-vm-key
+if [ -n "${KIBANA_SSH_PRIVATE_KEY_BASE64:-}" ]; then
+  echo "$KIBANA_SSH_PRIVATE_KEY_BASE64" | base64 -d > /opt/kibana/config/dev-vm-key
   chmod 600 /opt/kibana/config/dev-vm-key
   echo "    SSH key : /opt/kibana/config/dev-vm-key"
 fi

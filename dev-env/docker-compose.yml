@@ -7,7 +7,7 @@ services:
       - "2222:22"
       - "5003-5999:5003-5999"
     environment:
-      - SSH_KEYS=${SSH_KEYS:-}
+      - SSH_KEYS_BASE64=${SSH_KEYS_BASE64:-}
     volumes:
       - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
     networks:
@@ -49,7 +49,7 @@ services:
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
       - KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-http://localhost:5601}
       - ES_HOST=http://elasticsearch:9200
-      - KIBANA_SSH_PRIVATE_KEY=${KIBANA_SSH_PRIVATE_KEY:-}
+      - KIBANA_SSH_PRIVATE_KEY_BASE64=${KIBANA_SSH_PRIVATE_KEY_BASE64:-}
 
     ports:
       - "5002:5601"

@@ -5,8 +5,8 @@ set -e
 chmod 750 /root
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 
-if [ -n "${SSH_KEYS:-}" ]; then
-  printf '%s\n' "$SSH_KEYS" > /root/.ssh/authorized_keys
+if [ -n "${SSH_KEYS_BASE64:-}" ]; then
+  echo "$SSH_KEYS_BASE64" | base64 -d > /root/.ssh/authorized_keys
 else
   cp /etc/ssh/authorized_keys.bak /root/.ssh/authorized_keys
 fi
