@@ -15,12 +15,12 @@ if [ -f "$KIBANA_DIR/.env" ]; then
   set -a; source "$KIBANA_DIR/.env"; set +a
 fi
 
-: "${CF_API_TOKEN:?CF_API_TOKEN is required}"
-: "${CF_ACCOUNT_ID:?CF_ACCOUNT_ID is required}"
-: "${CF_TUNNEL_ID:?CF_TUNNEL_ID is required}"
-: "${CF_DOMAIN:?CF_DOMAIN is required}"
-: "${SUBDOMAIN:?SUBDOMAIN is required}"
-: "${CF_SERVICE_URL:?CF_SERVICE_URL is required}"
+if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ACCOUNT_ID:-}" ] || \
+   [ -z "${CF_TUNNEL_ID:-}" ] || [ -z "${CF_DOMAIN:-}" ] || \
+   [ -z "${SUBDOMAIN:-}" ] || [ -z "${CF_SERVICE_URL:-}" ]; then
+  echo "No Cloudflare configuration (CF_*). Skipping"
+  exit 0
+fi
 
 export CF_HOSTNAME="${SUBDOMAIN}.${CF_DOMAIN}"
 
