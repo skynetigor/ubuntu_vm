@@ -8,7 +8,7 @@ echo "=== Kibana Dev Container ==="
 echo "    Branch  : ${KIBANA_BRANCH:-main}"
 
 if [ -n "${KIBANA_SSH_PRIVATE_KEY:-}" ]; then
-  printf '%s\n' "$KIBANA_SSH_PRIVATE_KEY" > /opt/kibana/config/dev-vm-key
+  echo "$KIBANA_SSH_PRIVATE_KEY" | base64 -d > /opt/kibana/config/dev-vm-key
   chmod 600 /opt/kibana/config/dev-vm-key
   echo "    SSH key : /opt/kibana/config/dev-vm-key"
 fi
