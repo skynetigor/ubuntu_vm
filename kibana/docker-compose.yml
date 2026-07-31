@@ -30,7 +30,7 @@ services:
     build:
       context: .
       args:
-        NODE_VERSION: ${NODE_VERSION}
+        NODE_VERSION: ${NODE_VERSION:-24.18.0}
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
