@@ -43,8 +43,8 @@ steps:
     with:
       code: |
         DEPLOY_DIR="/opt/deploy"
-        UBUNTU_VM_REPO="{{ variables.UBUNTU_VM_REPO }}"
-        UBUNTU_VM_BRANCH="{{ variables.UBUNTU_VM_BRANCH }}"
+        UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
+        UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
 
         if [ -d "$DEPLOY_DIR/.git" ]; then
           echo "=== Updating ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
