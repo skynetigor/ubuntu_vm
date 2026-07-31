@@ -36,20 +36,15 @@ triggers:
           default: main
 
 steps:
-  # ── Step 1: Clone / update ubuntu_vm and write .env ──────────────────────
-  - name: setup
+  # ── Step 1: Clone / update the ubuntu_vm repo ────────────────────────────
+  - name: update_ubuntu_vm
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         DEPLOY_DIR="/opt/deploy"
-        PORTS_DIR="/opt/deploy-ports"
         UBUNTU_VM_REPO="{{ variables.UBUNTU_VM_REPO }}"
         UBUNTU_VM_BRANCH="{{ variables.UBUNTU_VM_BRANCH }}"
-
-        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
-          | tr '[:upper:]/' '[:lower:]-' \
-          | sed 's/[^a-z0-9-]/-/g')
 
         if [ -d "$DEPLOY_DIR/.git" ]; then
           echo "=== Updating ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
@@ -63,7 +58,17 @@ steps:
         fi
         echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
 
-        # ── Port assignment ───────────────────────────────────────────────
+  # ── Step 2: Assign ports for this project ────────────────────────────────
+  - name: assign_ports
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    with:
+      code: |
+        PORTS_DIR="/opt/deploy-ports"
+        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
+          | tr '[:upper:]/' '[:lower:]-' \
+          | sed 's/[^a-z0-9-]/-/g')
+
         mkdir -p "$PORTS_DIR"
         PORT_FILE="$PORTS_DIR/$PROJECT"
 
@@ -89,7 +94,18 @@ steps:
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         fi
 
-        # ── Write .env ────────────────────────────────────────────────────
+  # ── Step 3: Write kibana/.env from inputs and assigned ports ─────────────
+  - name: write_env
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    with:
+      code: |
+        DEPLOY_DIR="/opt/deploy"
+        PROJECT=$(echo "{{ inputs.kibana_branch }}" \
+          | tr '[:upper:]/' '[:lower:]-' \
+          | sed 's/[^a-z0-9-]/-/g')
+        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
+
         cat > "$DEPLOY_DIR/kibana/.env" << ENVEOF
         KIBANA_FORK={{ inputs.kibana_fork }}
         KIBANA_BRANCH={{ inputs.kibana_branch }}
@@ -102,7 +118,7 @@ steps:
         echo "=== .env written ==="
         cat "$DEPLOY_DIR/kibana/.env"
 
-  # ── Step 2: Clone Kibana source ──────────────────────────────────────────
+  # ── Step 4: Clone Kibana source ──────────────────────────────────────────
   - name: clone
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -110,7 +126,7 @@ steps:
       code: |
         bash /opt/deploy/kibana/scripts/clone.sh
 
-  # ── Step 3: Bootstrap dependencies ───────────────────────────────────────
+  # ── Step 5: Bootstrap dependencies ───────────────────────────────────────
   - name: bootstrap
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -118,7 +134,7 @@ steps:
       code: |
         bash /opt/deploy/kibana/scripts/bootstrap.sh
 
-  # ── Step 4: Compile / build distribution ─────────────────────────────────
+  # ── Step 6: Compile / build distribution ─────────────────────────────────
   - name: compile
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -126,7 +142,7 @@ steps:
       code: |
         bash /opt/deploy/kibana/scripts/compile.sh
 
-  # ── Step 5: Start the stack ───────────────────────────────────────────────
+  # ── Step 7: Start the stack ───────────────────────────────────────────────
   - name: start
     type: remoteHost.runCommand
     connector-id: dev-vm
