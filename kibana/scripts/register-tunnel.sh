@@ -17,8 +17,11 @@ fi
 : "${CF_API_TOKEN:?CF_API_TOKEN is required}"
 : "${CF_ACCOUNT_ID:?CF_ACCOUNT_ID is required}"
 : "${CF_TUNNEL_ID:?CF_TUNNEL_ID is required}"
-: "${CF_HOSTNAME:?CF_HOSTNAME is required}"
+: "${DNS:?DNS is required}"
+: "${SUBDOMAIN:?SUBDOMAIN is required}"
 : "${CF_SERVICE_URL:?CF_SERVICE_URL is required}"
+
+CF_HOSTNAME="${SUBDOMAIN}.${DNS}"
 
 API="https://api.cloudflare.com/client/v4"
 AUTH=(-H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json")

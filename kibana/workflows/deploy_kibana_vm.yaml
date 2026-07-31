@@ -232,7 +232,7 @@ steps:
         set -a; source "/opt/deploy-ports/$PROJECT"; set +a
 
         SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
-        export CF_HOSTNAME="${SUBDOMAIN}.${CF_DOMAIN}"
+        export SUBDOMAIN
         export CF_SERVICE_URL="http://elastic-dev-vm:${KIBANA_PORT}"
 
         echo "=== Registering tunnel: $CF_HOSTNAME → $CF_SERVICE_URL ==="
@@ -261,6 +261,6 @@ steps:
         echo "  Kibana  : http://192.168.1.7:${KIBANA_PORT}"
         SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
         if [ -n "${CF_API_TOKEN:-}" ]; then
-        echo "  Public  : https://${SUBDOMAIN}.${CF_DOMAIN}"
+        echo "  Public  : https://${SUBDOMAIN}.${DNS}"
         fi
         echo "═══════════════════════════════════════════"
