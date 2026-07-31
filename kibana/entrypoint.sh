@@ -7,6 +7,12 @@ ES_URL="http://elasticsearch:9200"
 echo "=== Kibana Dev Container ==="
 echo "    Branch  : ${KIBANA_BRANCH:-main}"
 
+if [ -n "${KIBANA_SSH_PRIVATE:-}" ]; then
+  printf '%s\n' "$KIBANA_SSH_PRIVATE" > /opt/kibana/config/dev-vm-key
+  chmod 600 /opt/kibana/config/dev-vm-key
+  echo "    SSH key : /opt/kibana/config/dev-vm-key"
+fi
+
 # Process config template — substitutes ${KIBANA_BRANCH} and ${ES_PASSWORD}
 envsubst < /etc/kibana-config/kibana.dev.yml > /opt/kibana/config/kibana.yml
 

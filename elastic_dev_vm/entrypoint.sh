@@ -4,7 +4,12 @@ set -e
 # Fix /root permissions (Windows bind mount sets 777)
 chmod 750 /root
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
-cp /etc/ssh/authorized_keys.bak /root/.ssh/authorized_keys
+
+if [ -n "${SSH_KEYS:-}" ]; then
+  printf '%s\n' "$SSH_KEYS" > /root/.ssh/authorized_keys
+else
+  cp /etc/ssh/authorized_keys.bak /root/.ssh/authorized_keys
+fi
 chmod 600 /root/.ssh/authorized_keys
 
 # Required for Elasticsearch
