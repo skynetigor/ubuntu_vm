@@ -50,6 +50,7 @@ steps:
           sudo chown "$USER:$USER" "$DEPLOY_DIR"
           git clone --depth 1 "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
         fi
+        echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
 
         # ── Port assignment ───────────────────────────────────────────────
         mkdir -p "$PORTS_DIR"
