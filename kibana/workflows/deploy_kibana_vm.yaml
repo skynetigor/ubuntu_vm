@@ -148,5 +148,5 @@ ENVEOF
         echo "  Fork    : {{ inputs.kibana_fork }}"
         echo "  Branch  : {{ inputs.kibana_branch }}"
         echo "  ES      : localhost:${ES_PORT}"
-        echo "  Kibana  : localhost:${KIBANA_PORT}"
+        echo "  Kibana  : http://192.168.1.7:${KIBANA_PORT}"
         echo "═══════════════════════════════════════════"
