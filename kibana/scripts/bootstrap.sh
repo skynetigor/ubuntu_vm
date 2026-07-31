@@ -3,6 +3,9 @@ set -euo pipefail
 
 KIBANA_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Debug
+echo Hello from bootstrap.sh
+
 if [ -f "$KIBANA_DIR/.env" ]; then
   set -a; source "$KIBANA_DIR/.env"; set +a
 fi
