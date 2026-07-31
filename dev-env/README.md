@@ -7,7 +7,6 @@ Docker Compose setup that runs the full local development stack: the SSH dev box
 | File | Description |
 |---|---|
 | `docker-compose.yml` | Defines all four services (`dev-vm`, `elasticsearch`, `kibana`, `cloudflared`) |
-| `register-tunnel.sh` | Registers a service as a public hostname in the Cloudflare tunnel |
 | `start.sh` | Builds Kibana from source, then brings up the stack |
 | `ssh.sh` | Opens an SSH session into the dev-vm |
 

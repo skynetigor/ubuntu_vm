@@ -34,6 +34,9 @@ Sourced by `bootstrap.sh` and `compile.sh`. When running as root, wraps `yarn` t
 ### `install.sh`
 Local machine dependency checker and installer. Verifies git, curl, python3, NVM, Node, yarn, and Docker are present; installs any that are missing. Safe to run on macOS and Linux.
 
+### `register-tunnel.sh`
+Registers (or updates) Kibana as a public hostname in a Cloudflare tunnel via the API. Reads credentials from `kibana/.env`. Required variables: `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `CF_TUNNEL_ID`, `CF_HOSTNAME`, `CF_SERVICE_URL`.
+
 ## Commit caching
 
 Each stage writes its commit hash to a marker file:
