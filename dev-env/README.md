@@ -6,7 +6,7 @@ Docker Compose setup that runs the full local development stack: the SSH dev box
 
 | File | Description |
 |---|---|
-| `docker-compose.yml` | Defines all three services (`dev-vm`, `elasticsearch`, `kibana`) |
+| `docker-compose.yml` | Defines all four services (`dev-vm`, `elasticsearch`, `kibana`, `cloudflared`) |
 | `start.sh` | Builds Kibana from source, then brings up the stack |
 | `ssh.sh` | Opens an SSH session into the dev-vm |
 
@@ -54,3 +54,4 @@ Create a `kibana/.env` file (see `kibana/README.md`). The compose file also read
 | `SSH_KEYS_BASE64` | _(empty)_ | Base64-encoded authorized_keys; falls back to baked-in key |
 | `KIBANA_SSH_PRIVATE_KEY_BASE64` | _(empty)_ | Base64-encoded private key written to `/opt/kibana/config/dev-vm-key` |
 | `KIBANA_PUBLIC_URL` | `http://localhost:5601` | Kibana's externally reachable URL |
+| `CLOUDFLARE_TUNNEL_TOKEN` | _(required for cloudflared)_ | Token from the Cloudflare Zero Trust dashboard |

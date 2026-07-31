@@ -64,6 +64,13 @@ services:
       - elastic
     restart: unless-stopped
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - elastic
+    restart: unless-stopped
+
 networks:
   elastic:
     driver: bridge
