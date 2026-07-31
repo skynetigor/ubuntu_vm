@@ -3,7 +3,7 @@ server.host: "0.0.0.0"
 server.publicBaseUrl: "${KIBANA_PUBLIC_URL}"
 xpack.encryptedSavedObjects.encryptionKey: "dev-encryption-key-32-chars-minimum"
 
-elasticsearch.hosts: ['http://elasticsearch:9200']
+elasticsearch.hosts: ['${ES_HOST}']
 elasticsearch.username: kibana_system
 elasticsearch.password: ${ES_PASSWORD}
 

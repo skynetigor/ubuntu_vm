@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+echo $REPO_DIR
 KIBANA_DIR="$REPO_DIR/kibana"
 
 chmod 600 "$REPO_DIR/elastic_dev_vm/id_ed25519"
