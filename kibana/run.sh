@@ -27,8 +27,6 @@ run compile  "$KIBANA_DIR/scripts/compile.sh"
 echo "=== Starting Kibana stack ==="
 docker compose -f "$KIBANA_DIR/docker-compose.yml" up --build -d "$@"
 
-run register-tunnel bash "$KIBANA_DIR/scripts/register-tunnel.sh"
-
 if [ "${DELETE_DIST:-false}" = "true" ]; then
   echo "=== Deleting dist directory ==="
   rm -rf "$DIST"
