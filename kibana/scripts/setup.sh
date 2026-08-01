@@ -8,10 +8,12 @@ LOG_DIR="$SETUP_DIR/logs"
 mkdir -p "$LOG_DIR"
 
 run() {
-  local log="$LOG_DIR/$1.log"
-  echo "=== $1 (log: $log) ==="
+  local name="$1" log="$LOG_DIR/$1.log"
+  echo "=== $name (log: $log) ==="
   shift
-  "$@" >> "$log" 2>&1
+  if ! "$@" >> "$log" 2>&1; then
+    echo "=== ERROR: $name failed — see $log ==="
+  fi
 }
 
 runNode() {
