@@ -68,7 +68,16 @@ async function fetchAllWorkflows() {
   const byName = {};
   let page = 1;
   while (true) {
-    const resp    = await kibanaApi('POST', '/api/workflows/search', { size: 100, page, query: '' });
+    let resp;
+    try {
+      resp = await kibanaApi('POST', '/api/workflows/search', { size: 100, page, query: '' });
+    } catch (e) {
+      if (e.message.includes('HTTP 404')) {
+        console.warn('    /api/workflows/search returned 404 — assuming no existing workflows');
+        return byName;
+      }
+      throw e;
+    }
     const results = resp.results || [];
     for (const w of results) byName[w.name] = w.id;
     if (page >= (resp.total || 1) || !results.length) break;
