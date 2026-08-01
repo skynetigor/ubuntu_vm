@@ -47,6 +47,14 @@ services:
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
       - ${CONNECTORS_FILE:-/dev/null}:/opt/kibana/setup/connectors.yml:ro
       - ${WORKFLOWS_DIR:-/tmp}:/opt/kibana/setup/workflows:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl -sf http://localhost:5601/api/status | grep -q "\"level\":\"available\""'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
     depends_on:
       elasticsearch:
         condition: service_healthy
