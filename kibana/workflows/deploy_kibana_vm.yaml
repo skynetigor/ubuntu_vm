@@ -81,7 +81,10 @@ steps:
           KIBANA_FORK=$(echo "$PR_JSON"   | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['head']['repo']['clone_url'])")
           KIBANA_BRANCH=$(echo "$PR_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['head']['ref'])")
           KIBANA_COMMIT=$(echo "$PR_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['head']['sha'])")
-          PROJECT="pr-${PR_NUM}"
+          PROJECT=$(echo "$KIBANA_BRANCH" \
+            | tr '[:upper:]/' '[:lower:]-' \
+            | sed 's/[^a-z0-9-]/-/g' \
+            | cut -c1-50)
 
         elif echo "$TARGET" | grep -qE 'github\.com/[^/]+/[^/]+/tree/'; then
           # ── Branch URL ─────────────────────────────────────────────────────
