@@ -18,5 +18,7 @@ runNode() {
   run "$1" "$NODE" "$SETUP_DIR/$1"
 }
 
+run wait-kibana  bash "$SETUP_DIR/wait-kibana.sh"
+run kibana-init  bash "$SETUP_DIR/kibana-init.sh"
 runNode upload_connectors.js
 runNode upload_workflows.js

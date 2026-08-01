@@ -62,27 +62,6 @@ async function kibanaApi(method, apiPath, body) {
   return text ? JSON.parse(text) : null;
 }
 
-// ── Health check ──────────────────────────────────────────────────────────────
-
-async function waitForKibana({ retries = 60, intervalMs = 5000 } = {}) {
-  console.log(`=== Waiting for Kibana at ${KIBANA_URL} ===`);
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res  = await fetch(`${KIBANA_URL}/api/status`, { headers: HEADERS });
-      const data = await res.json();
-      if (data?.status?.overall?.level === 'available') {
-        console.log('    Kibana is ready');
-        return;
-      }
-      console.log(`    Not ready yet (${data?.status?.overall?.level ?? 'unknown'}) — retrying...`);
-    } catch {
-      console.log('    Kibana unreachable — retrying...');
-    }
-    await new Promise(r => setTimeout(r, intervalMs));
-  }
-  throw new Error(`Kibana did not become available after ${retries * intervalMs / 1000}s`);
-}
-
 // ── Fetch existing workflows (paginated) ──────────────────────────────────────
 
 async function fetchAllWorkflows() {
@@ -119,7 +98,6 @@ function stripId(rawYaml) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  if (!process.env.KIBANA_READY) await waitForKibana();
   const workflowFiles = fs.readdirSync(WORKFLOWS_DIR)
     .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
     .sort()
