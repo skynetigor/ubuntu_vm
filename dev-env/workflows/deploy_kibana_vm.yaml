@@ -221,22 +221,6 @@ steps:
         echo "=== Stack started (project: $PROJECT) ==="
         docker compose -p "$PROJECT" ps
 
-  # ── Step 9: Register Cloudflare tunnel hostname ───────────────────────────
-  - name: register_tunnel
-    type: remoteHost.runCommand
-    connector-id: dev-vm
-    with:
-      code: |
-        set -a; source /opt/deploy-resolve/latest; set +a
-        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
-
-        CF_SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
-        export CF_SUBDOMAIN
-        export CF_SERVICE_URL="http://elastic-dev-vm:${KIBANA_PORT}"
-
-        echo "=== Registering tunnel: ${CF_SUBDOMAIN}.${CF_DOMAIN} → $CF_SERVICE_URL ==="
-        bash /opt/deploy/kibana/scripts/register-tunnel.sh
-
   # ── Summary ───────────────────────────────────────────────────────────────
   - name: summary
     type: remoteHost.runCommand
