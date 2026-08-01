@@ -70,6 +70,23 @@ def fetch_all_workflows():
         page += 1
     return by_name
 
+def delete_if_exists(workflow_id):
+    try:
+        api('DELETE', f'/api/workflows/{workflow_id}')
+    except RuntimeError as e:
+        if 'HTTP 404' not in str(e):
+            raise
+
+def extract_field(lines, field):
+    prefix = f'{field}:'
+    return next(
+        (l[len(prefix):].strip().strip('"\'') for l in lines if l.startswith(prefix)),
+        None,
+    )
+
+def strip_id(raw_yaml):
+    return '\n'.join(l for l in raw_yaml.splitlines() if not l.startswith('id:'))
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 workflow_files = sorted(
@@ -81,32 +98,33 @@ if not workflow_files:
     sys.exit(0)
 
 print(f"=== Fetching existing workflows from {KIBANA_URL} ===")
-existing = fetch_all_workflows()
-print(f"    Found {len(existing)} existing workflow(s)")
+existing_by_name = fetch_all_workflows()
+print(f"    Found {len(existing_by_name)} existing workflow(s)")
 
 errors = 0
 for path in workflow_files:
     raw_yaml = path.read_text()
+    lines    = raw_yaml.splitlines()
 
-    name = next(
-        (line[len('name:'):].strip().strip('"\'')
-         for line in raw_yaml.splitlines()
-         if line.startswith('name:')),
-        None,
-    )
+    wf_id = extract_field(lines, 'id')
+    name  = extract_field(lines, 'name')
+
     if not name:
         print(f"ERROR [{path.name}]: no top-level 'name:' field found", file=sys.stderr)
         errors += 1
         continue
 
     try:
-        if name in existing:
-            print(f"=== Replacing: {name} ===")
-            api('DELETE', f'/api/workflows/{existing[name]}')
+        if wf_id:
+            print(f"=== Replacing by id ({wf_id}): {name} ===")
+            delete_if_exists(wf_id)
+        elif name in existing_by_name:
+            print(f"=== Replacing by name: {name} ===")
+            api('DELETE', f'/api/workflows/{existing_by_name[name]}')
         else:
             print(f"=== Creating: {name} ===")
 
-        result = api('POST', '/api/workflows', {'yaml': raw_yaml})
+        result = api('POST', '/api/workflows', {'yaml': strip_id(raw_yaml)})
         print(f"    id: {result.get('id')}")
     except Exception as e:
         print(f"ERROR [{name}]: {e}", file=sys.stderr)
