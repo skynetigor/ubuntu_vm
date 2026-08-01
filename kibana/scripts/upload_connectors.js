@@ -61,6 +61,27 @@ function parseYamlFile(filePath) {
   }
 }
 
+// ── Health check ──────────────────────────────────────────────────────────────
+
+async function waitForKibana({ retries = 60, intervalMs = 5000 } = {}) {
+  console.log(`=== Waiting for Kibana at ${KIBANA_URL} ===`);
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res  = await fetch(`${KIBANA_URL}/api/status`, { headers: HEADERS });
+      const data = await res.json();
+      if (data?.status?.overall?.level === 'available') {
+        console.log('    Kibana is ready');
+        return;
+      }
+      console.log(`    Not ready yet (${data?.status?.overall?.level ?? 'unknown'}) — retrying...`);
+    } catch {
+      console.log('    Kibana unreachable — retrying...');
+    }
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error(`Kibana did not become available after ${retries * intervalMs / 1000}s`);
+}
+
 // ── HTTP helpers ───────────────────────────────────────────────────────────────
 
 async function kibanaApi(method, apiPath, body) {
@@ -80,6 +101,7 @@ async function kibanaApi(method, apiPath, body) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  await waitForKibana();
   const connectors = parseYamlFile(CONNECTORS_FILE);
   if (!Array.isArray(connectors) || !connectors.length) {
     console.log('No connectors found in CONNECTORS_FILE. Skipping.');
