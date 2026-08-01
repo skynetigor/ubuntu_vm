@@ -1,6 +1,6 @@
 FROM ubuntu:22.04
 
-RUN apt-get update && apt-get install -y curl gettext-base openssh-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl gettext-base openssh-client python3 python3-yaml && rm -rf /var/lib/apt/lists/*
 
 # Create user before COPY so --chown can reference it
 RUN useradd -m -s /bin/bash kibana
@@ -22,6 +22,7 @@ RUN ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/') \
     && chown -R kibana:kibana /opt/kibana/node \
     && chmod +x /opt/kibana/bin/* /opt/kibana/node/default/bin/*
 
+COPY --chown=kibana:kibana scripts/ /opt/kibana/setup/
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

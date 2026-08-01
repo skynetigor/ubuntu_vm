@@ -119,7 +119,7 @@ function stripId(rawYaml) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  await waitForKibana();
+  if (!process.env.KIBANA_READY) await waitForKibana();
   const workflowFiles = fs.readdirSync(WORKFLOWS_DIR)
     .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
     .sort()

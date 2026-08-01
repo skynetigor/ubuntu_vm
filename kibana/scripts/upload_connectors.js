@@ -101,7 +101,7 @@ async function kibanaApi(method, apiPath, body) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  await waitForKibana();
+  if (!process.env.KIBANA_READY) await waitForKibana();
   const connectors = parseYamlFile(CONNECTORS_FILE);
   if (!Array.isArray(connectors) || !connectors.length) {
     console.log('No connectors found in CONNECTORS_FILE. Skipping.');
