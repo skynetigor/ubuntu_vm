@@ -38,6 +38,6 @@ for i in $(seq 1 60); do
 done
 
 echo "=== Starting Kibana ==="
-/opt/kibana/node/default/bin/node /opt/kibana/setup/setup.js &
+/opt/kibana/node/default/bin/node /opt/kibana/setup/setup.js > /opt/kibana/setup/setup.log 2>&1 &
 
 exec /opt/kibana/bin/kibana
