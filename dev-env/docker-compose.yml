@@ -64,6 +64,7 @@ services:
       - "5002:5601"
     volumes:
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
+      - ./env/connectors.yml:/opt/kibana/setup/connectors.yml:ro
     depends_on:
       elasticsearch:
         condition: service_healthy
