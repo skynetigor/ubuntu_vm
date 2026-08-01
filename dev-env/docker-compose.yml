@@ -57,14 +57,14 @@ services:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
       - KIBANA_SSH_PRIVATE_KEY_BASE64=${KIBANA_SSH_PRIVATE_KEY_BASE64:-}
-      - CONNECTORS_FILE=${CONNECTORS_FILE:-}
-      - WORKFLOWS_DIR=${WORKFLOWS_DIR}
+      - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
+      - WORKFLOWS_DIR=/opt/kibana/setup/env/workflows
 
     ports:
       - "5002:5601"
     volumes:
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
-      - ./env/connectors.yml:/opt/kibana/setup/connectors.yml:ro
+      - ./env:/opt/kibana/setup/env:ro
     depends_on:
       elasticsearch:
         condition: service_healthy
