@@ -4,6 +4,8 @@ description: |
   Resolves a GitHub PR / branch / commit URL, then runs
   clone → bootstrap → compile → docker compose up inside the dev-vm.
   Ports are auto-assigned from 5003-5999 and reused on re-deploy.
+  The Kibana container handles post-start setup: waits for readiness,
+  runs kibana-init, then uploads connectors and workflows.
 tags:
   - kibana
   - preview
@@ -234,18 +236,6 @@ steps:
 
         echo "=== Registering tunnel: ${CF_SUBDOMAIN}.${CF_DOMAIN} → $CF_SERVICE_URL ==="
         bash /opt/deploy/kibana/scripts/register-tunnel.sh
-
-  # ── Step 10: Stream Kibana logs for 2 minutes ────────────────────────────
-  - name: logs
-    type: remoteHost.runCommand
-    connector-id: dev-vm
-    with:
-      code: |
-        set -a; source /opt/deploy-resolve/latest; set +a
-        KIBANA_DIR="/opt/deploy/kibana"
-        echo "=== Kibana logs (2 min) ==="
-        timeout 120 docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" logs -f kibana || true
-        echo "=== End of logs ==="
 
   # ── Summary ───────────────────────────────────────────────────────────────
   - name: summary
