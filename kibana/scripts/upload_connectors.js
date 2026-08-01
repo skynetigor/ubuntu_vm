@@ -49,18 +49,29 @@ const HEADERS = {
 
 // ── YAML parsing (via Python — no npm deps needed) ────────────────────────────
 
-function expandEnvVars(text) {
-  return text.replace(/\$\{([^}]+)\}/g, (match, name) => {
+function expandTemplate(text) {
+  // $(command) — execute in bash, substitute trimmed stdout
+  text = text.replace(/\$\(([^)]+)\)/g, (match, cmd) => {
+    try {
+      return execSync(cmd, { encoding: 'utf8', shell: '/bin/bash' }).trim();
+    } catch (e) {
+      console.warn(`    Warning: $(${cmd}) failed — left as-is`);
+      return match;
+    }
+  });
+  // ${VAR} — environment variable substitution
+  text = text.replace(/\$\{([^}]+)\}/g, (match, name) => {
     if (name in process.env) return process.env[name];
     console.warn(`    Warning: \${${name}} is not set — left as-is`);
     return match;
   });
+  return text;
 }
 
 function parseYamlFile(filePath) {
   try {
     const raw      = fs.readFileSync(filePath, 'utf8');
-    const expanded = expandEnvVars(raw);
+    const expanded = expandTemplate(raw);
     const json     = execSync(
       'python3 -c "import yaml,json,sys; print(json.dumps(yaml.safe_load(sys.stdin.read())))"',
       { input: expanded, stdio: ['pipe', 'pipe', 'inherit'] },
