@@ -18,7 +18,10 @@ fi
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
 KIBANA_USERNAME="${KIBANA_USERNAME:-elastic}"
 KIBANA_PASSWORD="${KIBANA_PASSWORD:-changeme}"
-: "${CONNECTORS_FILE:?CONNECTORS_FILE is required}"
+if [ -z "${CONNECTORS_FILE:-}" ]; then
+  echo "No CONNECTORS_FILE set. Skipping."
+  exit 0
+fi
 
 AUTH="$(printf '%s:%s' "$KIBANA_USERNAME" "$KIBANA_PASSWORD" | base64 -w 0)"
 
