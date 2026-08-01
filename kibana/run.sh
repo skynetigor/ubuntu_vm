@@ -20,6 +20,9 @@ docker compose -f "$KIBANA_DIR/docker-compose.yml" up --build -d "$@"
 
 bash "$KIBANA_DIR/scripts/register-tunnel.sh"
 
+node "$KIBANA_DIR/scripts/upload_connectors.js"
+node "$KIBANA_DIR/scripts/upload_workflows.js"
+
 if [ "${DELETE_DIST:-false}" = "true" ]; then
   echo "=== Deleting dist directory ==="
   rm -rf "$DIST"
