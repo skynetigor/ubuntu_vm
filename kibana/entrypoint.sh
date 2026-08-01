@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+if [ -f /opt/kibana/setup/env/.env ]; then
+  set -a
+  source /opt/kibana/setup/env/.env
+  set +a
+fi
+
 ES_PASS="${ES_PASSWORD:-changeme}"
 ES_URL="http://elasticsearch:9200"
 

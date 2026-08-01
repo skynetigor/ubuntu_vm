@@ -51,6 +51,9 @@ services:
       context: ../kibana
       args:
         NODE_VERSION: ${NODE_VERSION:-24.18.0}
+    env_file:
+      - path: ./env/.env
+        required: false
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
