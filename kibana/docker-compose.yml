@@ -36,6 +36,8 @@ services:
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
       - KIBANA_PUBLIC_URL=http://192.168.1.7:${KIBANA_PORT:-5601}
       - ES_HOST=http://elasticsearch:9200
+      - CONNECTORS_FILE=/opt/kibana/setup/connectors.yml
+      - WORKFLOWS_DIR=/opt/kibana/setup/workflows
 
     ports:
       - "${KIBANA_PORT:-5601}:5601"

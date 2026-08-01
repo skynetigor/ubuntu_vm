@@ -20,14 +20,6 @@ docker compose -f "$KIBANA_DIR/docker-compose.yml" up --build -d "$@"
 
 bash "$KIBANA_DIR/scripts/register-tunnel.sh"
 
-docker compose -f "$KIBANA_DIR/docker-compose.yml" exec -T \
-  -e KIBANA_URL=http://localhost:5601 \
-  -e KIBANA_USERNAME="${KIBANA_USERNAME:-elastic}" \
-  -e KIBANA_PASSWORD="${KIBANA_PASSWORD:-${ES_PASSWORD:-changeme}}" \
-  -e CONNECTORS_FILE=/opt/kibana/setup/connectors.yml \
-  -e WORKFLOWS_DIR=/opt/kibana/setup/workflows \
-  kibana /opt/kibana/node/default/bin/node /opt/kibana/setup/setup.js
-
 if [ "${DELETE_DIST:-false}" = "true" ]; then
   echo "=== Deleting dist directory ==="
   rm -rf "$DIST"
