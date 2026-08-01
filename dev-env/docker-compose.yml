@@ -54,7 +54,7 @@ services:
     environment:
       - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
-      - KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-http://localhost:5002}
+      - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
       - KIBANA_SSH_PRIVATE_KEY_BASE64=${KIBANA_SSH_PRIVATE_KEY_BASE64:-}
       - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
