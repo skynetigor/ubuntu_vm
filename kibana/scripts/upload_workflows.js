@@ -145,8 +145,9 @@ async function main() {
         console.log(`=== Creating: ${name} ===`);
       }
 
-      const result = await kibanaApi('POST', '/api/workflows', { yaml: stripId(rawYaml) });
-      console.log(`    id: ${result?.id}`);
+      const result = await kibanaApi('POST', '/api/workflows', { workflows: [{ yaml: stripId(rawYaml) }] });
+      const id = result?.workflows?.[0]?.id ?? result?.id;
+      console.log(`    id: ${id}`);
     } catch (e) {
       console.error(`ERROR [${name}]: ${e.message}`);
       errors++;
