@@ -141,7 +141,8 @@ async function main() {
         console.log(`=== Creating: ${name} ===`);
       }
 
-      const result = await kibanaApi('POST', '/api/actions/connector', connector);
+      const { id: _id, ...connectorBody } = connector;
+      const result = await kibanaApi('POST', '/api/actions/connector', connectorBody);
       console.log(`    id: ${result?.id}`);
     } catch (e) {
       console.error(`ERROR [${name}]: ${e.message}`);
