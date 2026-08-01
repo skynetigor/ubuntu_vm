@@ -57,6 +57,8 @@ services:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
       - KIBANA_SSH_PRIVATE_KEY_BASE64=${KIBANA_SSH_PRIVATE_KEY_BASE64:-}
+      - CONNECTORS_FILE=${CONNECTORS_FILE:-}
+      - WORKFLOWS_DIR=${WORKFLOWS_DIR}
 
     ports:
       - "5002:5601"
