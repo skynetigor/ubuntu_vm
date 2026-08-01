@@ -4,8 +4,7 @@ dist/kibana/dist/**/*.map
 # Source directory (cleaned up by compile.sh, but guard against leftover)
 dist/kibana/src/
 
-# Scripts and config not needed inside the image
-scripts/
+# Config not needed inside the image
 *.yml
 *.env
 .env*
