@@ -73,16 +73,31 @@ function expandTemplate(jsonStr) {
 }
 
 function parseYamlFile(filePath) {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  let json;
   try {
-    const raw  = fs.readFileSync(filePath, 'utf8');
-    const json = execSync(
+    json = execSync(
       'python3 -c "import yaml,json,sys; print(json.dumps(yaml.safe_load(sys.stdin.read())))"',
-      { input: raw, stdio: ['pipe', 'pipe', 'inherit'] },
+      { input: raw, stdio: ['pipe', 'pipe', 'pipe'] },
     ).toString().trim();
-    return JSON.parse(expandTemplate(json));
   } catch (e) {
-    throw new Error(`Failed to parse ${filePath}: ${e.message}`);
+    const stderr = e.stderr?.toString() || e.message;
+    const lineMatch = stderr.match(/line (\d+)/);
+    if (lineMatch) {
+      const errLine = parseInt(lineMatch[1]);
+      const lines = raw.split('\n');
+      const start = Math.max(0, errLine - 3);
+      const end   = Math.min(lines.length, errLine + 2);
+      console.error(`\nFile content around line ${errLine} of ${filePath}:`);
+      lines.slice(start, end).forEach((l, i) => {
+        const n = start + i + 1;
+        console.error(`  ${n === errLine ? '→' : ' '} ${String(n).padStart(4)}: ${l}`);
+      });
+      console.error('');
+    }
+    throw new Error(`Failed to parse ${filePath}: ${stderr}`);
   }
+  return JSON.parse(expandTemplate(json));
 }
 
 // ── HTTP helpers ───────────────────────────────────────────────────────────────
