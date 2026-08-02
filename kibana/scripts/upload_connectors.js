@@ -127,25 +127,25 @@ async function main() {
 
   console.log(`=== Fetching existing connectors from ${KIBANA_URL} ===`);
   const existing     = await kibanaApi('GET', '/api/actions/connectors');
-  const existingByName = Object.fromEntries(existing.map(c => [c.name, c.id]));
+  const existingById = new Set(existing.map(c => c.id));
   console.log(`    Found ${existing.length} existing connector(s)`);
 
   let errors = 0;
   for (const connector of connectors) {
-    const { name } = connector;
+    const { id } = connector;
     try {
-      if (name in existingByName) {
-        console.log(`=== Replacing: ${name} ===`);
-        await kibanaApi('DELETE', `/api/actions/connector/${existingByName[name]}`);
+      if (existingById.has(id)) {
+        console.log(`=== Replacing: ${id} ===`);
+        await kibanaApi('DELETE', `/api/actions/connector/${id}`);
       } else {
-        console.log(`=== Creating: ${name} ===`);
+        console.log(`=== Creating: ${id} ===`);
       }
 
       const { id: _id, ...connectorBody } = connector;
-      const result = await kibanaApi('POST', '/api/actions/connector', connectorBody);
+      const result = await kibanaApi('POST', `/api/actions/connector/${_id}`, connectorBody);
       console.log(`    id: ${result?.id}`);
     } catch (e) {
-      console.error(`ERROR [${name}]: ${e.message}`);
+      console.error(`ERROR [${id}]: ${e.message}`);
       errors++;
     }
   }
