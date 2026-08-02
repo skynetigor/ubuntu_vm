@@ -132,13 +132,13 @@ async function main() {
 
   let errors = 0;
   for (const connector of connectors) {
-    const { id } = connector;
+    const { id, name } = connector;
     try {
       if (existingById.has(id)) {
-        console.log(`=== Replacing: ${id} ===`);
+        console.log(`=== Replacing: ${name} (${id}) ===`);
         await kibanaApi('DELETE', `/api/actions/connector/${id}`);
       } else {
-        console.log(`=== Creating: ${id} ===`);
+        console.log(`=== Creating: ${name} (${id}) ===`);
       }
 
       const { id: _id, ...connectorBody } = connector;
