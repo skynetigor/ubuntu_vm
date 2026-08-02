@@ -47,14 +47,17 @@ steps:
         UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
         UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
 
+        for dir in /opt/deploy /opt/deploy-resolve /opt/deploy-ports; do
+          sudo mkdir -p "$dir"
+          sudo chmod 777 "$dir"
+        done
+
         if [ -d "$DEPLOY_DIR/.git" ]; then
           echo "=== Updating ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
           git -C "$DEPLOY_DIR" fetch --depth 1 origin "$UBUNTU_VM_BRANCH"
           git -C "$DEPLOY_DIR" reset --hard FETCH_HEAD
         else
           echo "=== Cloning ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
-          sudo mkdir -p "$DEPLOY_DIR"
-          sudo chmod -R 777 "$DEPLOY_DIR"
           git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
         fi
         echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
