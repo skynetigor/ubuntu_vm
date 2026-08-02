@@ -221,6 +221,25 @@ steps:
         echo "=== Stack started (project: $PROJECT) ==="
         docker compose -p "$PROJECT" ps
 
+  # ── Step 9: Output setup logs from inside the Kibana container ──────────
+  - name: get_logs
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    with:
+      code: |
+        set -a; source /opt/deploy-resolve/latest; set +a
+        KIBANA_DIR="/opt/deploy/kibana"
+        CONTAINER=$(docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" ps -q kibana)
+        LOG_DIR="/opt/kibana/setup/logs"
+        echo "=== Setup logs (${LOG_DIR}) ==="
+        for f in $(docker exec "$CONTAINER" sh -c "ls ${LOG_DIR}/*.log 2>/dev/null || true"); do
+          echo ""
+          echo "──── $f ────"
+          docker exec "$CONTAINER" cat "$f"
+        done
+        echo ""
+        echo "=== End of logs ==="
+
   # ── Summary ───────────────────────────────────────────────────────────────
   - name: summary
     type: remoteHost.runCommand
