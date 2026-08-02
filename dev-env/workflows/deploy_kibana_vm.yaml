@@ -54,7 +54,7 @@ steps:
         else
           echo "=== Cloning ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
           sudo mkdir -p "$DEPLOY_DIR"
-          sudo chown "$USER:$USER" "$DEPLOY_DIR"
+          sudo chmod -R 777 "$DEPLOY_DIR"
           git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
         fi
         echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
