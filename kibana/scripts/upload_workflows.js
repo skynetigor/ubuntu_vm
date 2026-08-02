@@ -86,13 +86,6 @@ async function fetchAllWorkflows() {
   return byName;
 }
 
-async function deleteIfExists(workflowId) {
-  try {
-    await kibanaApi('DELETE', `/api/workflows/${workflowId}`);
-  } catch (e) {
-    if (!e.message.includes('HTTP 404')) throw e;
-  }
-}
 
 function extractField(lines, field) {
   const prefix = `${field}:`;
@@ -125,7 +118,6 @@ async function main() {
   for (const filePath of workflowFiles) {
     const rawYaml = fs.readFileSync(filePath, 'utf8');
     const lines   = rawYaml.split('\n');
-    const wfId    = extractField(lines, 'id');
     const name    = extractField(lines, 'name');
 
     if (!name) {
@@ -135,19 +127,17 @@ async function main() {
     }
 
     try {
-      if (wfId) {
-        console.log(`=== Replacing by id (${wfId}): ${name} ===`);
-        await deleteIfExists(wfId);
-      } else if (name in existingByName) {
-        console.log(`=== Replacing by name: ${name} ===`);
-        await kibanaApi('DELETE', `/api/workflows/${existingByName[name]}`);
+      if (name in existingByName) {
+        const existingId = existingByName[name];
+        console.log(`=== Updating: ${name} (${existingId}) ===`);
+        await kibanaApi('PUT', `/api/workflows/workflow/${existingId}`, { yaml: stripId(rawYaml) });
+        console.log(`    id: ${existingId}`);
       } else {
         console.log(`=== Creating: ${name} ===`);
+        const result = await kibanaApi('POST', '/api/workflows', { workflows: [{ yaml: stripId(rawYaml) }] });
+        const id = result?.workflows?.[0]?.id ?? result?.id;
+        console.log(`    id: ${id}`);
       }
-
-      const result = await kibanaApi('POST', '/api/workflows', { workflows: [{ yaml: stripId(rawYaml) }] });
-      const id = result?.workflows?.[0]?.id ?? result?.id;
-      console.log(`    id: ${id}`);
     } catch (e) {
       console.error(`ERROR [${name}]: ${e.message}`);
       errors++;
