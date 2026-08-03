@@ -8,6 +8,9 @@ if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   chown -R kibana:kibana /home/kibana/.ssh
 fi
 
+# Ensure kibana user owns /opt (covers pre-existing named volumes with stale root ownership)
+chown -R kibana:kibana /opt
+
 # Required for Elasticsearch
 sysctl -w vm.max_map_count=262144
 
