@@ -79,7 +79,9 @@ services:
     env_file:
       - path: ./env/.env
         required: false
-    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}
     networks:
       - elastic
     restart: unless-stopped
