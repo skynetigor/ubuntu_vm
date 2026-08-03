@@ -28,7 +28,7 @@ cd "$SRC_DIR"
 # ── Node version ──────────────────────────────────────────────────────────────
 # set +u: nvm.sh uses unbound variables internally
 # shellcheck disable=SC1091
-set +u; source "${NVM_DIR:-/opt/nvm}/nvm.sh"; set -u
+set +u; source "${NVM_DIR:-/home/kibana/.nvm}/nvm.sh"; set -u
 nvm install
 nvm use
 # Ensure yarn is available in this exact node version (the NVM LTS may differ)

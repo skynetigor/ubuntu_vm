@@ -1,7 +1,6 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV NVM_DIR=/opt/nvm
 
 # Base tools + git
 RUN apt-get update && apt-get install -y \
@@ -47,7 +46,16 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# NVM + Node LTS + Yarn + Claude (system-wide at /opt/nvm)
+# User setup (before NVM so /home/kibana exists)
+RUN useradd -m -s /bin/bash kibana \
+    && echo "kibana:kibana" | chpasswd \
+    && usermod -aG sudo,docker kibana \
+    && echo "kibana ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && mkdir -p /home/kibana/.ssh \
+    && chmod 700 /home/kibana/.ssh
+
+# NVM + Node LTS + Yarn + Claude (in kibana's home — never in a named volume)
+ENV NVM_DIR=/home/kibana/.nvm
 RUN mkdir -p "$NVM_DIR" \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh \
        | NVM_DIR="$NVM_DIR" PROFILE=/dev/null bash \
@@ -55,40 +63,29 @@ RUN mkdir -p "$NVM_DIR" \
     && nvm install --lts \
     && nvm alias default node \
     && npm install -g yarn @anthropic-ai/claude-code \
-    # Symlink into /usr/local/bin so all shells (interactive and non-interactive) find them
+    # Symlink into /usr/local/bin so all shells find them without sourcing nvm
     && NODE_BIN="$(dirname "$(nvm which default)")" \
     && ln -sf "$NODE_BIN/node"   /usr/local/bin/node \
     && ln -sf "$NODE_BIN/npm"    /usr/local/bin/npm \
     && ln -sf "$NODE_BIN/npx"    /usr/local/bin/npx \
     && ln -sf "$NODE_BIN/yarn"   /usr/local/bin/yarn \
-    && ln -sf "$NODE_BIN/claude" /usr/local/bin/claude
+    && ln -sf "$NODE_BIN/claude" /usr/local/bin/claude \
+    # Give kibana full ownership of its home (covers NVM and .ssh)
+    && chown -R kibana:kibana /home/kibana
 
 # Make NVM available in all shell types:
 #   /etc/profile.d  — login shells (ssh -l, su -, interactive login)
 #   /etc/bash.bashrc — non-login interactive shells
 #   /etc/environment — sets NVM_DIR for PAM-based sessions (non-interactive SSH)
-RUN printf 'export NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
+RUN printf 'export NVM_DIR=/home/kibana/.nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
       > /etc/profile.d/nvm.sh \
-    && printf '\nexport NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
+    && printf '\nexport NVM_DIR=/home/kibana/.nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
       >> /etc/bash.bashrc \
-    && echo 'NVM_DIR=/opt/nvm' >> /etc/environment
-
-# User setup
-RUN useradd -m -s /bin/bash kibana \
-    && echo "kibana:kibana" | chpasswd \
-    && usermod -aG sudo,docker kibana \
-    && echo "kibana ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
-    && mkdir -p /home/kibana/.ssh \
-    && chmod 700 /home/kibana/.ssh \
-    && chown -R kibana:kibana /opt
-
-# NVM in kibana's bashrc (for non-login interactive shells opened after su)
-RUN printf '\nexport NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
-      >> /home/kibana/.bashrc
+    && echo 'NVM_DIR=/home/kibana/.nvm' >> /etc/environment
 
 COPY id_ed25519.pub /home/kibana/.ssh/authorized_keys
 RUN chmod 600 /home/kibana/.ssh/authorized_keys \
-    && chown -R kibana:kibana /home/kibana/.ssh
+    && chown kibana:kibana /home/kibana/.ssh/authorized_keys
 
 # SSH setup
 RUN mkdir -p /var/run/sshd
