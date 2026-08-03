@@ -165,7 +165,7 @@ steps:
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         fi
 
-  # ── Step 4: Write kibana/.env from resolved values and assigned ports ─────
+  # ── Step 4: Write kibana/.env from resolved values, ports, and env vars ───
   - name: write_env
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -175,16 +175,25 @@ steps:
         set -a; source /opt/deploy-resolve/latest; set +a
         set -a; source "/opt/deploy-ports/$PROJECT"; set +a
 
-        cat > "$DEPLOY_DIR/kibana/.env" << ENVEOF
-        KIBANA_FORK=${KIBANA_FORK}
-        KIBANA_BRANCH=${KIBANA_BRANCH}
-        KIBANA_COMMIT=${KIBANA_COMMIT}
-        ES_PORT=${ES_PORT}
-        KIBANA_PORT=${KIBANA_PORT}
-        LOCAL_DIR=dist
-        ES_VERSION=9.6.0
-        DOCKER_DEFAULT_PLATFORM=linux/amd64
-        ENVEOF
+        CF_SUBDOMAIN=$(echo "$PROJECT" | tr '[:upper:]/' '[:lower:]-' | sed 's/[^a-z0-9-]/-/g' | cut -c1-20)
+        KIBANA_PUBLIC_URL="https://${CF_SUBDOMAIN}.${CF_DOMAIN:-}"
+
+        {
+          echo "KIBANA_FORK=${KIBANA_FORK}"
+          echo "KIBANA_BRANCH=${KIBANA_BRANCH}"
+          echo "KIBANA_COMMIT=${KIBANA_COMMIT}"
+          echo "ES_PORT=${ES_PORT}"
+          echo "KIBANA_PORT=${KIBANA_PORT}"
+          echo "LOCAL_DIR=dist"
+          echo "ES_VERSION=9.6.0"
+          echo "DOCKER_DEFAULT_PLATFORM=linux/amd64"
+          echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL}"
+          echo "CF_DOMAIN=${CF_DOMAIN:-}"
+          echo "CF_SUBDOMAIN=${CF_SUBDOMAIN}"
+          echo "CF_API_TOKEN=${CF_API_TOKEN:-}"
+          echo "CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}"
+          echo "CF_TUNNEL_ID=${CF_TUNNEL_ID:-}"
+        } > "$DEPLOY_DIR/kibana/.env"
         echo "=== .env written ==="
         cat "$DEPLOY_DIR/kibana/.env"
 
