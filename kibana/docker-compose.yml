@@ -41,8 +41,6 @@ services:
         required: false
     environment:
       - ES_HOST=http://elasticsearch:9200
-      - CONNECTORS_FILE=/opt/kibana/setup/connectors.yml
-      - WORKFLOWS_DIR=/opt/kibana/setup/workflows
       - KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-http://localhost:5601}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
       - CF_DOMAIN=${CF_DOMAIN:-}
