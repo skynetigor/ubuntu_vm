@@ -11,8 +11,8 @@ if [ -f "$KIBANA_DIR/.env" ]; then
   set -a; source "$KIBANA_DIR/.env"; set +a
 fi
 
-if [ -f "$DEV_ENV_DIR/env/.env" ]; then
-  set -a; source "$DEV_ENV_DIR/env/.env"; set +a
+if [ -f "$DEV_ENV_DIR/env/kibana.env" ]; then
+  set -a; source "$DEV_ENV_DIR/env/kibana.env"; set +a
 fi
 
 LOCAL_DIR="${LOCAL_DIR:-dist}"

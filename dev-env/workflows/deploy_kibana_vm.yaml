@@ -182,6 +182,7 @@ steps:
           | tr '[:upper:]/' '[:lower:]-' \
           | sed 's/[^a-z0-9-]/-/g' \
           | cut -c1-20)
+        CF_SERVICE_URL="http://dev-vm:${KIBANA_PORT}"
 
         if [ -n "${CF_DOMAIN:-}" ]; then
           KIBANA_PUBLIC_URL="https://${CF_SUBDOMAIN}.${CF_DOMAIN}"
@@ -196,8 +197,14 @@ steps:
           echo "KIBANA_COMMIT=${KIBANA_COMMIT}"
           echo "ES_PORT=${ES_PORT}"
           echo "KIBANA_PORT=${KIBANA_PORT}"
-          echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL}"
-          echo "CF_SUBDOMAIN=${CF_SUBDOMAIN}"
+          echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
+          echo "CF_DOMAIN=${CF_DOMAIN:-}"
+          echo "CF_SERVICE_URL=${CF_SERVICE_URL:-}"
+          echo "CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}"
+          echo "CF_API_TOKEN=${CF_API_TOKEN:-}"
+          echo "CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}"
+          echo "CF_TUNNEL_ID=${CF_TUNNEL_ID:-}"
+          echo "CF_SUBDOMAIN=${CF_SUBDOMAIN:-}"
           echo "CONNECTORS_FILE=${CONNECTORS_FILE:-/dev/null}"
           echo "WORKFLOWS_DIR=${WORKFLOWS_DIR:-/dev/null}"
         } > "$DEPLOY_DIR/kibana/env/.env"

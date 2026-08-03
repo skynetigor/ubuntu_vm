@@ -17,6 +17,7 @@ services:
       - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
       - dev-vm-docker:/var/lib/docker
       - dev-vm-opt:/opt
+      - ./env:/etc/dev-env:ro
     networks:
       - elastic
     restart: unless-stopped
@@ -56,6 +57,8 @@ services:
         NODE_VERSION: ${NODE_VERSION:-24.18.0}
     env_file:
       - path: ./env/kibana.env
+        required: false
+      - path: ./env/cloudflare.env
         required: false
     environment:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
