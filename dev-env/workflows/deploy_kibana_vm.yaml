@@ -187,6 +187,8 @@ steps:
           echo "KIBANA_PORT=${KIBANA_PORT}"
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL}"
           echo "CF_SUBDOMAIN=${CF_SUBDOMAIN}"
+          echo "CONNECTORS_FILE=${CONNECTORS_FILE:-/dev/null}"
+          echo "WORKFLOWS_DIR=${WORKFLOWS_DIR:-/dev/null}"
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
