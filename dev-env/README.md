@@ -54,7 +54,7 @@ Create a `kibana/.env` file (see `kibana/README.md`). The compose file also read
 | `SSH_KEYS_BASE64` | _(empty)_ | Base64-encoded authorized_keys; falls back to baked-in key |
 | `KIBANA_SSH_PRIVATE_KEY_BASE64` | _(empty)_ | Base64-encoded private key written to `/opt/kibana/config/dev-vm-key` |
 | `KIBANA_PUBLIC_URL` | `http://localhost:5601` | Kibana's externally reachable URL |
-| `CLOUDFLARE_TUNNEL_TOKEN` | _(required for cloudflared)_ | Token from the Cloudflare Zero Trust dashboard |
+| `CF_TUNNEL_TOKEN` | _(required for cloudflared)_ | Token from the Cloudflare Zero Trust dashboard |
 | `CF_API_TOKEN` | _(required for register-tunnel.sh)_ | API token with Tunnel:Edit permission |
 | `CF_ACCOUNT_ID` | _(required for register-tunnel.sh)_ | Cloudflare account ID (dashboard right sidebar) |
 | `CF_TUNNEL_ID` | _(required for register-tunnel.sh)_ | Tunnel ID (Zero Trust → Networks → Tunnels) |

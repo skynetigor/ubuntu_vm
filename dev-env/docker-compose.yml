@@ -11,16 +11,10 @@ services:
       - "5003-5999:5003-5999"
     environment:
       - SSH_KEYS_BASE64=${SSH_KEYS_BASE64:-}
-      - CF_DOMAIN=${CF_DOMAIN:-}
-      - CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}
-      - CF_API_TOKEN=${CF_API_TOKEN:-}
-      - CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}
-      - CF_TUNNEL_ID=${CF_TUNNEL_ID:-}
     volumes:
       - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
       - dev-vm-docker:/var/lib/docker
       - dev-vm-opt:/opt
-      - ./env:/etc/dev-env:ro
     networks:
       - elastic
     restart: unless-stopped
@@ -71,7 +65,7 @@ services:
       - "5002:5601"
     volumes:
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
-      - ./env:/opt/kibana/setup/env:ro
+      - ./env/connectors.yml:/opt/kibana/setup/env/connectors.yml:ro
       - ./workflows:/opt/kibana/setup/workflows:ro
     depends_on:
       elasticsearch:

@@ -1,15 +1,10 @@
 #!/bin/bash
 set -e
 
-# Export dev-env variables OS-wide so all SSH sessions inherit them
-if [ -f /etc/dev-env/.env ]; then
-  while IFS= read -r line; do
-    line="${line#export }"                          # strip optional 'export ' prefix
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue    # skip comments
-    [[ -z "${line//[[:space:]]/}" ]] && continue    # skip blank lines
-    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && echo "$line" >> /etc/environment
-  done < /etc/dev-env/.env
-fi
+# Export container env vars (injected by Docker from env_file/environment:) to
+# /etc/environment so PAM makes them available to all SSH sessions.
+env | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | grep -v '^(HOSTNAME|HOME|PATH|TERM|PWD|SHLVL|_)=' \
+  >> /etc/environment
 
 if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   mkdir -p /home/kibana/.ssh
