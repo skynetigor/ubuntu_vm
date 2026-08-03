@@ -58,8 +58,6 @@ services:
     environment:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
-      - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
-      - WORKFLOWS_DIR=/opt/kibana/setup/workflows
 
     ports:
       - "5002:5601"
