@@ -78,9 +78,17 @@ async function fetchAllWorkflows() {
       }
       throw e;
     }
-    const results = resp.results || [];
-    for (const w of results) byName[w.name] = w.id;
-    if (page >= (resp.total || 1) || !results.length) break;
+    const results = Array.isArray(resp)
+      ? resp
+      : (resp.results || resp.workflows || resp.data || resp.items || []);
+    console.log(`    page ${page}: ${results.length} item(s) (response keys: ${Object.keys(resp || {}).join(', ')})`);
+    for (const w of results) {
+      const id   = w.id   || w.workflow_id;
+      const name = w.name || w.workflow_name;
+      if (id && name) byName[name] = id;
+    }
+    const totalItems = resp.total ?? resp.totalCount ?? (page * 100);
+    if (!results.length || page * 100 >= totalItems) break;
     page++;
   }
   return byName;
