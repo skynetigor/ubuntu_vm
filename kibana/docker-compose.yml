@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: es.Dockerfile
     env_file:
-      - path: /etc/dev-env/.env  # secrets from dev-env/env/.env mounted in dev-vm
+      - path: /etc/dev-env/es.env  # secrets from dev-env/env/.env mounted in dev-vm
         required: false
     environment:
       # ES_VERSION must match the Kibana branch (read from kibana's package.json: "version")
@@ -35,7 +35,7 @@ services:
       args:
         NODE_VERSION: ${NODE_VERSION}
     env_file:
-      - path: ./env/.env         # deployment-specific vars written by the workflow
+      - path: ./env/kibana.env         # deployment-specific vars written by the workflow
         required: false
     environment:
       - ES_HOST=http://elasticsearch:9200
