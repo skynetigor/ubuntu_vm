@@ -47,7 +47,7 @@ steps:
         UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
         UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
 
-        for dir in /opt/deploy /opt/deploy-resolve /opt/deploy-ports; do
+        for dir in /opt/deploy /opt/deploy-ports; do
           sudo mkdir -p "$dir"
           sudo chmod 777 "$dir"
         done
@@ -63,13 +63,13 @@ steps:
         echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
 
   # ── Step 2: Resolve target URL → fork / branch / commit / project name ───
+  # Output: { KIBANA_FORK, KIBANA_BRANCH, KIBANA_COMMIT, PROJECT }
   - name: resolve
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         TARGET="{{ inputs.kibana_target }}"
-        mkdir -p /opt/deploy-resolve
 
         if echo "$TARGET" | grep -qE 'github\.com/[^/]+/[^/]+/pull/[0-9]+'; then
           # ── PR URL ─────────────────────────────────────────────────────────
@@ -125,23 +125,20 @@ steps:
           exit 1
         fi
 
-        printf 'KIBANA_FORK=%s\nKIBANA_BRANCH=%s\nKIBANA_COMMIT=%s\nPROJECT=%s\n' \
-          "$KIBANA_FORK" "$KIBANA_BRANCH" "$KIBANA_COMMIT" "$PROJECT" \
-          > /opt/deploy-resolve/latest
+        echo "=== Resolved: PROJECT=$PROJECT FORK=$KIBANA_FORK BRANCH=$KIBANA_BRANCH COMMIT=$KIBANA_COMMIT ==="
 
-        echo "=== Resolved ==="
-        cat /opt/deploy-resolve/latest
+        SCRIPT_OUTPUT=$(printf '{"KIBANA_FORK":"%s","KIBANA_BRANCH":"%s","KIBANA_COMMIT":"%s","PROJECT":"%s"}' \
+          "$KIBANA_FORK" "$KIBANA_BRANCH" "$KIBANA_COMMIT" "$PROJECT")
 
   # ── Step 3: Assign ports for this project ────────────────────────────────
+  # Output: { ES_PORT, KIBANA_PORT }
   - name: assign_ports
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
-        set -a; source /opt/deploy-resolve/latest; set +a
-        PORTS_DIR="/opt/deploy-ports"
-        mkdir -p "$PORTS_DIR"
-        PORT_FILE="$PORTS_DIR/$PROJECT"
+        PROJECT="{{ steps.resolve.output.PROJECT }}"
+        PORT_FILE="/opt/deploy-ports/$PROJECT"
 
         find_free_port() {
           local start=$1
@@ -165,18 +162,32 @@ steps:
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         fi
 
+        SCRIPT_OUTPUT="{\"ES_PORT\":${ES_PORT},\"KIBANA_PORT\":${KIBANA_PORT}}"
+
   # ── Step 4: Write kibana/.env from resolved values, ports, and env vars ───
+  # Output: { CF_SUBDOMAIN, KIBANA_PUBLIC_URL }
   - name: write_env
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         DEPLOY_DIR="/opt/deploy"
-        set -a; source /opt/deploy-resolve/latest; set +a
-        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
+        KIBANA_FORK="{{ steps.resolve.output.KIBANA_FORK }}"
+        KIBANA_BRANCH="{{ steps.resolve.output.KIBANA_BRANCH }}"
+        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
+        ES_PORT="{{ steps.assign_ports.output.ES_PORT }}"
+        KIBANA_PORT="{{ steps.assign_ports.output.KIBANA_PORT }}"
 
-        CF_SUBDOMAIN=$(echo "$PROJECT" | tr '[:upper:]/' '[:lower:]-' | sed 's/[^a-z0-9-]/-/g' | cut -c1-20)
-        KIBANA_PUBLIC_URL="https://${CF_SUBDOMAIN}.${CF_DOMAIN:-}"
+        CF_SUBDOMAIN=$(echo "{{ steps.resolve.output.PROJECT }}" \
+          | tr '[:upper:]/' '[:lower:]-' \
+          | sed 's/[^a-z0-9-]/-/g' \
+          | cut -c1-20)
+
+        if [ -n "${CF_DOMAIN:-}" ]; then
+          KIBANA_PUBLIC_URL="https://${CF_SUBDOMAIN}.${CF_DOMAIN}"
+        else
+          KIBANA_PUBLIC_URL=""
+        fi
 
         mkdir -p "$DEPLOY_DIR/kibana/env"
         {
@@ -192,12 +203,18 @@ steps:
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
+        SCRIPT_OUTPUT=$(printf '{"CF_SUBDOMAIN":"%s","KIBANA_PUBLIC_URL":"%s"}' \
+          "$CF_SUBDOMAIN" "$KIBANA_PUBLIC_URL")
+
   # ── Step 5: Clone Kibana source ──────────────────────────────────────────
   - name: clone
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
+        export KIBANA_FORK="{{ steps.resolve.output.KIBANA_FORK }}"
+        export KIBANA_BRANCH="{{ steps.resolve.output.KIBANA_BRANCH }}"
+        export KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
         bash /opt/deploy/kibana/scripts/clone.sh
 
   # ── Step 6: Bootstrap dependencies ───────────────────────────────────────
@@ -222,31 +239,29 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        set -a; source /opt/deploy-resolve/latest; set +a
-        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
+        PROJECT="{{ steps.resolve.output.PROJECT }}"
         KIBANA_DIR="/opt/deploy/kibana"
         set -a; source "$KIBANA_DIR/env/.env"; set +a
         docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" up --build -d
         echo "=== Stack started (project: $PROJECT) ==="
         docker compose -p "$PROJECT" ps
 
+  # ── Step 9: Wait for Kibana to be ready ──────────────────────────────────
   - name: wait_for_kibana
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
-        set -a; source /opt/deploy-resolve/latest; set +a
-        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
-        KIBANA_URL="http://localhost:${KIBANA_PORT}" \
+        KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}" \
           bash /opt/deploy/kibana/scripts/wait-kibana.sh
 
-  # ── Step 9: Output setup logs from inside the Kibana container ──────────
+  # ── Step 10: Output setup logs from inside the Kibana container ──────────
   - name: get_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
-        set -a; source /opt/deploy-resolve/latest; set +a
+        PROJECT="{{ steps.resolve.output.PROJECT }}"
         KIBANA_DIR="/opt/deploy/kibana"
         CONTAINER=$(docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" ps -q kibana)
         SETUP_DIR="/opt/kibana/setup"
@@ -268,23 +283,23 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        set -a; source /opt/deploy-resolve/latest; set +a
-        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
         echo "═══════════════════════════════════════════"
         echo "  Kibana Preview Deployed"
         echo "═══════════════════════════════════════════"
         echo "  Target  : {{ inputs.kibana_target }}"
-        echo "  Fork    : ${KIBANA_FORK}"
+        echo "  Fork    : {{ steps.resolve.output.KIBANA_FORK }}"
+        KIBANA_BRANCH="{{ steps.resolve.output.KIBANA_BRANCH }}"
+        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
         if [ -n "$KIBANA_BRANCH" ]; then
-        echo "  Branch  : ${KIBANA_BRANCH}"
+        echo "  Branch  : $KIBANA_BRANCH"
         fi
         if [ -n "$KIBANA_COMMIT" ]; then
-        echo "  Commit  : ${KIBANA_COMMIT}"
+        echo "  Commit  : $KIBANA_COMMIT"
         fi
-        echo "  ES      : localhost:${ES_PORT}"
-        echo "  Kibana  : http://192.168.1.7:${KIBANA_PORT}"
-        CF_SUBDOMAIN=$(echo "$PROJECT" | sed 's/^feature[-\/]//' | cut -c1-10)
-        if [ -n "${CF_API_TOKEN:-}" ]; then
-        echo "  Public  : https://${CF_SUBDOMAIN}.${CF_DOMAIN}"
+        echo "  ES      : localhost:{{ steps.assign_ports.output.ES_PORT }}"
+        echo "  Kibana  : http://192.168.1.7:{{ steps.assign_ports.output.KIBANA_PORT }}"
+        KIBANA_PUBLIC_URL="{{ steps.write_env.output.KIBANA_PUBLIC_URL }}"
+        if [ -n "$KIBANA_PUBLIC_URL" ]; then
+        echo "  Public  : $KIBANA_PUBLIC_URL"
         fi
         echo "═══════════════════════════════════════════"
