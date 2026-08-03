@@ -178,6 +178,7 @@ steps:
         CF_SUBDOMAIN=$(echo "$PROJECT" | tr '[:upper:]/' '[:lower:]-' | sed 's/[^a-z0-9-]/-/g' | cut -c1-20)
         KIBANA_PUBLIC_URL="https://${CF_SUBDOMAIN}.${CF_DOMAIN:-}"
 
+        mkdir -p "$DEPLOY_DIR/kibana/env"
         {
           echo "KIBANA_FORK=${KIBANA_FORK}"
           echo "KIBANA_BRANCH=${KIBANA_BRANCH}"
@@ -193,7 +194,7 @@ steps:
           echo "CF_API_TOKEN=${CF_API_TOKEN:-}"
           echo "CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}"
           echo "CF_TUNNEL_ID=${CF_TUNNEL_ID:-}"
-        } > "$DEPLOY_DIR/kibana/.env"
+        } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
   # ── Step 5: Clone Kibana source ──────────────────────────────────────────
