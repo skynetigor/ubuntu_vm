@@ -91,13 +91,11 @@ RUN chmod 600 /home/kibana/.ssh/authorized_keys \
     && chown -R kibana:kibana /home/kibana/.ssh
 
 # SSH setup
-RUN mkdir -p /var/run/sshd /root/.ssh && chmod 700 /root/.ssh
-
-COPY id_ed25519.pub /etc/ssh/authorized_keys.bak
-RUN chmod 600 /etc/ssh/authorized_keys.bak
+RUN mkdir -p /var/run/sshd
 
 RUN sed -i \
-    -e 's/#PermitRootLogin.*/PermitRootLogin yes/' \
+    -e 's/#PermitRootLogin.*/PermitRootLogin no/' \
+    -e 's/PermitRootLogin yes/PermitRootLogin no/' \
     -e 's/#PasswordAuthentication yes/PasswordAuthentication no/' \
     -e 's/PasswordAuthentication yes/PasswordAuthentication no/' \
     -e 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' \
