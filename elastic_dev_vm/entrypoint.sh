@@ -1,16 +1,6 @@
 #!/bin/bash
 set -e
 
-# Export container env vars to /etc/environment so PAM makes them available
-# to all SSH sessions. Skip vars that are root-specific or shell-internal.
-env | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' \
-  | grep -Ev '^(HOSTNAME|HOME|PATH|TERM|PWD|SHLVL|DOCKER_CONFIG|_)=' \
-  >> /etc/environment
-
-# Point Docker at a kibana-owned config dir so the compose plugin is found
-mkdir -p /home/kibana/.docker
-chown kibana:kibana /home/kibana/.docker
-echo "DOCKER_CONFIG=/home/kibana/.docker" >> /etc/environment
 
 if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   mkdir -p /home/kibana/.ssh
