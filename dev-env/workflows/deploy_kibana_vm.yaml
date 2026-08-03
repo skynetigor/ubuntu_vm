@@ -189,11 +189,7 @@ steps:
           echo "ES_VERSION=9.6.0"
           echo "DOCKER_DEFAULT_PLATFORM=linux/amd64"
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL}"
-          echo "CF_DOMAIN=${CF_DOMAIN:-}"
           echo "CF_SUBDOMAIN=${CF_SUBDOMAIN}"
-          echo "CF_API_TOKEN=${CF_API_TOKEN:-}"
-          echo "CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}"
-          echo "CF_TUNNEL_ID=${CF_TUNNEL_ID:-}"
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 

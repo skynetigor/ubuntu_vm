@@ -32,22 +32,16 @@ services:
       args:
         NODE_VERSION: ${NODE_VERSION}
     env_file:
-      - path: ./env/.env
+      - path: /etc/dev-env/.env  # secrets from dev-env/env/.env mounted in dev-vm
+        required: false
+      - path: ./env/.env         # deployment-specific vars written by the workflow
         required: false
     environment:
-      - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
-      - ES_PASSWORD=${ES_PASSWORD:-changeme}
-      - KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-http://localhost:5601}
       - ES_HOST=http://elasticsearch:9200
       - CONNECTORS_FILE=/opt/kibana/setup/connectors.yml
       - WORKFLOWS_DIR=/opt/kibana/setup/workflows
-      - CF_DOMAIN=${CF_DOMAIN:-}
-      - CF_SUBDOMAIN=${CF_SUBDOMAIN:-}
-      - CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}
-      - CF_API_TOKEN=${CF_API_TOKEN:-}
-      - CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}
-      - CF_TUNNEL_ID=${CF_TUNNEL_ID:-}
-      - CF_SERVICE_URL=${CF_SERVICE_URL:-}
+      - KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-http://localhost:5601}
+      - ES_PASSWORD=${ES_PASSWORD:-changeme}
 
     ports:
       - "${KIBANA_PORT:-5601}:5601"
