@@ -2,7 +2,9 @@ services:
   dev-vm:
     build: ../elastic_dev_vm
     env_file:
-      - path: ./env/.env
+      - path: ./env/vm.env
+        required: false
+      - path: ./env/cloudflare.env
         required: false
     container_name: elastic-dev-vm
     privileged: true
@@ -24,7 +26,7 @@ services:
       context: ../kibana
       dockerfile: es.Dockerfile
     env_file:
-      - path: ./env/.env
+      - path: ./env/es.env
         required: false
     environment:
       - ES_VERSION=${ES_VERSION:-9.6.0}
@@ -53,12 +55,13 @@ services:
       args:
         NODE_VERSION: ${NODE_VERSION:-24.18.0}
     env_file:
-      - path: ./env/.env
+      - path: ./env/kibana.env
         required: false
     environment:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
-
+      - WORKFLOWS_DIR=/opt/kibana/setup/workflows
+      - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
     ports:
       - "5002:5601"
     volumes:
@@ -75,7 +78,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     env_file:
-      - path: ./env/.env
+      - path: ./env/cloudflare.env
         required: false
     command: tunnel --no-autoupdate run
     environment:
