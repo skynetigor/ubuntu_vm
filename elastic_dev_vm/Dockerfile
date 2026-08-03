@@ -74,21 +74,21 @@ RUN printf 'export NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm
     && echo 'NVM_DIR=/opt/nvm' >> /etc/environment
 
 # User setup
-RUN useradd -m -s /bin/bash skynet_igor \
-    && echo "skynet_igor:skynet_igor" | chpasswd \
-    && usermod -aG sudo,docker skynet_igor \
-    && echo "skynet_igor ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
-    && mkdir -p /home/skynet_igor/.ssh \
-    && chmod 700 /home/skynet_igor/.ssh \
-    && chown skynet_igor:skynet_igor /opt
+RUN useradd -m -s /bin/bash kibana \
+    && echo "kibana:kibana" | chpasswd \
+    && usermod -aG sudo,docker kibana \
+    && echo "kibana ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
+    && mkdir -p /home/kibana/.ssh \
+    && chmod 700 /home/kibana/.ssh \
+    && chown kibana:kibana /opt
 
-# NVM in skynet_igor's bashrc (for non-login interactive shells opened after su)
+# NVM in kibana's bashrc (for non-login interactive shells opened after su)
 RUN printf '\nexport NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
-      >> /home/skynet_igor/.bashrc
+      >> /home/kibana/.bashrc
 
-COPY id_ed25519.pub /home/skynet_igor/.ssh/authorized_keys
-RUN chmod 600 /home/skynet_igor/.ssh/authorized_keys \
-    && chown -R skynet_igor:skynet_igor /home/skynet_igor/.ssh
+COPY id_ed25519.pub /home/kibana/.ssh/authorized_keys
+RUN chmod 600 /home/kibana/.ssh/authorized_keys \
+    && chown -R kibana:kibana /home/kibana/.ssh
 
 # SSH setup
 RUN mkdir -p /var/run/sshd /root/.ssh && chmod 700 /root/.ssh

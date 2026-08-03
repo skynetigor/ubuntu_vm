@@ -30,7 +30,7 @@ docker compose -f dev-env/docker-compose.yml down
 
 | Service | Host port | Notes |
 |---|---|---|
-| Dev VM (SSH) | `2222` | `ssh -i elastic_dev_vm/id_ed25519 -p 2222 skynet_igor@localhost` |
+| Dev VM (SSH) | `2222` | `ssh -i elastic_dev_vm/id_ed25519 -p 2222 kibana@localhost` |
 | Elasticsearch | `5001` | HTTP, no TLS |
 | Kibana | `5002` | |
 | Dev-VM forwarded range | `5003–5999` | Used by workflow-deployed previews inside the VM |

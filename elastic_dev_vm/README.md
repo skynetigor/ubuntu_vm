@@ -13,7 +13,7 @@ Dockerfile and entrypoint for the SSH development box. The container runs a full
 | Yarn, Claude Code | `npm install -g` under the NVM node |
 | git, curl, build-essential, … | Ubuntu apt |
 
-NVM is sourced in `/etc/profile.d/nvm.sh`, `/etc/bash.bashrc`, and `skynet_igor`'s `.bashrc`, so `nvm`, `node`, `yarn`, and `claude` are available in all shell types (interactive and non-interactive SSH).
+NVM is sourced in `/etc/profile.d/nvm.sh`, `/etc/bash.bashrc`, and `kibana`'s `.bashrc`, so `nvm`, `node`, `yarn`, and `claude` are available in all shell types (interactive and non-interactive SSH).
 
 ## Files
 

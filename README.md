@@ -38,7 +38,7 @@ Services after startup:
 
 | Service | Address |
 |---|---|
-| Dev VM (SSH) | `ssh -p 2222 skynet_igor@localhost` |
+| Dev VM (SSH) | `ssh -p 2222 kibana@localhost` |
 | Elasticsearch | `http://localhost:5001` |
 | Kibana | `http://localhost:5002` |
 
