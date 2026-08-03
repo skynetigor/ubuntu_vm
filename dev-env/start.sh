@@ -11,9 +11,11 @@ if [ -f "$KIBANA_DIR/.env" ]; then
   set -a; source "$KIBANA_DIR/.env"; set +a
 fi
 
-if [ -f "$DEV_ENV_DIR/env/kibana.env" ]; then
-  set -a; source "$DEV_ENV_DIR/env/kibana.env"; set +a
-fi
+for env_file in kibana.env es.env cloudflare.env vm.env; do
+  if [ -f "$DEV_ENV_DIR/env/$env_file" ]; then
+    set -a; source "$DEV_ENV_DIR/env/$env_file"; set +a
+  fi
+done
 
 LOCAL_DIR="${LOCAL_DIR:-dist}"
 DIST="$KIBANA_DIR/$LOCAL_DIR"
