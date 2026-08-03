@@ -1,6 +1,16 @@
 #!/bin/bash
 set -e
 
+# Export dev-env variables OS-wide so all SSH sessions inherit them
+if [ -f /etc/dev-env/.env ]; then
+  while IFS= read -r line; do
+    line="${line#export }"                          # strip optional 'export ' prefix
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue    # skip comments
+    [[ -z "${line//[[:space:]]/}" ]] && continue    # skip blank lines
+    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && echo "$line" >> /etc/environment
+  done < /etc/dev-env/.env
+fi
+
 if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   mkdir -p /home/kibana/.ssh
   echo "$SSH_KEYS_BASE64" | base64 -d > /home/kibana/.ssh/authorized_keys

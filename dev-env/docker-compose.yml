@@ -17,6 +17,7 @@ services:
       - ${DEV_VM_HOME:-~/docker-files/elastic-dev-vm/home}:/root
       - dev-vm-docker:/var/lib/docker
       - dev-vm-opt:/opt
+      - ./env:/etc/dev-env:ro
     networks:
       - elastic
     restart: unless-stopped
