@@ -1,6 +1,9 @@
 services:
   dev-vm:
     build: ../elastic_dev_vm
+    env_file:
+      - path: ./env/.env
+        required: false
     container_name: elastic-dev-vm
     privileged: true
     ports:
@@ -9,7 +12,7 @@ services:
     environment:
       - SSH_KEYS_BASE64=${SSH_KEYS_BASE64:-}
       - CF_DOMAIN=${CF_DOMAIN:-}
-      - CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+      - CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}
       - CF_API_TOKEN=${CF_API_TOKEN:-}
       - CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}
       - CF_TUNNEL_ID=${CF_TUNNEL_ID:-}
@@ -26,6 +29,9 @@ services:
     build:
       context: ../kibana
       dockerfile: es.Dockerfile
+    env_file:
+      - path: ./env/.env
+        required: false
     environment:
       - ES_VERSION=${ES_VERSION:-9.6.0}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
@@ -56,11 +62,8 @@ services:
       - path: ./env/.env
         required: false
     environment:
-      - KIBANA_BRANCH=${KIBANA_BRANCH:-main}
-      - ES_PASSWORD=${ES_PASSWORD:-changeme}
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
-      - KIBANA_SSH_PRIVATE_KEY_BASE64=${KIBANA_SSH_PRIVATE_KEY_BASE64:-}
       - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
       - WORKFLOWS_DIR=/opt/kibana/setup/workflows
 
@@ -79,7 +82,7 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
     networks:
       - elastic
     restart: unless-stopped
