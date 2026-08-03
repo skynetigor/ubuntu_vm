@@ -8,7 +8,7 @@ Dockerfile and entrypoint for the SSH development box. The container runs a full
 |---|---|
 | Docker Engine + Compose plugin | Docker's official apt repo |
 | GitHub CLI (`gh`) | GitHub's official apt repo |
-| NVM | `/opt/nvm` (system-wide) |
+| NVM | `/home/kibana/.nvm` |
 | Node.js LTS | Via NVM; symlinked into `/usr/local/bin` |
 | Yarn, Claude Code | `npm install -g` under the NVM node |
 | git, curl, build-essential, … | Ubuntu apt |

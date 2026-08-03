@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: es.Dockerfile
+    env_file:
+      - path: /etc/dev-env/.env  # secrets from dev-env/env/.env mounted in dev-vm
+        required: false
     environment:
       # ES_VERSION must match the Kibana branch (read from kibana's package.json: "version")
       - ES_VERSION=${ES_VERSION:-9.6.0}
@@ -34,12 +37,21 @@ services:
     env_file:
       - path: /etc/dev-env/.env  # secrets from dev-env/env/.env mounted in dev-vm
         required: false
+      - path: ./env/.env         # deployment-specific vars written by the workflow
+        required: false
     environment:
       - ES_HOST=http://elasticsearch:9200
       - CONNECTORS_FILE=/opt/kibana/setup/connectors.yml
       - WORKFLOWS_DIR=/opt/kibana/setup/workflows
       - KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-http://localhost:5601}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
+      - CF_DOMAIN=${CF_DOMAIN:-}
+      - CF_SUBDOMAIN=${CF_SUBDOMAIN:-}
+      - CF_SERVICE_URL=http://kibana:5601
+      - CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}
+      - CF_API_TOKEN=${CF_API_TOKEN:-}
+      - CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}
+      - CF_TUNNEL_ID=${CF_TUNNEL_ID:-}
 
     ports:
       - "${KIBANA_PORT:-5601}:5601"

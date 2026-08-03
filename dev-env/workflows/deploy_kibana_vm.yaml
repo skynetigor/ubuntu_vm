@@ -221,7 +221,9 @@ steps:
     with:
       code: |
         set -a; source /opt/deploy-resolve/latest; set +a
+        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
         KIBANA_DIR="/opt/deploy/kibana"
+        set -a; source "$KIBANA_DIR/env/.env"; set +a
         docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" up --build -d
         echo "=== Stack started (project: $PROJECT) ==="
         docker compose -p "$PROJECT" ps
@@ -245,9 +247,12 @@ steps:
         set -a; source /opt/deploy-resolve/latest; set +a
         KIBANA_DIR="/opt/deploy/kibana"
         CONTAINER=$(docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" ps -q kibana)
-        LOG_DIR="/opt/kibana/setup/logs"
-        echo "=== Setup logs (${LOG_DIR}) ==="
-        for f in $(docker exec "$CONTAINER" sh -c "ls ${LOG_DIR}/*.log 2>/dev/null || true"); do
+        SETUP_DIR="/opt/kibana/setup"
+        echo "=== setup.log ==="
+        docker exec "$CONTAINER" cat "$SETUP_DIR/setup.log" 2>/dev/null || true
+        echo ""
+        echo "=== Per-step logs (${SETUP_DIR}/logs) ==="
+        for f in $(docker exec "$CONTAINER" sh -c "ls ${SETUP_DIR}/logs/*.log 2>/dev/null || true"); do
           echo ""
           echo "──── $f ────"
           docker exec "$CONTAINER" cat "$f"
