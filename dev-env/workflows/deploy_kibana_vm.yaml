@@ -195,7 +195,6 @@ steps:
           echo "CF_TUNNEL_ID=${CF_TUNNEL_ID:-}"
         } > "$DEPLOY_DIR/kibana/.env"
         echo "=== .env written ==="
-        cat "$DEPLOY_DIR/kibana/.env"
 
   # ── Step 5: Clone Kibana source ──────────────────────────────────────────
   - name: clone
@@ -232,6 +231,16 @@ steps:
         docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" up --build -d
         echo "=== Stack started (project: $PROJECT) ==="
         docker compose -p "$PROJECT" ps
+
+  - name: wait_for_kibana
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    with:
+      code: |
+        set -a; source /opt/deploy-resolve/latest; set +a
+        set -a; source "/opt/deploy-ports/$PROJECT"; set +a
+        KIBANA_URL="http://localhost:${KIBANA_PORT}" \
+          bash /opt/deploy/kibana/scripts/wait-kibana.sh
 
   # ── Step 9: Output setup logs from inside the Kibana container ──────────
   - name: get_logs
