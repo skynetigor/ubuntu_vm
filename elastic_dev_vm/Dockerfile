@@ -79,7 +79,8 @@ RUN useradd -m -s /bin/bash skynet_igor \
     && usermod -aG sudo,docker skynet_igor \
     && echo "skynet_igor ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
     && mkdir -p /home/skynet_igor/.ssh \
-    && chmod 700 /home/skynet_igor/.ssh
+    && chmod 700 /home/skynet_igor/.ssh \
+    && chown skynet_igor:skynet_igor /opt
 
 # NVM in skynet_igor's bashrc (for non-login interactive shells opened after su)
 RUN printf '\nexport NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' \
