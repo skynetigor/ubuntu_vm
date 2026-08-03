@@ -77,7 +77,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     env_file:
-      - path: /etc/dev-env/.env  # secrets from dev-env/env/.env mounted in dev-vm
+      - path: ./env/.env
         required: false
     command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
     networks:
