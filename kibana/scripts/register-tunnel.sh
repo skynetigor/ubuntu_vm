@@ -38,7 +38,7 @@ echo "  CF_SERVICE_URL: ${CF_SERVICE_URL:-unset}"
 echo "=== Fetching current tunnel config ==="
 set +e
 CURRENT=$(curl -s "${AUTH[@]}" \
-  "$API/accounts/$CF_ACCOUNT_ID/cfdtunnel/$CF_TUNNEL_ID/configurations")
+  "$API/accounts/$CF_ACCOUNT_ID/cfd_tunnel/$CF_TUNNEL_ID/configurations")
 CURL_EXIT=$?
 set -e
 echo "curl exit: $CURL_EXIT"
@@ -70,7 +70,7 @@ print(json.dumps({'config': config}))
 
 RESULT=$(curl -s -X PUT "${AUTH[@]}" \
   -d "$NEW_CONFIG" \
-  "$API/accounts/$CF_ACCOUNT_ID/cfdtunnel/$CF_TUNNEL_ID/configurations")
+  "$API/accounts/$CF_ACCOUNT_ID/cfd_tunnel/$CF_TUNNEL_ID/configurations")
 echo "=== Cloudflare tunnel registration result ==="
 echo "$RESULT"
 
