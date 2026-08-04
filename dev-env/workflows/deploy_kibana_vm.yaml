@@ -49,7 +49,7 @@ steps:
 
         for dir in /opt/deploy /opt/deploy-ports; do
           sudo mkdir -p "$dir"
-          sudo chmod 777 "$dir"
+          sudo chown kibana:kibana "$dir"
         done
 
         if [ -d "$DEPLOY_DIR/.git" ]; then
