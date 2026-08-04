@@ -22,6 +22,11 @@ fi
 # Process config template — substitutes ${KIBANA_BRANCH} and ${ES_PASSWORD}
 envsubst < /etc/kibana-config/kibana.dev.yml > /opt/kibana/config/kibana.yml
 
+# Apply user overrides if provided (non-empty file mounted via KIBANA_CONFIG_FILE)
+if [ -s /etc/kibana-config/kibana.config.yml ]; then
+  envsubst < /etc/kibana-config/kibana.config.yml > /opt/kibana/config/kibana.override.yml
+fi
+
 # ES cluster health passes before the native security realm finishes initializing,
 # so retry until the _password API accepts the request.
 echo "=== Setting kibana_system password ==="
@@ -46,4 +51,9 @@ done
 echo "=== Starting Kibana ==="
 bash /opt/kibana/setup/setup.sh > /opt/kibana/setup/setup.log 2>&1 &
 
+if [ -f /opt/kibana/config/kibana.override.yml ]; then
+  exec /opt/kibana/bin/kibana \
+    --config /opt/kibana/config/kibana.yml \
+    --config /opt/kibana/config/kibana.override.yml
+fi
 exec /opt/kibana/bin/kibana

@@ -46,6 +46,7 @@ services:
       - elastic
     volumes:
       - ./kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
+      - ${KIBANA_CONFIG_FILE:-/dev/null}:/etc/kibana-config/kibana.config.yml:ro
       - ${CONNECTORS_FILE:-/dev/null}:/opt/kibana/setup/connectors.yml:ro
       - ${WORKFLOWS_DIR:-/tmp}:/opt/kibana/setup/workflows:ro
     healthcheck:
