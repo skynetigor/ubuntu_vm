@@ -28,8 +28,13 @@ API="https://api.cloudflare.com/client/v4"
 AUTH=(-H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json")
 
 echo "=== Fetching current tunnel config ==="
-CURRENT=$(curl -sf "${AUTH[@]}" \
+CURRENT=$(curl -s "${AUTH[@]}" \
   "$API/accounts/$CF_ACCOUNT_ID/cfdtunnel/$CF_TUNNEL_ID/configurations")
+echo "$CURRENT"
+if ! echo "$CURRENT" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" 2>/dev/null; then
+  echo "ERROR: failed to fetch tunnel config"
+  exit 1
+fi
 
 echo "=== Updating ingress: $CF_HOSTNAME → $CF_SERVICE_URL ==="
 NEW_CONFIG=$(echo "$CURRENT" | python3 -c "
@@ -47,7 +52,7 @@ config['ingress'] = ingress
 print(json.dumps({'config': config}))
 ")
 
-RESULT=$(curl -sf -X PUT "${AUTH[@]}" \
+RESULT=$(curl -s -X PUT "${AUTH[@]}" \
   -d "$NEW_CONFIG" \
   "$API/accounts/$CF_ACCOUNT_ID/cfdtunnel/$CF_TUNNEL_ID/configurations")
 echo "=== Cloudflare tunnel registration result ==="
