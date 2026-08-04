@@ -27,12 +27,28 @@ export CF_HOSTNAME="${CF_SUBDOMAIN}.${CF_DOMAIN}"
 API="https://api.cloudflare.com/client/v4"
 AUTH=(-H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json")
 
+echo "=== CF vars ==="
+echo "  CF_API_TOKEN:   ${CF_API_TOKEN:+set (${#CF_API_TOKEN} chars)}"
+echo "  CF_ACCOUNT_ID:  ${CF_ACCOUNT_ID:-unset}"
+echo "  CF_TUNNEL_ID:   ${CF_TUNNEL_ID:-unset}"
+echo "  CF_DOMAIN:      ${CF_DOMAIN:-unset}"
+echo "  CF_SUBDOMAIN:   ${CF_SUBDOMAIN:-unset}"
+echo "  CF_SERVICE_URL: ${CF_SERVICE_URL:-unset}"
+
 echo "=== Fetching current tunnel config ==="
+set +e
 CURRENT=$(curl -s "${AUTH[@]}" \
   "$API/accounts/$CF_ACCOUNT_ID/cfdtunnel/$CF_TUNNEL_ID/configurations")
+CURL_EXIT=$?
+set -e
+echo "curl exit: $CURL_EXIT"
 echo "$CURRENT"
+if [ "$CURL_EXIT" -ne 0 ]; then
+  echo "ERROR: curl failed with exit code $CURL_EXIT"
+  exit 1
+fi
 if ! echo "$CURRENT" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('success') else 1)" 2>/dev/null; then
-  echo "ERROR: failed to fetch tunnel config"
+  echo "ERROR: Cloudflare API returned failure"
   exit 1
 fi
 
