@@ -36,7 +36,7 @@ if (!WORKFLOWS_DIR) {
 
 const KIBANA_URL      = (process.env.KIBANA_URL || 'http://localhost:5601').replace(/\/$/, '');
 const KIBANA_USERNAME = process.env.KIBANA_USERNAME || 'elastic';
-const KIBANA_PASSWORD = process.env.KIBANA_PASSWORD || 'changeme';
+const KIBANA_PASSWORD = process.env.ES_PASSWORD || 'changeme';
 
 const AUTH    = Buffer.from(`${KIBANA_USERNAME}:${KIBANA_PASSWORD}`).toString('base64');
 const HEADERS = {
