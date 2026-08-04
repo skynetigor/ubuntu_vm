@@ -266,7 +266,18 @@ steps:
         KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}" \
           bash /opt/deploy/kibana/scripts/wait-kibana.sh
 
-  # ── Step 10: Docker logs for kibana container ────────────────────────────
+  # ── Step 10: Register Cloudflare tunnel ingress ──────────────────────────
+  - name: register_tunnel
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    on-failure:
+      continue: true
+    with:
+      code: |
+        set -a; source /opt/deploy/kibana/env/.env; set +a
+        bash /opt/deploy/kibana/scripts/register-tunnel.sh
+
+  # ── Step 11: Docker logs for kibana container ────────────────────────────
   - name: get_container_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
