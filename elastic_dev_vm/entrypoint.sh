@@ -9,6 +9,11 @@ if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   chown -R kibana:kibana /home/kibana/.ssh
 fi
 
+# Expose Cloudflare vars to SSH sessions via PAM /etc/environment
+if [ -f /etc/dev-env/cloudflare.env ]; then
+  grep -v '^#' /etc/dev-env/cloudflare.env | grep -v '^$' > /etc/environment
+fi
+
 # Required for Elasticsearch
 sysctl -w vm.max_map_count=262144
 
