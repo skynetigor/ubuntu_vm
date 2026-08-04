@@ -146,7 +146,7 @@ async function main() {
         const result = await kibanaApi("POST", "/api/workflows", {
           workflows: [{ id: fileName, yaml: stripId(rawYaml) }],
         });
-        const id = result?.workflows?.[0]?.id ?? result?.id;
+        const id = result?.id;
         console.log(`    id: ${id}`);
       }
     } catch (e) {
