@@ -127,6 +127,7 @@ async function main() {
     const rawYaml = fs.readFileSync(filePath, 'utf8');
     const lines   = rawYaml.split('\n');
     const name    = extractField(lines, 'name');
+    const fileName = path.basename(filePath, path.extname(filePath));
 
     if (!name) {
       console.error(`ERROR [${path.basename(filePath)}]: no top-level 'name:' field found`);
@@ -142,7 +143,9 @@ async function main() {
         console.log(`    id: ${existingId}`);
       } else {
         console.log(`=== Creating: ${name} ===`);
-        const result = await kibanaApi('POST', '/api/workflows', { workflows: [{ yaml: stripId(rawYaml) }] });
+        const result = await kibanaApi("POST", "/api/workflows", {
+          workflows: [{ id: fileName, yaml: stripId(rawYaml) }],
+        });
         const id = result?.workflows?.[0]?.id ?? result?.id;
         console.log(`    id: ${id}`);
       }
