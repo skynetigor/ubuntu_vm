@@ -50,7 +50,7 @@ print(json.dumps({'config': config}))
 RESULT=$(curl -sf -X PUT "${AUTH[@]}" \
   -d "$NEW_CONFIG" \
   "$API/accounts/$CF_ACCOUNT_ID/cfdtunnel/$CF_TUNNEL_ID/configurations")
-=== Cloudflare tunnel registration result ===
+echo "=== Cloudflare tunnel registration result ==="
 echo "$RESULT"
 
 python3 -c "
