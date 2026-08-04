@@ -257,13 +257,26 @@ steps:
   - name: wait_for_kibana
     type: remoteHost.runCommand
     connector-id: dev-vm
+    on-failure:
+      continue: true
     with:
       code: |
         KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}" \
           bash /opt/deploy/kibana/scripts/wait-kibana.sh
 
-  # ── Step 10: Output setup logs from inside the Kibana container ──────────
-  - name: get_logs
+  # ── Step 10: Docker logs for kibana container ────────────────────────────
+  - name: get_container_logs
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    with:
+      code: |
+        PROJECT="{{ steps.resolve.output.PROJECT }}"
+        KIBANA_DIR="/opt/deploy/kibana"
+        echo "=== Kibana container logs ==="
+        docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" logs --no-log-prefix kibana
+
+  # ── Step 11: Output setup logs from inside the Kibana container ──────────
+  - name: get_setup_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
