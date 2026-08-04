@@ -267,6 +267,8 @@ steps:
       continue: true
     with:
       code: |
+        CF_SUBDOMAIN="{{ steps.write_env.output.CF_SUBDOMAIN }}"
+        S="http://dev-vm:{{ steps.assign_ports.output.KIBANA_PORT }}"
         bash /opt/deploy/kibana/scripts/register-tunnel.sh
 
   # ── Step 11: Docker logs for kibana container ────────────────────────────
