@@ -223,20 +223,36 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        node -e '
         const fs = require("fs");
         const cfg = {{ inputs.kibana_config }} || {};
+
+        function toYaml(obj, depth) {
+          const pad = "  ".repeat(depth);
+          return Object.entries(obj).map(([k, v]) => {
+            if (v === null || v === undefined) return pad + k + ": ~";
+            if (Array.isArray(v)) {
+              const items = v.map(item =>
+                typeof item === "object" && item !== null
+                  ? pad + "-\n" + toYaml(item, depth + 1)
+                  : pad + "- " + item
+              );
+              return pad + k + ":\n" + items.join("\n");
+            }
+            if (typeof v === "object") return pad + k + ":\n" + toYaml(v, depth + 1);
+            return pad + k + ": " + v;
+          }).join("\n");
+        }
+
         const entries = Object.entries(cfg);
         if (entries.length) {
-          const yaml = entries.map(([k, v]) => k + ": " + v).join("\n");
+          const yaml = toYaml(cfg, 0);
           const b64 = Buffer.from(yaml).toString("base64");
           fs.appendFileSync("/opt/deploy/kibana/env/.env", "KIBANA_CONFIG_OVERRIDES_B64=" + b64 + "\n");
-          console.log("=== kibana.user.yml: " + entries.length + " key(s) ===");
+          console.log("=== kibana.user.yml: " + entries.length + " top-level key(s) ===");
           console.log(yaml);
         } else {
           console.log("=== kibana.user.yml: no overrides ===");
         }
-        '
 
   # ── Step 6: Clone Kibana source ──────────────────────────────────────────
   - name: clone
