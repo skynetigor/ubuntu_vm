@@ -4,9 +4,10 @@
 # Required env vars (set in kibana/.env or export before running):
 #   CF_API_TOKEN   — API token with Cloudflare Tunnel:Edit permission
 #   CF_ACCOUNT_ID  — Account ID (Cloudflare dashboard → right sidebar)
+#   CF_ZONE_ID     — Zone ID for the domain (Cloudflare dashboard → domain → right sidebar)
 #   CF_TUNNEL_ID   — Tunnel ID (Zero Trust → Networks → Tunnels → tunnel name)
 #   CF_DOMAIN      — Base domain, e.g. skynetapp.dev
-#   CF_SUBDOMAIN      — Subdomain prefix, e.g. wf
+#   CF_SUBDOMAIN   — Subdomain prefix, e.g. wf
 #   CF_SERVICE_URL — Backend service URL, e.g. http://kibana:5601
 set -euo pipefail
 
@@ -16,8 +17,9 @@ if [ -f "$KIBANA_DIR/.env" ]; then
 fi
 
 if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ACCOUNT_ID:-}" ] || \
-   [ -z "${CF_TUNNEL_ID:-}" ] || [ -z "${CF_DOMAIN:-}" ] || \
-   [ -z "${CF_SUBDOMAIN:-}" ] || [ -z "${CF_SERVICE_URL:-}" ]; then
+   [ -z "${CF_ZONE_ID:-}" ] || [ -z "${CF_TUNNEL_ID:-}" ] || \
+   [ -z "${CF_DOMAIN:-}" ] || [ -z "${CF_SUBDOMAIN:-}" ] || \
+   [ -z "${CF_SERVICE_URL:-}" ]; then
   echo "=== No Cloudflare configuration (CF_*). Skipping. === "
   exit 0
 fi
@@ -30,6 +32,7 @@ AUTH=(-H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/jso
 echo "=== CF vars ==="
 echo "  CF_API_TOKEN:   ${CF_API_TOKEN:+set (${#CF_API_TOKEN} chars)}"
 echo "  CF_ACCOUNT_ID:  ${CF_ACCOUNT_ID:-unset}"
+echo "  CF_ZONE_ID:     ${CF_ZONE_ID:-unset}"
 echo "  CF_TUNNEL_ID:   ${CF_TUNNEL_ID:-unset}"
 echo "  CF_DOMAIN:      ${CF_DOMAIN:-unset}"
 echo "  CF_SUBDOMAIN:   ${CF_SUBDOMAIN:-unset}"
@@ -78,8 +81,46 @@ python3 -c "
 import json, sys
 r = json.load(sys.stdin)
 if r.get('success'):
-    print('=== Registered successfully ===')
+    print('=== Tunnel ingress registered ===')
 else:
     print('ERROR:', r.get('errors'))
     sys.exit(1)
 " <<< "$RESULT"
+
+echo "=== Upserting DNS CNAME: $CF_HOSTNAME → $CF_TUNNEL_ID.cfargotunnel.com ==="
+CNAME_TARGET="${CF_TUNNEL_ID}.cfargotunnel.com"
+
+EXISTING=$(curl -s "${AUTH[@]}" \
+  "$API/zones/$CF_ZONE_ID/dns_records?type=CNAME&name=$CF_HOSTNAME")
+RECORD_ID=$(echo "$EXISTING" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+records = data.get('result', [])
+print(records[0]['id'] if records else '')
+")
+
+DNS_PAYLOAD=$(printf '{"type":"CNAME","name":"%s","content":"%s","proxied":true}' \
+  "$CF_HOSTNAME" "$CNAME_TARGET")
+
+if [ -n "$RECORD_ID" ]; then
+  echo "Updating existing record $RECORD_ID"
+  DNS_RESULT=$(curl -s -X PATCH "${AUTH[@]}" \
+    -d "$DNS_PAYLOAD" \
+    "$API/zones/$CF_ZONE_ID/dns_records/$RECORD_ID")
+else
+  echo "Creating new record"
+  DNS_RESULT=$(curl -s -X POST "${AUTH[@]}" \
+    -d "$DNS_PAYLOAD" \
+    "$API/zones/$CF_ZONE_ID/dns_records")
+fi
+
+echo "$DNS_RESULT"
+python3 -c "
+import json, sys
+r = json.load(sys.stdin)
+if r.get('success'):
+    print('=== DNS record upserted ===')
+else:
+    print('ERROR:', r.get('errors'))
+    sys.exit(1)
+" <<< "$DNS_RESULT"
