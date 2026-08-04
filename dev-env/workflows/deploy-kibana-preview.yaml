@@ -211,7 +211,6 @@ steps:
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
           echo "ES_PASSWORD=${ES_PASSWORD:-changeme}"
-          echo "KIBANA_CONFIG_FILE=$DEPLOY_DIR/kibana/kibana.user.yml"
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
@@ -225,10 +224,14 @@ steps:
     with:
       code: |
         DEPLOY_DIR="/opt/deploy"
-        mkdir -p "$DEPLOY_DIR/kibana"
-        node -p "Object.entries({{ inputs.kibana_config }}||{}).map(([k,v])=>k+': '+v).join('\n')" \
-          > "$DEPLOY_DIR/kibana/kibana.user.yml"
-        echo "=== kibana.user.yml written ==="
+        OVERRIDE_YAML=$(node -p "const e=Object.entries({{ inputs.kibana_config }}||{}); e.length ? e.map(([k,v])=>k+': '+v).join('\n') : ''")
+        if [ -n "$OVERRIDE_YAML" ]; then
+          B64=$(printf '%s' "$OVERRIDE_YAML" | base64 -w0)
+          echo "KIBANA_CONFIG_OVERRIDES_B64=${B64}" >> "$DEPLOY_DIR/kibana/env/.env"
+          echo "=== kibana.user.yml: $(echo "$OVERRIDE_YAML" | wc -l) key(s) ==="
+        else
+          echo "=== kibana.user.yml: no overrides ==="
+        fi
 
   # ── Step 6: Clone Kibana source ──────────────────────────────────────────
   - name: clone

@@ -22,9 +22,9 @@ fi
 # Process config template — substitutes ${KIBANA_BRANCH} and ${ES_PASSWORD}
 envsubst < /etc/kibana-config/kibana.dev.yml > /opt/kibana/config/kibana.yml
 
-# Apply user overrides if provided (non-empty file mounted via KIBANA_CONFIG_FILE)
-if [ -s /etc/kibana-config/kibana.config.yml ]; then
-  envsubst < /etc/kibana-config/kibana.config.yml > /opt/kibana/config/kibana.override.yml
+# Apply user overrides if provided (base64-encoded YAML via KIBANA_CONFIG_OVERRIDES_B64)
+if [ -n "${KIBANA_CONFIG_OVERRIDES_B64:-}" ]; then
+  echo "$KIBANA_CONFIG_OVERRIDES_B64" | base64 -d > /opt/kibana/config/kibana.override.yml
 fi
 
 # ES cluster health passes before the native security realm finishes initializing,
