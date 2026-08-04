@@ -219,19 +219,23 @@ steps:
 
   # ── Step 5: Write user Kibana config overrides → kibana.user.yml ─────────
   - name: write_kibana_config
-    type: remoteHost.runCommand
+    type: remoteHost.runJavascript
     connector-id: dev-vm
     with:
       code: |
-        DEPLOY_DIR="/opt/deploy"
-        OVERRIDE_YAML=$(node -p "const e=Object.entries({{ inputs.kibana_config }}||{}); e.length ? e.map(([k,v])=>k+': '+v).join('\n') : ''")
-        if [ -n "$OVERRIDE_YAML" ]; then
-          B64=$(printf '%s' "$OVERRIDE_YAML" | base64 -w0)
-          echo "KIBANA_CONFIG_OVERRIDES_B64=${B64}" >> "$DEPLOY_DIR/kibana/env/.env"
-          echo "=== kibana.user.yml: $(echo "$OVERRIDE_YAML" | wc -l) key(s) ==="
-        else
-          echo "=== kibana.user.yml: no overrides ==="
-        fi
+        node -e '
+        const fs = require("fs");
+        const cfg = {{ inputs.kibana_config }} || {};
+        const entries = Object.entries(cfg);
+        if (entries.length) {
+          const yaml = entries.map(([k, v]) => k + ": " + v).join("\n");
+          const b64 = Buffer.from(yaml).toString("base64");
+          fs.appendFileSync("/opt/deploy/kibana/env/.env", "KIBANA_CONFIG_OVERRIDES_B64=" + b64 + "\n");
+          console.log("=== kibana.user.yml: " + entries.length + " key(s) ===");
+        } else {
+          console.log("=== kibana.user.yml: no overrides ===");
+        }
+        '
 
   # ── Step 6: Clone Kibana source ──────────────────────────────────────────
   - name: clone
