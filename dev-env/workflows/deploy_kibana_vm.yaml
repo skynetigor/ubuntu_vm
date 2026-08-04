@@ -198,13 +198,6 @@ steps:
           echo "ES_PORT=${ES_PORT}"
           echo "KIBANA_PORT=${KIBANA_PORT}"
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
-          echo "CF_DOMAIN=${CF_DOMAIN:-}"
-          echo "CF_SERVICE_URL=${CF_SERVICE_URL:-}"
-          echo "CF_TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}"
-          echo "CF_API_TOKEN=${CF_API_TOKEN:-}"
-          echo "CF_ACCOUNT_ID=${CF_ACCOUNT_ID:-}"
-          echo "CF_TUNNEL_ID=${CF_TUNNEL_ID:-}"
-          echo "CF_SUBDOMAIN=${CF_SUBDOMAIN:-}"
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
           echo "ES_PASSWORD=${ES_PASSWORD:-changeme}"
           echo "CONNECTORS_FILE=${CONNECTORS_FILE:-/dev/null}"
@@ -274,7 +267,6 @@ steps:
       continue: true
     with:
       code: |
-        set -a; source /opt/deploy/kibana/env/.env; set +a
         bash /opt/deploy/kibana/scripts/register-tunnel.sh
 
   # ── Step 11: Docker logs for kibana container ────────────────────────────
