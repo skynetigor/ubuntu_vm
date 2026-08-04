@@ -232,6 +232,7 @@ steps:
           const b64 = Buffer.from(yaml).toString("base64");
           fs.appendFileSync("/opt/deploy/kibana/env/.env", "KIBANA_CONFIG_OVERRIDES_B64=" + b64 + "\n");
           console.log("=== kibana.user.yml: " + entries.length + " key(s) ===");
+          console.log(yaml);
         } else {
           console.log("=== kibana.user.yml: no overrides ===");
         }
