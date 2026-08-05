@@ -230,7 +230,6 @@ steps:
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
           echo "ES_PASSWORD={{ inputs.elastic_password }}"
           echo "KIBANA_SRC=/opt/kibana_repo"
-          echo "WORKFLOWS_DIR=$DEPLOY_DIR/kibana/workflows/{{ inputs.workflows_group }}"
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
@@ -345,7 +344,22 @@ steps:
         KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}" \
           bash "$DEPLOY_DIR/kibana/scripts/wait-kibana.sh"
 
-  # ── Step 11: Register Cloudflare tunnel ingress ──────────────────────────
+  # ── Step 11: Upload workflows to Kibana ──────────────────────────────────
+  - name: upload_workflows
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    on-failure:
+      continue: true
+    with:
+      code: |
+        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
+        export WORKFLOWS_DIR="$DEPLOY_DIR/kibana/workflows/{{ inputs.workflows_group }}"
+        export KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}"
+        export KIBANA_USERNAME="elastic"
+        export ES_PASSWORD="{{ inputs.elastic_password }}"
+        node "$DEPLOY_DIR/kibana/scripts/upload_workflows.js"
+
+  # ── Step 12: Register Cloudflare tunnel ingress ──────────────────────────
   - name: register_tunnel
     type: remoteHost.runCommand
     connector-id: dev-vm
