@@ -7,24 +7,22 @@ if [ -f "$KIBANA_DIR/.env" ]; then
   set -a; source "$KIBANA_DIR/.env"; set +a
 fi
 
-LOCAL_DIR="${LOCAL_DIR:-dist}"
-SRC_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/src"
-OUT_DIR="$KIBANA_DIR/$LOCAL_DIR/kibana/dist"
-COMMIT_FILE="$KIBANA_DIR/$LOCAL_DIR/kibana/.compilecommit"
+KIBANA_SRC="${KIBANA_SRC:-$KIBANA_DIR/src}"
+COMMIT_FILE="$KIBANA_SRC/.compilecommit"
 
-if [ ! -d "$SRC_DIR" ]; then
-  echo "ERROR: source directory not found: $SRC_DIR — run clone.sh and bootstrap.sh first"
+if [ ! -d "$KIBANA_SRC" ]; then
+  echo "ERROR: source directory not found: $KIBANA_SRC — run clone.sh and bootstrap.sh first"
   exit 1
 fi
 
-CURRENT_COMMIT=$(git -C "$SRC_DIR" rev-parse HEAD)
+CURRENT_COMMIT=$(git -C "$KIBANA_SRC" rev-parse HEAD)
 STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
 if [ "$CURRENT_COMMIT" = "$STORED_COMMIT" ]; then
   echo "=== Skipping compile — already at $CURRENT_COMMIT ==="
   exit 0
 fi
 
-cd "$SRC_DIR"
+cd "$KIBANA_SRC"
 
 # ── Node version ──────────────────────────────────────────────────────────────
 # set +u: nvm.sh uses unbound variables internally
@@ -50,25 +48,18 @@ node scripts/build \
   --skip-cloud-dependencies-download \
   --skip-cdn-assets
 
-# ── Move dist to output dir ───────────────────────────────────────────────────
+# ── Move dist to $KIBANA_SRC/dist/ ───────────────────────────────────────────
 BUILD_DIR=$(ls -d build/default/kibana-*/ 2>/dev/null | head -1)
 if [ -z "$BUILD_DIR" ]; then
   echo "ERROR: build output not found under build/default/ — the build may have failed"
   exit 1
 fi
+OUT_DIR="$KIBANA_SRC/dist"
 rm -rf "$OUT_DIR"
-mkdir -p "$(dirname "$OUT_DIR")"
 mv "$BUILD_DIR" "$OUT_DIR"
 
-# ── Persist node version into .env so docker-compose can pass it as a build arg ─
-# sed -i '' is BSD (macOS); GNU sed (Linux) uses sed -i — use a tmp file for portability
-if grep -q "^NODE_VERSION=" "$KIBANA_DIR/.env" 2>/dev/null; then
-  tmp=$(mktemp)
-  sed "s/^NODE_VERSION=.*/NODE_VERSION=${NODE_VERSION}/" "$KIBANA_DIR/.env" > "$tmp"
-  mv "$tmp" "$KIBANA_DIR/.env"
-else
-  echo "NODE_VERSION=${NODE_VERSION}" >> "$KIBANA_DIR/.env"
-fi
+# ── Persist node version for the workflow and Dockerfile ─────────────────────
+echo "$NODE_VERSION" > "$KIBANA_SRC/.node_version"
 
 echo "$CURRENT_COMMIT" > "$COMMIT_FILE"
 echo ""

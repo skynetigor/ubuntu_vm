@@ -54,32 +54,7 @@ triggers:
           default: "1ab1db3e-838a-4b1e-9944-88084c553998"
 
 steps:
-  # ── Step 1: Clone / update the ubuntu_vm repo ────────────────────────────
-  - name: update_ubuntu_vm
-    type: remoteHost.runCommand
-    connector-id: dev-vm
-    with:
-      code: |
-        DEPLOY_DIR="/opt/deploy"
-        UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
-        UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
-
-        for dir in /opt/deploy /opt/deploy-ports; do
-          sudo mkdir -p "$dir"
-          sudo chown kibana:kibana "$dir"
-        done
-
-        if [ -d "$DEPLOY_DIR/.git" ]; then
-          echo "=== Updating ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
-          git -C "$DEPLOY_DIR" fetch --depth 1 origin "$UBUNTU_VM_BRANCH"
-          git -C "$DEPLOY_DIR" reset --hard FETCH_HEAD
-        else
-          echo "=== Cloning ubuntu_vm ($UBUNTU_VM_BRANCH) ==="
-          git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
-        fi
-        echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
-
-  # ── Step 2: Resolve target URL → fork / branch / commit / project name ───
+  # ── Step 1: Resolve target URL → fork / branch / commit / project name ────
   # Output: { KIBANA_FORK, KIBANA_BRANCH, KIBANA_COMMIT, PROJECT }
   - name: resolve
     type: remoteHost.runCommand
@@ -147,6 +122,30 @@ steps:
         SCRIPT_OUTPUT=$(printf '{"KIBANA_FORK":"%s","KIBANA_BRANCH":"%s","KIBANA_COMMIT":"%s","PROJECT":"%s"}' \
           "$KIBANA_FORK" "$KIBANA_BRANCH" "$KIBANA_COMMIT" "$PROJECT")
 
+  # ── Step 2: Set up per-deployment dir and shared kibana_repo ─────────────
+  - name: setup_deployment
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    with:
+      code: |
+        PROJECT="{{ steps.resolve.output.PROJECT }}"
+        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
+        UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
+
+        sudo mkdir -p "$DEPLOY_DIR" /opt/kibana_repo
+        sudo chown kibana:kibana "$DEPLOY_DIR" /opt/kibana_repo
+
+        if [ -d "$DEPLOY_DIR/.git" ]; then
+          echo "=== Updating ubuntu_vm in $DEPLOY_DIR ($UBUNTU_VM_BRANCH) ==="
+          git -C "$DEPLOY_DIR" fetch --depth 1 origin "$UBUNTU_VM_BRANCH"
+          git -C "$DEPLOY_DIR" reset --hard FETCH_HEAD
+        else
+          echo "=== Cloning ubuntu_vm into $DEPLOY_DIR ($UBUNTU_VM_BRANCH) ==="
+          git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
+        fi
+        echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
+
   # ── Step 3: Assign ports for this project ────────────────────────────────
   # Output: { ES_PORT, KIBANA_PORT }
   - name: assign_ports
@@ -155,7 +154,8 @@ steps:
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        PORT_FILE="/opt/deploy-ports/$PROJECT"
+        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        PORT_FILE="$DEPLOY_DIR/.ports"
 
         find_free_port() {
           local start=$1
@@ -188,14 +188,15 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        DEPLOY_DIR="/opt/deploy"
+        PROJECT="{{ steps.resolve.output.PROJECT }}"
+        DEPLOY_DIR="/opt/deployments/$PROJECT"
         KIBANA_FORK="{{ steps.resolve.output.KIBANA_FORK }}"
         KIBANA_BRANCH="{{ steps.resolve.output.KIBANA_BRANCH }}"
         KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
         ES_PORT="{{ steps.assign_ports.output.ES_PORT }}"
         KIBANA_PORT="{{ steps.assign_ports.output.KIBANA_PORT }}"
 
-        CF_SUBDOMAIN=$(echo "{{ steps.resolve.output.PROJECT }}" \
+        CF_SUBDOMAIN=$(echo "$PROJECT" \
           | tr '[:upper:]/' '[:lower:]-' \
           | sed 's/[^a-z0-9-]/-/g' \
           | cut -c1-20)
@@ -218,13 +219,14 @@ steps:
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
           echo "ES_PASSWORD={{ inputs.elastic_password }}"
+          echo "KIBANA_SRC=/opt/kibana_repo"
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
         SCRIPT_OUTPUT=$(printf '{"CF_SUBDOMAIN":"%s","KIBANA_PUBLIC_URL":"%s"}' \
           "$CF_SUBDOMAIN" "$KIBANA_PUBLIC_URL")
 
-  # ── Step 5: Write user Kibana config overrides → kibana.user.yml ─────────
+  # ── Step 5: Write user Kibana config overrides → KIBANA_CONFIG_OVERRIDES_B64
   - name: write_kibana_config
     type: remoteHost.runJavascript
     connector-id: dev-vm
@@ -232,6 +234,8 @@ steps:
       code: |
         const fs = require("fs");
         const cfg = {{ inputs.kibana_config | json }} || {};
+        const project = "{{ steps.resolve.output.PROJECT }}";
+        const envFile = `/opt/deployments/${project}/kibana/env/.env`;
 
         function toYaml(obj, depth) {
           const pad = "  ".repeat(depth);
@@ -254,7 +258,7 @@ steps:
         if (entries.length) {
           const yaml = toYaml(cfg, 0);
           const b64 = Buffer.from(yaml).toString("base64");
-          fs.appendFileSync("/opt/deploy/kibana/env/.env", "KIBANA_CONFIG_OVERRIDES_B64=" + b64 + "\n");
+          fs.appendFileSync(envFile, "KIBANA_CONFIG_OVERRIDES_B64=" + b64 + "\n");
           console.log("=== kibana.user.yml: " + entries.length + " top-level key(s) ===");
           console.log(yaml);
         } else {
@@ -267,41 +271,52 @@ steps:
     connector-id: dev-vm
     with:
       code: |
+        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
+        export KIBANA_SRC=/opt/kibana_repo
         export KIBANA_FORK="{{ steps.resolve.output.KIBANA_FORK }}"
         export KIBANA_BRANCH="{{ steps.resolve.output.KIBANA_BRANCH }}"
         export KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
-        bash /opt/deploy/kibana/scripts/clone.sh
+        bash "$DEPLOY_DIR/kibana/scripts/clone.sh"
 
-  # ── Step 6: Bootstrap dependencies ───────────────────────────────────────
+  # ── Step 7: Bootstrap dependencies ───────────────────────────────────────
   - name: bootstrap
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
-        bash /opt/deploy/kibana/scripts/bootstrap.sh
+        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
+        export KIBANA_SRC=/opt/kibana_repo
+        bash "$DEPLOY_DIR/kibana/scripts/bootstrap.sh"
 
-  # ── Step 7: Compile / build distribution ─────────────────────────────────
+  # ── Step 8: Compile / build distribution ─────────────────────────────────
   - name: compile
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
-        bash /opt/deploy/kibana/scripts/compile.sh
+        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
+        export KIBANA_SRC=/opt/kibana_repo
+        bash "$DEPLOY_DIR/kibana/scripts/compile.sh"
+        NODE_VERSION=$(cat "$KIBANA_SRC/.node_version")
+        echo "NODE_VERSION=${NODE_VERSION}" >> "$DEPLOY_DIR/kibana/env/.env"
 
-  # ── Step 8: Start the stack ───────────────────────────────────────────────
+  # ── Step 9: Start the stack ───────────────────────────────────────────────
   - name: start
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        KIBANA_DIR="/opt/deploy/kibana"
-        set -a; source "$KIBANA_DIR/env/.env"; set +a
-        docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" up --build -d
+        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        docker compose \
+          --env-file "$DEPLOY_DIR/kibana/env/.env" \
+          -p "$PROJECT" \
+          -f "$DEPLOY_DIR/kibana/docker-compose.yml" \
+          up --build -d
         echo "=== Stack started (project: $PROJECT) ==="
         docker compose -p "$PROJECT" ps
 
-  # ── Step 9: Wait for Kibana to be ready ──────────────────────────────────
+  # ── Step 10: Wait for Kibana to be ready ──────────────────────────────────
   - name: wait_for_kibana
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -310,10 +325,11 @@ steps:
       continue: true
     with:
       code: |
+        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
         KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}" \
-          bash /opt/deploy/kibana/scripts/wait-kibana.sh
+          bash "$DEPLOY_DIR/kibana/scripts/wait-kibana.sh"
 
-  # ── Step 10: Register Cloudflare tunnel ingress ──────────────────────────
+  # ── Step 11: Register Cloudflare tunnel ingress ──────────────────────────
   - name: register_tunnel
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -321,30 +337,31 @@ steps:
       continue: true
     with:
       code: |
+        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
         CF_SUBDOMAIN="{{ steps.write_env.output.CF_SUBDOMAIN }}"
         CF_SERVICE_URL="http://dev-vm:{{ steps.assign_ports.output.KIBANA_PORT }}"
-        bash /opt/deploy/kibana/scripts/register-tunnel.sh
+        bash "$DEPLOY_DIR/kibana/scripts/register-tunnel.sh"
 
-  # ── Step 11: Docker logs for kibana container ────────────────────────────
+  # ── Step 12: Docker logs for kibana container ────────────────────────────
   - name: get_container_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        KIBANA_DIR="/opt/deploy/kibana"
+        DEPLOY_DIR="/opt/deployments/$PROJECT"
         echo "=== Kibana container logs ==="
-        docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" logs --no-log-prefix kibana
+        docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" logs --no-log-prefix kibana
 
-  # ── Step 11: Output setup logs from inside the Kibana container ──────────
+  # ── Step 13: Output setup logs from inside the Kibana container ──────────
   - name: get_setup_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        KIBANA_DIR="/opt/deploy/kibana"
-        CONTAINER=$(docker compose -p "$PROJECT" -f "$KIBANA_DIR/docker-compose.yml" ps -q kibana)
+        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        CONTAINER=$(docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" ps -q kibana)
         SETUP_DIR="/opt/kibana/setup"
         echo "=== setup.log ==="
         docker exec "$CONTAINER" cat "$SETUP_DIR/setup.log" 2>/dev/null || true

@@ -17,16 +17,8 @@ for env_file in kibana.env es.env cloudflare.env vm.env; do
   fi
 done
 
-LOCAL_DIR="${LOCAL_DIR:-dist}"
-DIST="$KIBANA_DIR/$LOCAL_DIR"
-
 "$KIBANA_DIR/scripts/clone.sh"
 "$KIBANA_DIR/scripts/bootstrap.sh"
 "$KIBANA_DIR/scripts/compile.sh"
 
 docker compose -f "$DEV_ENV_DIR/docker-compose.yml" up --build -d "$@"
-
-if [ "${DELETE_DIST:-false}" = "true" ]; then
-  echo "=== Deleting dist directory ==="
-  rm -rf "$DIST"
-fi
