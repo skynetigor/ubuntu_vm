@@ -305,6 +305,7 @@ steps:
   - name: wait_for_kibana
     type: remoteHost.runCommand
     connector-id: dev-vm
+    timeout: 30s
     on-failure:
       continue: true
     with:
