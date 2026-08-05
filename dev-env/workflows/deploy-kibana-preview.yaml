@@ -308,6 +308,11 @@ steps:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
         DEPLOY_DIR="/opt/deployments/$PROJECT"
+
+        # Hard-link compiled dist into build context (zero extra disk — same inodes)
+        rm -rf "$DEPLOY_DIR/kibana/dist"
+        cp -al /opt/kibana_repo/dist "$DEPLOY_DIR/kibana/dist"
+
         docker compose \
           --env-file "$DEPLOY_DIR/kibana/env/.env" \
           -p "$PROJECT" \

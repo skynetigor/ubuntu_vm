@@ -18,3 +18,7 @@ echo ""
 "$KIBANA_DIR/scripts/clone.sh"
 "$KIBANA_DIR/scripts/bootstrap.sh"
 "$KIBANA_DIR/scripts/compile.sh"
+
+# Hard-link compiled dist into build context (zero extra disk — same inodes)
+rm -rf "$KIBANA_DIR/dist"
+cp -al "$KIBANA_SRC/dist" "$KIBANA_DIR/dist"
