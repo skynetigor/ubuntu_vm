@@ -50,12 +50,12 @@ steps:
               size: 0
               query:
                 match_all: {}
-            on-failure:
-              fallback:
-                - name: kibana_unavailable
-                  type: console
-                  with:
-                    message: 'Kibana index not found — skipping.'
+            # on-failure:
+            #   fallback:
+            #     - name: kibana_unavailable
+            #       type: console
+            #       with:
+            #         message: 'Kibana index not found — skipping.'
           - name: log_kibana
             type: console
             with:
@@ -70,12 +70,12 @@ steps:
               size: 0
               query:
                 match_all: {}
-            on-failure:
-              fallback:
-                - name: alerts_unavailable
-                  type: console
-                  with:
-                    message: 'Alerts index not found — skipping.'
+            # on-failure:
+            #   fallback:
+            #     - name: alerts_unavailable
+            #       type: console
+            #       with:
+            #         message: 'Alerts index not found — skipping.'
           - name: log_alerts
             type: console
             with:
