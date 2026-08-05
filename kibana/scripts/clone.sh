@@ -19,14 +19,8 @@ if [ -z "$KIBANA_BRANCH" ] && [ -z "$KIBANA_COMMIT" ]; then
   KIBANA_BRANCH="main"
 fi
 
-# Remove partial/broken clone so we fall through to a fresh clone below
-if [ -d "$KIBANA_SRC" ] && ! git -C "$KIBANA_SRC" rev-parse HEAD >/dev/null 2>&1; then
-  echo "=== Detected broken/partial clone — removing and re-cloning ==="
-  rm -rf "$KIBANA_SRC"
-  rm -f "$COMMIT_FILE"
-fi
-
-if [ -d "$KIBANA_SRC" ]; then
+if [ -d "$KIBANA_SRC" ] && git -C "$KIBANA_SRC" rev-parse HEAD >/dev/null 2>&1; then
+  # ── Valid existing repo — fetch and update ────────────────────────────────
   git -C "$KIBANA_SRC" remote set-url origin "$KIBANA_FORK"
 
   if [ -n "$KIBANA_BRANCH" ]; then
@@ -46,7 +40,15 @@ if [ -d "$KIBANA_SRC" ]; then
   echo "=== Updating to $REMOTE_COMMIT ==="
   git -C "$KIBANA_SRC" reset --hard FETCH_HEAD
 else
-  mkdir -p "$(dirname "$KIBANA_SRC")"
+  # ── No repo or broken/partial clone — (re)clone ───────────────────────────
+  if [ -d "$KIBANA_SRC" ]; then
+    echo "=== Detected broken/partial clone — clearing and re-cloning ==="
+    # Clear contents without removing the dir itself (avoids needing parent-dir write permission)
+    find "$KIBANA_SRC" -mindepth 1 -delete
+    rm -f "$COMMIT_FILE"
+  else
+    mkdir -p "$(dirname "$KIBANA_SRC")"
+  fi
 
   if [ -n "$KIBANA_BRANCH" ]; then
     echo "=== Cloning $KIBANA_FORK ($KIBANA_BRANCH) ==="
