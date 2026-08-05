@@ -43,7 +43,10 @@ triggers:
               xpack.fleet.enabled: false
               logging.root.level: debug
           default: {
-            "uiSettings.globalOverrides:workflowsManagement:library:enabled": true
+            "uiSettings.globalOverrides": {
+              "workflowsManagement:library:enabled": true,
+              "workflowsManagement:globalExecutionsView:enabled": true
+            },
           }
 
 steps:
@@ -224,7 +227,7 @@ steps:
     with:
       code: |
         const fs = require("fs");
-        const cfg = {{ inputs.kibana_config }} || {};
+        const cfg = {{ inputs.kibana_config | json }} || {};
 
         function toYaml(obj, depth) {
           const pad = "  ".repeat(depth);
