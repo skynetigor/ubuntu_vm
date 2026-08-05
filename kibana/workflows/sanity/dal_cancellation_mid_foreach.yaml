@@ -1,0 +1,57 @@
+version: '1'
+name: DAL - Cancellation of Long-Running Workflow Mid-Foreach
+description: |
+  Verifies that a workflow can be cancelled cleanly while iterating over a
+  large array. Each foreach iteration runs a step that takes ~1s, giving a
+  narrow window to request cancellation between iterations.
+
+  The data access layer is exercised through:
+    - Repeated stepExecutionsDataClient.bulk calls as each iteration writes
+      its step execution documents.
+    - workflowExecutionsDataClient.scriptUpdate to mark the execution as
+      CANCELLED when the cancellation check fires between iterations.
+    - The final markNonTerminalStepsFailed recovery path, which calls
+      bulkUpsert on any step executions that were still in-progress when
+      the cancellation was processed.
+
+  To trigger cancellation: after starting the workflow, use the Workflows UI
+  or API to request cancellation while it is in the RUNNING state.
+
+  Expected result:
+    - Workflow status: CANCELLED.
+    - Only a subset of the foreach iterations complete (those that started
+      before the cancellation checkpoint was reached).
+    - No step executions are left in a non-terminal state after cancellation.
+enabled: true
+tags:
+  - dal
+  - cancellation
+  - foreach
+consts:
+  items: '["item-01","item-02","item-03","item-04","item-05","item-06","item-07","item-08","item-09","item-10"]'
+triggers:
+  - type: manual
+steps:
+  - name: start_log
+    type: console
+    with:
+      message: 'Starting 10-item foreach. Request cancellation while this runs to test the cancel path.'
+
+  - name: process_items
+    type: foreach
+    foreach: '{{ consts.items }}'
+    steps:
+      - name: process_item
+        type: console
+        with:
+          message: 'Processing {{ foreach.item }} ({{ foreach.index | plus: 1 }} of {{ foreach.total }})'
+
+      - name: item_wait
+        type: wait
+        with:
+          duration: 2s
+
+  - name: completion_log
+    type: console
+    with:
+      message: 'All items processed (cancellation was not requested or arrived too late).'

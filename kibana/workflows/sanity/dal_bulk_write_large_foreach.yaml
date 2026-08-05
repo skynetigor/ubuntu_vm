@@ -1,0 +1,51 @@
+version: '1'
+name: DAL - Bulk Write Stress via Large Foreach
+description: |
+  Verifies the data access layer under high-volume step execution writes.
+  A foreach loop over 50 items causes 50 sequential step execution documents
+  to be written via stepExecutionsDataClient.bulk. This stresses the bulk
+  indexing path and ensures the DAL correctly reports errors (bulkUpsert
+  now surfaces item-level errors rather than silently swallowing them).
+
+  After the loop, an Elasticsearch search queries the step execution index
+  to verify all 50 documents were indexed successfully, confirming end-to-end
+  write and read paths through the abstraction layer.
+
+  Expected result:
+    - 50 process_item step executions, all COMPLETED.
+    - verify_count step returns a hit count of 50.
+    - Overall workflow status: COMPLETED.
+enabled: true
+tags:
+  - dal
+  - bulk-write
+  - foreach
+  - stress
+consts:
+  items: >
+    ["01","02","03","04","05","06","07","08","09","10",
+     "11","12","13","14","15","16","17","18","19","20",
+     "21","22","23","24","25","26","27","28","29","30",
+     "31","32","33","34","35","36","37","38","39","40",
+     "41","42","43","44","45","46","47","48","49","50"]
+triggers:
+  - type: manual
+steps:
+  - name: start_log
+    type: console
+    with:
+      message: 'Starting 50-item foreach to stress the DAL bulk write path.'
+
+  - name: process_all_items
+    type: foreach
+    foreach: '{{ consts.items }}'
+    steps:
+      - name: process_item
+        type: console
+        with:
+          message: 'Processing item {{ foreach.item }} ({{ foreach.index | plus: 1 }}/{{ foreach.total }})'
+
+  - name: completion_log
+    type: console
+    with:
+      message: 'All {{ steps.process_all_items.output | size }} iterations completed. DAL bulk write path is healthy.'

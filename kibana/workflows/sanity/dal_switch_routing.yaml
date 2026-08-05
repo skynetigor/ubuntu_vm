@@ -1,0 +1,58 @@
+version: '1'
+name: DAL - Switch Routing by Computed Value
+description: |
+  Verifies that the data access layer correctly stores and retrieves step
+  output across a multi-branch switch step. The switch evaluates the output
+  of a preceding console step and routes execution to one of three branches.
+  Each branch writes a different step execution document, allowing the
+  test to verify that only the matched branch's step execution appears in
+  the DAL after the workflow completes.
+
+  Run this workflow multiple times changing `consts.severity` to exercise
+  each branch (critical, warning, and the default).
+
+  Expected result:
+    - Exactly one of: critical_handler, warning_handler, or default_handler
+      appears in the step execution records (plus classify_event and summary).
+    - Overall workflow status: COMPLETED.
+enabled: true
+tags:
+  - dal
+  - switch
+  - routing
+consts:
+  severity: 'critical'
+triggers:
+  - type: manual
+steps:
+  - name: classify_event
+    type: console
+    with:
+      message: '{{ consts.severity }}'
+
+  - name: route_by_severity
+    type: switch
+    expression: '{{ steps.classify_event.output }}'
+    cases:
+      - match: critical
+        steps:
+          - name: critical_handler
+            type: console
+            with:
+              message: 'CRITICAL severity detected. Escalating immediately.'
+      - match: warning
+        steps:
+          - name: warning_handler
+            type: console
+            with:
+              message: 'WARNING severity detected. Logging for review.'
+    default:
+      - name: default_handler
+        type: console
+        with:
+          message: 'Severity "{{ consts.severity }}" is below threshold. No action required.'
+
+  - name: summary
+    type: console
+    with:
+      message: 'Routing complete. Switch step DAL path is healthy.'

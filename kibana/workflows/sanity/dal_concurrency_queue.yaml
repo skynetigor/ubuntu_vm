@@ -1,0 +1,47 @@
+version: '1'
+name: DAL - Concurrency Queue Strategy
+description: |
+  Verifies the data access layer under the `queue` concurrency strategy.
+  When max=1 and a second run arrives while one is active, the second run
+  is stored with status QUEUED. Once the active run finishes and releases
+  its slot, the engine drains the queue: it atomically promotes the oldest
+  QUEUED execution to PENDING via a Painless scriptUpdate (CAS) and
+  schedules the workflow:run task for it.
+
+  The queue-ttl is intentionally short (2m) so stale queued entries expire
+  rather than accumulate.
+
+  Run this workflow twice quickly.
+
+  Expected result:
+    - First execution: COMPLETED.
+    - Second execution: initially QUEUED, then promoted to PENDING and
+      finally COMPLETED once the first finishes.
+enabled: true
+tags:
+  - dal
+  - concurrency
+  - queue
+settings:
+  concurrency:
+    max: 1
+    strategy: queue
+    queue-size: 5
+    queue-ttl: 2m
+triggers:
+  - type: manual
+steps:
+  - name: hold_slot
+    type: console
+    with:
+      message: 'Holding the concurrency slot. A second run will queue behind this one.'
+
+  - name: short_wait
+    type: wait
+    with:
+      duration: 8s
+
+  - name: release
+    type: console
+    with:
+      message: 'Slot released. The queued execution should now be promoted and start.'

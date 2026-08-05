@@ -1,0 +1,53 @@
+version: '1'
+name: DAL - While Loop Simulated Poll until Condition
+description: |
+  Verifies the data access layer under repeated iterative step execution.
+  The while loop simulates a polling pattern: it runs up to 5 iterations,
+  each writing a step execution document via the DAL. The loop exits early
+  when the iteration counter reaches 3, mimicking a condition becoming true
+  (e.g. a job reaching a terminal state) before the max-iterations limit.
+
+  This exercises:
+    - stepExecutionsDataClient.bulk called once per while-body iteration,
+      producing N separate step execution documents that the DAL must store.
+    - workflowExecutionsDataClient.scriptUpdate to update the while-step
+      execution state (current iteration) between iterations.
+    - The final iteration count in the workflow execution document must
+      match the number of bulk writes.
+
+  Expected result:
+    - inner_step executes exactly 3 times (iterations 0, 1, 2).
+    - Workflow status: COMPLETED.
+    - No step executions left in non-terminal state.
+enabled: true
+tags:
+  - dal
+  - while
+  - polling
+triggers:
+  - type: manual
+steps:
+  - name: poll_loop
+    type: while
+    condition: '${{ while.iteration < 3 }}'
+    max-iterations: 5
+    steps:
+      - name: check_condition
+        type: console
+        with:
+          message: 'Poll iteration {{ while.iteration }}. Checking condition...'
+
+      - name: short_pause
+        type: wait
+        with:
+          duration: 1s
+
+      - name: iteration_result
+        type: console
+        with:
+          message: 'Iteration {{ while.iteration }} complete. Condition not yet met, continuing.'
+
+  - name: poll_complete
+    type: console
+    with:
+      message: 'Polling finished after 3 iterations. DAL while-loop write path is healthy.'

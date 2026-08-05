@@ -1,0 +1,44 @@
+version: '1'
+name: DAL - Concurrency Drop Strategy
+description: |
+  Verifies the data access layer under the `drop` concurrency strategy.
+  When a second run arrives while one is already active, the engine must
+  atomically check the running-slot count via the DAL (search + count) and
+  then drop the incoming execution (status: CANCELLED) without starting it.
+  The CAS scriptUpdate used by tryCasPromoteQueuedWorkflowExecutionToPending
+  must guard against race conditions that could allow two runs to hold the
+  same concurrency slot.
+
+  Run this workflow twice in quick succession (before the first run finishes)
+  to trigger the drop path.
+
+  Expected result:
+    - First execution completes as COMPLETED.
+    - Second execution is immediately set to CANCELLED with a cancellation
+      reason indicating it was dropped due to the concurrency limit.
+enabled: true
+tags:
+  - dal
+  - concurrency
+  - drop
+settings:
+  concurrency:
+    max: 1
+    strategy: drop
+triggers:
+  - type: manual
+steps:
+  - name: slow_work
+    type: console
+    with:
+      message: 'Slot is occupied. A concurrent trigger should be dropped.'
+
+  - name: wait_to_hold_slot
+    type: wait
+    with:
+      duration: 8s
+
+  - name: finish
+    type: console
+    with:
+      message: 'Execution completed. Concurrency slot released.'

@@ -1,0 +1,44 @@
+version: '1'
+name: DAL - Concurrency Cancel-in-Progress Strategy
+description: |
+  Verifies the data access layer under the `cancel-in-progress` concurrency strategy.
+  When a new execution arrives while one is already running, the engine must:
+    1. Query the DAL for currently active executions in the concurrency group.
+    2. Issue a bulk update via the DAL to set the active execution(s) to CANCELLED.
+    3. Allow the new execution to start as PENDING.
+
+  This exercises bulkUpdateWorkflowExecutions, which now correctly checks the
+  bulk response and throws if any item fails (the fix for issue H).
+
+  Run this workflow twice quickly.
+
+  Expected result:
+    - First execution: CANCELLED (preempted by the second run).
+    - Second execution: COMPLETED.
+    - The first execution's cancellationReason references the concurrency limit.
+enabled: true
+tags:
+  - dal
+  - concurrency
+  - cancel-in-progress
+settings:
+  concurrency:
+    max: 1
+    strategy: cancel-in-progress
+triggers:
+  - type: manual
+steps:
+  - name: hold_slot
+    type: console
+    with:
+      message: 'Occupying the concurrency slot. A second trigger will cancel this run.'
+
+  - name: long_wait
+    type: wait
+    with:
+      duration: 30s
+
+  - name: should_not_reach_here
+    type: console
+    with:
+      message: 'ERROR: this step should never execute - the run should have been cancelled.'

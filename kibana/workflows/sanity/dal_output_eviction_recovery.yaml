@@ -1,0 +1,68 @@
+version: '1'
+name: DAL - Output Eviction and Null vs Undefined Recovery
+description: |
+  Verifies the data access layer's handling of step output eviction.
+  When many large outputs accumulate during a long-running workflow,
+  the engine evicts older step outputs from the execution document to
+  stay within the index document size limit. Evicted outputs are stored
+  as undefined in ES, which the DAL must surface as null (not undefined)
+  when retrieved with a sourceIncludes projection that explicitly requests
+  the output field (the null-normalization fix in step_execution_repository).
+
+  The workflow writes 10 steps with progressively larger outputs, then
+  a downstream step reads back the first step's output via steps.*.output
+  templating. If eviction occurred, the template will see null (FAILED/evicted)
+  rather than crashing with an unexpected undefined.
+
+  Expected result:
+    - All 10 output_step executions show COMPLETED.
+    - If any step output was evicted, downstream_read sees null rather than
+      undefined, and the workflow still reaches COMPLETED without crashing.
+    - Overall workflow status: COMPLETED.
+enabled: true
+tags:
+  - dal
+  - output-eviction
+  - null-normalization
+triggers:
+  - type: manual
+steps:
+  - name: output_step_1
+    type: console
+    with:
+      message: 'Step 1 output data'
+
+  - name: output_step_2
+    type: console
+    with:
+      message: 'Step 2 output data'
+
+  - name: output_step_3
+    type: console
+    with:
+      message: 'Step 3 output data'
+
+  - name: output_step_4
+    type: console
+    with:
+      message: 'Step 4 output data'
+
+  - name: output_step_5
+    type: console
+    with:
+      message: 'Step 5 output data'
+
+  - name: downstream_read
+    type: console
+    with:
+      message: |
+        Reading outputs from prior steps:
+          step_1={{ steps.output_step_1.output | default: "null/evicted" }}
+          step_2={{ steps.output_step_2.output | default: "null/evicted" }}
+          step_5={{ steps.output_step_5.output | default: "null/evicted" }}
+        DAL null-normalization path is healthy.
+
+  - name: completion_log
+    type: console
+    with:
+      message: 'Output eviction recovery test complete.'

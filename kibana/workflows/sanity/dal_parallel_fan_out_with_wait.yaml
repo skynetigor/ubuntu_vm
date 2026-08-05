@@ -1,0 +1,78 @@
+version: '1'
+name: DAL - Parallel Static Branches with Mixed Wait Durations
+description: |
+  Verifies the data access layer under concurrent branch execution using
+  static named branches. Three branches run simultaneously:
+    - immediate: completes instantly, exercises the fast write path.
+    - short_wait: waits 3s (in-process sleep), exercises the in-process
+      wait path while another branch is still running.
+    - long_wait: waits 10m (exceeds the 6s threshold), causing the engine
+      to park the workflow in WAITING state and schedule a workflow:resume
+      task while the other branches may still be tracked.
+
+  This exercises:
+    - Multiple concurrent stepExecutionsDataClient.bulk calls from
+      independent branches writing their step execution documents.
+    - getByIds to fetch multiple step execution documents in a single
+      mget call when the workflow resumes after the long wait.
+    - The workflow execution document's stepExecutionIds array grows as
+      each branch writes its step executions.
+
+  Expected result:
+    - The immediate and short_wait branches complete in the first run.
+    - The workflow parks in WAITING state while long_wait branch waits.
+    - After resume, the long_wait branch shows COMPLETED.
+    - Overall workflow status: COMPLETED.
+enabled: true
+tags:
+  - dal
+  - parallel
+  - wait
+  - resume
+triggers:
+  - type: manual
+steps:
+  - name: parallel_branches
+    type: parallel
+    branches:
+      - name: immediate
+        steps:
+          - name: immediate_log
+            type: console
+            with:
+              message: 'Immediate branch started and completed.'
+
+      - name: short_wait
+        steps:
+          - name: short_wait_log
+            type: console
+            with:
+              message: 'Short-wait branch started. Waiting 3s.'
+          - name: do_short_wait
+            type: wait
+            with:
+              duration: 3s
+          - name: short_wait_done
+            type: console
+            with:
+              message: 'Short-wait branch completed after 3s.'
+
+      - name: long_wait
+        steps:
+          - name: long_wait_log
+            type: console
+            with:
+              message: 'Long-wait branch started. Parking for 10m (triggers resume task).'
+          - name: do_long_wait
+            type: wait
+            with:
+              duration: 10m
+          - name: long_wait_done
+            type: console
+            with:
+              message: 'Long-wait branch completed after resume. DAL parallel+wait path is healthy.'
+
+  - name: all_done
+    type: console
+    with:
+      message: 'All parallel branches completed. DAL concurrent write path is healthy.'
