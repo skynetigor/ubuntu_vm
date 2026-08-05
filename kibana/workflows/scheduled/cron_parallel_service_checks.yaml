@@ -1,0 +1,77 @@
+version: '1'
+name: CRON - Parallel Service Checks
+description: |
+  Fans out three independent service probes in parallel — api, database, and
+  cache — then logs a combined status report. Each branch runs a brief wait
+  to simulate a real network round-trip.
+
+  Exercises the parallel step with three named branches and verifies that
+  all branches complete before the summary step runs.
+
+  Expected result:
+    - All three branches reach COMPLETED concurrently.
+    - summary step runs after all branches finish.
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - parallel
+  - health
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: checks
+    type: parallel
+    branches:
+      - name: api
+        steps:
+          - name: api_probe
+            type: console
+            with:
+              message: 'Probing API service...'
+          - name: api_wait
+            type: wait
+            with:
+              duration: 1s
+          - name: api_ok
+            type: console
+            with:
+              message: 'API service: OK'
+
+      - name: database
+        steps:
+          - name: db_probe
+            type: console
+            with:
+              message: 'Probing database...'
+          - name: db_wait
+            type: wait
+            with:
+              duration: 2s
+          - name: db_ok
+            type: console
+            with:
+              message: 'Database: OK'
+
+      - name: cache
+        steps:
+          - name: cache_probe
+            type: console
+            with:
+              message: 'Probing cache layer...'
+          - name: cache_wait
+            type: wait
+            with:
+              duration: 1s
+          - name: cache_ok
+            type: console
+            with:
+              message: 'Cache layer: OK'
+
+  - name: summary
+    type: console
+    with:
+      message: 'All service checks passed — API, Database, Cache are healthy.'

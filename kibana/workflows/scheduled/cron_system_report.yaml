@@ -1,0 +1,87 @@
+version: '1'
+name: CRON - System Summary Report
+description: |
+  Collects lightweight signals from multiple sources in parallel, then
+  logs a formatted summary report. Simulates the kind of recurring
+  rollup job that populates a status page or sends a digest.
+
+  Parallel branches each query a different "subsystem" (represented here
+  by different index queries), then a final step assembles the report.
+
+  Expected result:
+    - All three collection branches complete concurrently.
+    - report step logs a combined summary.
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - parallel
+  - reporting
+  - summary
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: collect
+    type: parallel
+    branches:
+      - name: tasks
+        steps:
+          - name: query_tasks
+            type: elasticsearch.search
+            with:
+              index: '.kibana_task_manager'
+              size: 0
+              query:
+                match_all: {}
+          - name: log_tasks
+            type: console
+            with:
+              message: 'Tasks index — docs: {{ steps.query_tasks.output.hits.total.value }}'
+
+      - name: kibana
+        steps:
+          - name: query_kibana
+            type: elasticsearch.search
+            with:
+              index: '.kibana_8.17.0_001'
+              size: 0
+              query:
+                match_all: {}
+            on-failure:
+              fallback:
+                - name: kibana_unavailable
+                  type: console
+                  with:
+                    message: 'Kibana index not found — skipping.'
+          - name: log_kibana
+            type: console
+            with:
+              message: 'Kibana index — docs: {{ steps.query_kibana.output.hits.total.value }}'
+
+      - name: alerts
+        steps:
+          - name: query_alerts
+            type: elasticsearch.search
+            with:
+              index: '.alerts-*'
+              size: 0
+              query:
+                match_all: {}
+            on-failure:
+              fallback:
+                - name: alerts_unavailable
+                  type: console
+                  with:
+                    message: 'Alerts index not found — skipping.'
+          - name: log_alerts
+            type: console
+            with:
+              message: 'Alerts — docs: {{ steps.query_alerts.output.hits.total.value }}'
+
+  - name: report
+    type: console
+    with:
+      message: 'System report complete — all subsystems sampled.'

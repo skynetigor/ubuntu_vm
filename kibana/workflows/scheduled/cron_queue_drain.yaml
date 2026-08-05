@@ -1,0 +1,50 @@
+version: '1'
+name: CRON - Queue Drain Simulation
+description: |
+  Simulates a queue-drain job that processes up to 5 items per minute.
+  A while loop iterates over a fixed work list, processing one item per
+  iteration and stopping early when the batch limit is reached.
+
+  Exercises:
+    - while loop with an iteration-count stop condition.
+    - Per-iteration console step simulating item processing.
+
+  Expected result:
+    - Loop runs exactly 3 iterations (batch-limit reached).
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - while
+  - queue
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+consts:
+  batch_limit: 3
+steps:
+  - name: start
+    type: console
+    with:
+      message: 'Queue drain started — processing up to {{ consts.batch_limit }} items.'
+
+  - name: drain
+    type: while
+    condition: '${{ while.iteration < consts.batch_limit }}'
+    max-iterations: 5
+    steps:
+      - name: process_item
+        type: console
+        with:
+          message: 'Processing queue item {{ while.iteration }}...'
+      - name: item_done
+        type: console
+        with:
+          message: 'Item {{ while.iteration }} processed.'
+
+  - name: done
+    type: console
+    with:
+      message: 'Queue drain complete — processed {{ consts.batch_limit }} items.'

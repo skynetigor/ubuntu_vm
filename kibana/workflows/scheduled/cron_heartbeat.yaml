@@ -1,0 +1,35 @@
+version: '1'
+name: CRON - Heartbeat
+description: |
+  Minimal liveness probe. Runs every minute, logs a timestamp, waits briefly,
+  then confirms completion. Useful for verifying the scheduler fires reliably
+  and that the simplest execution path through the engine stays healthy.
+
+  Expected result:
+    - Three steps execute in sequence: start → pause → done.
+    - Workflow status: COMPLETED every run.
+enabled: true
+tags:
+  - cron
+  - heartbeat
+  - smoke
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: start
+    type: console
+    with:
+      message: 'Heartbeat fired.'
+
+  - name: pause
+    type: wait
+    with:
+      duration: 3s
+
+  - name: done
+    type: console
+    with:
+      message: 'Heartbeat OK.'

@@ -1,0 +1,45 @@
+version: '1'
+name: CRON - Concurrency Drop (Single Slot)
+description: |
+  Verifies that the concurrency drop strategy prevents overlap when a
+  scheduled job takes longer than its interval. With max=1 and strategy=drop,
+  any run that arrives while one is already active is silently discarded
+  rather than queued.
+
+  The job deliberately holds its slot for 90s (via a long wait), which is
+  longer than the 1m schedule interval. On the next tick the engine should
+  drop the incoming run.
+
+  Expected result:
+    - First execution: COMPLETED after ~90s.
+    - Any run that fires during the 90s window: DROPPED.
+    - No two executions are ever in RUNNING state simultaneously.
+enabled: true
+tags:
+  - cron
+  - concurrency
+  - drop
+settings:
+  concurrency:
+    max: 1
+    strategy: drop
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: start
+    type: console
+    with:
+      message: 'Acquired concurrency slot — holding for 90s to provoke a drop on the next tick.'
+
+  - name: long_job
+    type: wait
+    with:
+      duration: 90s
+
+  - name: done
+    type: console
+    with:
+      message: 'Job complete — slot released.'

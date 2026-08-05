@@ -1,0 +1,53 @@
+version: '1'
+name: CRON - Data Pipeline (Fetch → Transform → Load)
+description: |
+  Simulates a three-stage ETL pipeline that runs every minute:
+    1. fetch  — queries Elasticsearch for source records.
+    2. transform — iterates over results with a foreach and enriches each item.
+    3. load — logs the transformed payload as if writing to a sink index.
+
+  Exercises foreach over search hits and multi-step sequential pipeline logic.
+
+  Expected result:
+    - fetch returns documents from the source index.
+    - foreach iterates over hits and logs each transformed record.
+    - load step confirms the simulated write.
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - pipeline
+  - foreach
+  - etl
+consts:
+  source_index: '.kibana_task_manager'
+  sink_index: '.cron-pipeline-sink'
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: fetch
+    type: elasticsearch.search
+    with:
+      index: '{{ consts.source_index }}'
+      size: 3
+      query:
+        match_all: {}
+
+  - name: transform
+    type: foreach
+    foreach: '{{ steps.fetch.output.hits.hits }}'
+    steps:
+      - name: enrich
+        type: console
+        with:
+          message: 'Transforming record {{ foreach.index | plus: 1 }}/{{ foreach.total }} — id: {{ foreach.item._id }}'
+
+  - name: load
+    type: console
+    with:
+      message: |
+        Pipeline complete — {{ steps.fetch.output.hits.hits | size }} record(s) processed
+        and would be written to {{ consts.sink_index }}.

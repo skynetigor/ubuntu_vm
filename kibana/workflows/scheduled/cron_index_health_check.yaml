@@ -1,0 +1,38 @@
+version: '1'
+name: CRON - Index Health Check
+description: |
+  Queries an Elasticsearch index on a schedule and logs document count and
+  index health. Simulates a recurring observability probe that would page
+  an on-call engineer if the count drops to zero or the index disappears.
+
+  Expected result:
+    - search step returns hits from the target index (or zero if empty).
+    - log_result prints the doc count.
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - elasticsearch
+  - health
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+consts:
+  target_index: '.kibana_task_manager'
+steps:
+  - name: count_docs
+    type: elasticsearch.search
+    with:
+      index: '{{ consts.target_index }}'
+      size: 0
+      query:
+        match_all: {}
+
+  - name: log_result
+    type: console
+    with:
+      message: |
+        Index "{{ consts.target_index }}" — total docs: {{ steps.count_docs.output.hits.total.value }}
+        Took {{ steps.count_docs.output.took }}ms.

@@ -1,0 +1,69 @@
+version: '1'
+name: CRON - Conditional Maintenance Window
+description: |
+  Checks a feature-flag document in Elasticsearch. If the flag is active,
+  the workflow runs the "maintenance" path; otherwise it takes the normal
+  operational path. Simulates a recurring job that respects a dynamic
+  kill-switch stored in the cluster.
+
+  The flag is read from consts so it can be toggled without editing the
+  step logic. In a real scenario the if-condition would evaluate a live ES
+  document field.
+
+  Expected result:
+    - When consts.maintenance_mode = true  → maintenance branch executes.
+    - When consts.maintenance_mode = false → operational branch executes.
+    - Workflow status: COMPLETED either way.
+enabled: true
+tags:
+  - cron
+  - if
+  - conditional
+  - maintenance
+consts:
+  maintenance_mode: 'false'
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: read_flag
+    type: console
+    with:
+      message: '{{ consts.maintenance_mode }}'
+
+  - name: check_maintenance
+    type: if
+    condition: 'steps.read_flag.output == "true"'
+    steps:
+      - name: maintenance_start
+        type: console
+        with:
+          message: 'Maintenance mode is ACTIVE — skipping normal job execution.'
+      - name: maintenance_wait
+        type: wait
+        with:
+          duration: 5s
+      - name: maintenance_done
+        type: console
+        with:
+          message: 'Maintenance window check complete — will retry next minute.'
+    else:
+      - name: run_job
+        type: console
+        with:
+          message: 'Maintenance mode is OFF — executing normal job.'
+      - name: job_work
+        type: wait
+        with:
+          duration: 2s
+      - name: job_done
+        type: console
+        with:
+          message: 'Normal job execution complete.'
+
+  - name: finish
+    type: console
+    with:
+      message: 'Run complete (maintenance={{ consts.maintenance_mode }}).'

@@ -1,0 +1,44 @@
+version: '1'
+name: CRON - Metrics Snapshot
+description: |
+  Runs an Elasticsearch aggregation every minute and logs a concise snapshot
+  of document counts bucketed by a status field. Simulates the kind of
+  lightweight metric-collection job that feeds a monitoring dashboard.
+
+  Expected result:
+    - agg step executes and returns bucket counts.
+    - summarize prints the bucket breakdown.
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - metrics
+  - aggregation
+  - elasticsearch
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+consts:
+  metrics_index: '.kibana_task_manager'
+steps:
+  - name: agg
+    type: elasticsearch.search
+    with:
+      index: '{{ consts.metrics_index }}'
+      size: 0
+      query:
+        match_all: {}
+      aggs:
+        by_type:
+          terms:
+            field: type
+            size: 5
+
+  - name: summarize
+    type: console
+    with:
+      message: |
+        Snapshot — total: {{ steps.agg.output.hits.total.value }}
+        Top buckets: {{ steps.agg.output.aggregations.by_type.buckets | json }}

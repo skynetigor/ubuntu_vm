@@ -1,0 +1,70 @@
+version: '1'
+name: CRON - Severity-Based Alert Router
+description: |
+  Classifies a synthetic alert by severity and routes it to the appropriate
+  handler via a switch step. Simulates the dispatch logic of a recurring
+  alert-triage job.
+
+  Change consts.severity to exercise each branch:
+    - critical → immediate escalation path
+    - warning  → review queue path
+    - anything else → suppression / no-action path
+
+  Expected result:
+    - Exactly one branch handler executes.
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - switch
+  - routing
+  - alerts
+consts:
+  severity: critical
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: classify
+    type: console
+    with:
+      message: '{{ consts.severity }}'
+
+  - name: route
+    type: switch
+    expression: '{{ steps.classify.output }}'
+    cases:
+      - match: critical
+        steps:
+          - name: escalate
+            type: console
+            with:
+              message: 'CRITICAL alert detected — escalating to on-call engineer immediately.'
+          - name: wait_ack
+            type: wait
+            with:
+              duration: 2s
+          - name: ack
+            type: console
+            with:
+              message: 'Escalation acknowledged.'
+
+      - match: warning
+        steps:
+          - name: queue_review
+            type: console
+            with:
+              message: 'WARNING alert — queued for next review cycle.'
+
+    default:
+      - name: suppress
+        type: console
+        with:
+          message: 'Severity "{{ consts.severity }}" below threshold — suppressing.'
+
+  - name: routed
+    type: console
+    with:
+      message: 'Routing complete.'

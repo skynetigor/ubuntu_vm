@@ -1,0 +1,54 @@
+version: '1'
+name: CRON - Retry Flaky External Call
+description: |
+  Simulates a scheduled job that calls an unreliable external endpoint.
+  The step searches a non-existent index, which always fails, exercising
+  the retry + fallback path on every run.
+
+  Exercises:
+    - on-failure.retry with delay between attempts.
+    - fallback branch that lets the workflow complete despite the error.
+    - Scheduled trigger ensuring this pattern is stress-tested continuously.
+
+  Expected result:
+    - call_external fails 3 times (1 initial + 2 retries).
+    - fallback_log executes once.
+    - Workflow status: COMPLETED.
+enabled: true
+tags:
+  - cron
+  - retry
+  - fallback
+  - error-handling
+triggers:
+  - type: scheduled
+    with:
+      every: 1m
+  - type: manual
+steps:
+  - name: start
+    type: console
+    with:
+      message: 'Attempting external call...'
+
+  - name: call_external
+    type: elasticsearch.search
+    with:
+      index: .cron-test-nonexistent-index
+      size: 1
+      query:
+        match_all: {}
+    on-failure:
+      retry:
+        max-attempts: 2
+        delay: 1s
+      fallback:
+        - name: fallback_log
+          type: console
+          with:
+            message: 'External call failed after retries — recording failure and continuing.'
+
+  - name: done
+    type: console
+    with:
+      message: 'Job finished (via fallback path if external call was unavailable).'
