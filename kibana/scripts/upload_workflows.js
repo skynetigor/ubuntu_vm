@@ -127,7 +127,7 @@ async function main() {
     const rawYaml = fs.readFileSync(filePath, 'utf8');
     const lines   = rawYaml.split('\n');
     const name    = extractField(lines, 'name');
-    const fileName = path.basename(filePath, path.extname(filePath));
+    const fileName = path.basename(filePath, path.extname(filePath)).replace(/_/g, '-');
 
     if (!name) {
       console.error(`ERROR [${path.basename(filePath)}]: no top-level 'name:' field found`);
