@@ -1,17 +1,23 @@
 version: '1'
 name: DAL - Long Wait Resume (>6s)
 description: |
-  Verifies the pause-and-resume path through the data access layer.
-  A wait step with duration longer than 6s causes the engine to park
-  the execution (status: WAITING) and schedule a workflow:resume task
-  rather than sleeping in-process. On resume the DAL must correctly
-  retrieve the waiting execution, mark the wait step as responded via
-  scriptUpdate, and continue to the final step.
+  Purpose:
+    Exercises the pause-and-resume path. A wait step with duration >6s
+    causes the engine to park the execution in WAITING state and schedule
+    a workflow:resume task rather than blocking the runner thread. On
+    resume, the DAL retrieves the parked execution, marks the wait step
+    as responded, and continues to the final step.
 
-  Expected result:
-    - Workflow reaches WAITING state after the first connector step completes.
-    - After resume, the wait step transitions to COMPLETED.
-    - The final step executes and the workflow finishes as COMPLETED.
+  How to run:
+    Trigger once from the Workflows UI or API. The workflow will sit in
+    WAITING state for ~10 minutes — no manual intervention is needed.
+
+  Expected behavior:
+    - pre_wait_log executes immediately.
+    - Workflow transitions to WAITING state once long_wait starts.
+    - After ~10 minutes the engine resumes the workflow automatically.
+    - long_wait transitions to COMPLETED; post_wait_log executes.
+    - Workflow status: COMPLETED.
 enabled: true
 tags:
   - dal

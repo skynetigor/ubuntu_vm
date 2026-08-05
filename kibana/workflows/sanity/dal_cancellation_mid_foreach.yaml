@@ -1,27 +1,24 @@
 version: '1'
 name: DAL - Cancellation of Long-Running Workflow Mid-Foreach
 description: |
-  Verifies that a workflow can be cancelled cleanly while iterating over a
-  large array. Each foreach iteration runs a step that takes ~1s, giving a
-  narrow window to request cancellation between iterations.
+  Purpose:
+    Exercises clean cancellation mid-foreach. A 10-item loop with ~2s per
+    iteration gives a wide window to cancel between steps. Verifies that
+    the engine halts the loop, marks in-progress step executions as failed,
+    and leaves no step executions in a non-terminal state.
 
-  The data access layer is exercised through:
-    - Repeated stepExecutionsDataClient.bulk calls as each iteration writes
-      its step execution documents.
-    - workflowExecutionsDataClient.scriptUpdate to mark the execution as
-      CANCELLED when the cancellation check fires between iterations.
-    - The final markNonTerminalStepsFailed recovery path, which calls
-      bulkUpsert on any step executions that were still in-progress when
-      the cancellation was processed.
+  How to run:
+    1. Trigger the workflow from the Workflows UI or API.
+    2. While the workflow is in RUNNING state, cancel it via the UI
+       (the cancel button) or the API cancel endpoint.
+    3. Cancel after at least one iteration has started for a meaningful result.
 
-  To trigger cancellation: after starting the workflow, use the Workflows UI
-  or API to request cancellation while it is in the RUNNING state.
-
-  Expected result:
+  Expected behavior:
     - Workflow status: CANCELLED.
-    - Only a subset of the foreach iterations complete (those that started
-      before the cancellation checkpoint was reached).
-    - No step executions are left in a non-terminal state after cancellation.
+    - Only the iterations that started before the cancellation checkpoint
+      complete; the rest are never executed.
+    - No step executions remain in a non-terminal (e.g. RUNNING) state
+      after cancellation processing finishes.
 enabled: true
 tags:
   - dal

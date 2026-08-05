@@ -1,28 +1,25 @@
 version: '1'
 name: DAL - Parallel Static Branches with Mixed Wait Durations
 description: |
-  Verifies the data access layer under concurrent branch execution using
-  static named branches. Three branches run simultaneously:
-    - immediate: completes instantly, exercises the fast write path.
-    - short_wait: waits 3s (in-process sleep), exercises the in-process
-      wait path while another branch is still running.
-    - long_wait: waits 10m (exceeds the 6s threshold), causing the engine
-      to park the workflow in WAITING state and schedule a workflow:resume
-      task while the other branches may still be tracked.
+  Purpose:
+    Exercises concurrent branch execution with mixed wait durations.
+    Three named parallel branches run simultaneously. The long_wait branch
+    waits 10m, which exceeds the 6s in-process threshold and causes the
+    engine to park the execution in WAITING state and schedule a resume task.
 
-  This exercises:
-    - Multiple concurrent stepExecutionsDataClient.bulk calls from
-      independent branches writing their step execution documents.
-    - getByIds to fetch multiple step execution documents in a single
-      mget call when the workflow resumes after the long wait.
-    - The workflow execution document's stepExecutionIds array grows as
-      each branch writes its step executions.
+  How to run:
+    Trigger once from the Workflows UI or API. The workflow will park in
+    WAITING state for ~10 minutes while the long_wait branch waits — no
+    manual intervention is needed.
 
-  Expected result:
-    - The immediate and short_wait branches complete in the first run.
-    - The workflow parks in WAITING state while long_wait branch waits.
-    - After resume, the long_wait branch shows COMPLETED.
-    - Overall workflow status: COMPLETED.
+  Expected behavior:
+    - immediate branch completes right away.
+    - short_wait branch completes after ~3s (in-process sleep).
+    - Workflow transitions to WAITING state once long_wait starts its 10m pause.
+    - After ~10 minutes the engine resumes the workflow; long_wait branch
+      transitions to COMPLETED.
+    - all_done step executes after all branches finish.
+    - Workflow status: COMPLETED.
 enabled: true
 tags:
   - dal

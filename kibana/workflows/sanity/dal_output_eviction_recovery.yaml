@@ -1,24 +1,23 @@
 version: '1'
 name: DAL - Output Eviction and Null vs Undefined Recovery
 description: |
-  Verifies the data access layer's handling of step output eviction.
-  When many large outputs accumulate during a long-running workflow,
-  the engine evicts older step outputs from the execution document to
-  stay within the index document size limit. Evicted outputs are stored
-  as undefined in ES, which the DAL must surface as null (not undefined)
-  when retrieved with a sourceIncludes projection that explicitly requests
-  the output field (the null-normalization fix in step_execution_repository).
+  Purpose:
+    Exercises output eviction and null-normalization in the DAL. When step
+    outputs accumulate, the engine evicts older ones from the execution
+    document. Evicted outputs are stored as undefined in ES; the DAL must
+    normalize these to null so downstream templates receive null rather
+    than crashing with an unexpected undefined.
 
-  The workflow writes 10 steps with progressively larger outputs, then
-  a downstream step reads back the first step's output via steps.*.output
-  templating. If eviction occurred, the template will see null (FAILED/evicted)
-  rather than crashing with an unexpected undefined.
+  How to run:
+    Trigger once from the Workflows UI or API. No special setup required.
+    Eviction may or may not occur depending on cluster state, but the
+    workflow must complete correctly either way.
 
-  Expected result:
-    - All 10 output_step executions show COMPLETED.
-    - If any step output was evicted, downstream_read sees null rather than
-      undefined, and the workflow still reaches COMPLETED without crashing.
-    - Overall workflow status: COMPLETED.
+  Expected behavior:
+    - All output_step_* steps complete as COMPLETED.
+    - downstream_read reads back earlier step outputs — evicted outputs
+      appear as `null/evicted` via the `default` filter, not as an error.
+    - Workflow status: COMPLETED regardless of whether eviction occurred.
 enabled: true
 tags:
   - dal

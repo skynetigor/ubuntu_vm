@@ -1,20 +1,23 @@
 version: '1'
 name: DAL - Switch Routing by Computed Value
 description: |
-  Verifies that the data access layer correctly stores and retrieves step
-  output across a multi-branch switch step. The switch evaluates the output
-  of a preceding console step and routes execution to one of three branches.
-  Each branch writes a different step execution document, allowing the
-  test to verify that only the matched branch's step execution appears in
-  the DAL after the workflow completes.
+  Purpose:
+    Exercises switch-based conditional routing. The switch evaluates the
+    string output of a preceding console step and routes execution to one
+    of three branches. Verifies that only the matched branch executes and
+    the DAL records exactly that branch's step execution.
 
-  Run this workflow multiple times changing `consts.severity` to exercise
-  each branch (critical, warning, and the default).
+  How to run:
+    Trigger once from the Workflows UI or API. Change `consts.severity`
+    to `critical`, `warning`, or anything else to exercise each branch.
 
-  Expected result:
-    - Exactly one of: critical_handler, warning_handler, or default_handler
-      appears in the step execution records (plus classify_event and summary).
-    - Overall workflow status: COMPLETED.
+  Expected behavior:
+    - Exactly one branch handler executes:
+        consts.severity = critical  → critical_handler runs.
+        consts.severity = warning   → warning_handler runs.
+        any other value             → default_handler runs.
+    - classify_event and summary always execute.
+    - Workflow status: COMPLETED.
 enabled: true
 tags:
   - dal

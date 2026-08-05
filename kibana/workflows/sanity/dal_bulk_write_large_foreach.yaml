@@ -1,20 +1,20 @@
 version: '1'
 name: DAL - Bulk Write Stress via Large Foreach
 description: |
-  Verifies the data access layer under high-volume step execution writes.
-  A foreach loop over 50 items causes 50 sequential step execution documents
-  to be written via stepExecutionsDataClient.bulk. This stresses the bulk
-  indexing path and ensures the DAL correctly reports errors (bulkUpsert
-  now surfaces item-level errors rather than silently swallowing them).
+  Purpose:
+    Stress-tests the DAL bulk write path. A foreach loop over 50 items
+    causes 50 sequential step execution documents to be written. Verifies
+    that bulkUpsert correctly surfaces item-level errors rather than
+    silently swallowing them, and that all documents are indexed.
 
-  After the loop, an Elasticsearch search queries the step execution index
-  to verify all 50 documents were indexed successfully, confirming end-to-end
-  write and read paths through the abstraction layer.
+  How to run:
+    Trigger once from the Workflows UI or API. The run takes a few seconds
+    to complete all 50 iterations. No special setup required.
 
-  Expected result:
-    - 50 process_item step executions, all COMPLETED.
-    - verify_count step returns a hit count of 50.
-    - Overall workflow status: COMPLETED.
+  Expected behavior:
+    - process_item executes 50 times (items 01–50), all COMPLETED.
+    - completion_log prints the total iteration count.
+    - Workflow status: COMPLETED.
 enabled: true
 tags:
   - dal

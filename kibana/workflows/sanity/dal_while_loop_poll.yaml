@@ -1,24 +1,21 @@
 version: '1'
 name: DAL - While Loop Simulated Poll until Condition
 description: |
-  Verifies the data access layer under repeated iterative step execution.
-  The while loop simulates a polling pattern: it runs up to 5 iterations,
-  each writing a step execution document via the DAL. The loop exits early
-  when the iteration counter reaches 3, mimicking a condition becoming true
-  (e.g. a job reaching a terminal state) before the max-iterations limit.
+  Purpose:
+    Exercises the while loop with an early-exit condition. The loop allows
+    up to 5 iterations but the condition `while.iteration < 3` causes it
+    to exit after 3, simulating a polling pattern where a watched condition
+    becomes true before the max-iterations limit is reached.
 
-  This exercises:
-    - stepExecutionsDataClient.bulk called once per while-body iteration,
-      producing N separate step execution documents that the DAL must store.
-    - workflowExecutionsDataClient.scriptUpdate to update the while-step
-      execution state (current iteration) between iterations.
-    - The final iteration count in the workflow execution document must
-      match the number of bulk writes.
+  How to run:
+    Trigger once from the Workflows UI or API. No special setup required.
 
-  Expected result:
-    - inner_step executes exactly 3 times (iterations 0, 1, 2).
+  Expected behavior:
+    - poll_loop body (check_condition → short_pause → iteration_result)
+      executes exactly 3 times (iterations 0, 1, 2).
+    - Loop exits early because the condition becomes false at iteration 3.
+    - poll_complete step executes once after the loop.
     - Workflow status: COMPLETED.
-    - No step executions left in non-terminal state.
 enabled: true
 tags:
   - dal

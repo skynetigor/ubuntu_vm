@@ -1,25 +1,22 @@
 version: '1'
 name: DAL - Step Retry then Fallback on Persistent Failure
 description: |
-  Verifies step execution tracking through multiple retry cycles followed
-  by a fallback branch. The step searches a non-existent Elasticsearch
-  index, causing every attempt to fail with an index_not_found_exception.
-  Each attempt writes a step execution document via the DAL. After all
-  retries are exhausted, the on-failure fallback branch executes, writing
-  its own step execution and allowing the workflow to continue.
+  Purpose:
+    Exercises step retry tracking and fallback execution. The step always
+    fails (searches a non-existent index), exhausting all retries and then
+    running the fallback branch. Verifies that the DAL records each failed
+    attempt separately and that the fallback prevents top-level failure.
 
-  This exercises:
-    - stepExecutionsDataClient.bulk: one document per attempt (1 initial
-      + 2 retries = 3 writes total) plus the fallback step.
-    - The final workflow status must be COMPLETED because the fallback
-      prevents the error from propagating to the top level.
+  How to run:
+    Trigger once from the Workflows UI or API. No special setup required —
+    the non-existent index guarantees failure on every attempt.
 
-  Expected result:
+  Expected behavior:
     - search_nonexistent_index executes 3 times (1 initial + 2 retries),
       all FAILED with index_not_found_exception.
-    - fallback_notify executes once, COMPLETED.
+    - fallback_notify executes once after retries are exhausted, COMPLETED.
     - final_step executes once, COMPLETED.
-    - Overall workflow status: COMPLETED.
+    - Workflow status: COMPLETED (fallback prevents propagation of the error).
 enabled: true
 tags:
   - dal
