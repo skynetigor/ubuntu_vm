@@ -21,4 +21,9 @@ done
 "$KIBANA_DIR/scripts/bootstrap.sh"
 "$KIBANA_DIR/scripts/compile.sh"
 
+# Hard-link compiled dist into build context (zero extra disk — same inodes)
+KIBANA_SRC="${KIBANA_SRC:-$KIBANA_DIR/src}"
+rm -rf "$KIBANA_DIR/dist"
+cp -al "$KIBANA_SRC/dist" "$KIBANA_DIR/dist"
+
 docker compose -f "$DEV_ENV_DIR/docker-compose.yml" up --build -d "$@"
