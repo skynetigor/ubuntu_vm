@@ -35,6 +35,7 @@ triggers:
               PR     — https://github.com/<owner>/<repo>/pull/<number>
               Branch — https://github.com/<owner>/<repo>/tree/<branch>
               Commit — https://github.com/<owner>/<repo>/commit/<sha>
+          default: https://github.com/elastic/kibana/tree/main
         kibana_config:
           type: object
           description: |
