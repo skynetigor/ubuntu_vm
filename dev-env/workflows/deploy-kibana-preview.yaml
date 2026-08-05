@@ -48,6 +48,10 @@ triggers:
               "workflowsManagement:globalExecutionsView:enabled": true
             },
           }
+        elastic_password:
+          type: string
+          description: Password for the elastic user. Defaults to a pre-generated UUID.
+          default: "1ab1db3e-838a-4b1e-9944-88084c553998"
 
 steps:
   # ── Step 1: Clone / update the ubuntu_vm repo ────────────────────────────
@@ -213,7 +217,7 @@ steps:
           echo "KIBANA_PORT=${KIBANA_PORT}"
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
-          echo "ES_PASSWORD=${ES_PASSWORD:-changeme}"
+          echo "ES_PASSWORD={{ inputs.elastic_password }}"
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
