@@ -56,8 +56,11 @@ triggers:
           type: string
           description: |
             Subdirectory under kibana/workflows/ to mount into the preview as the
-            workflows library. Available groups: sanity, scheduled.
-            The resolved path is: <deploy_dir>/kibana/workflows/<workflows_group>
+            workflows library. The resolved path is:
+            <deploy_dir>/kibana/workflows/<workflows_group>
+          enum:
+            - scheduled
+            - sanity
           default: "scheduled"
 
 steps:
