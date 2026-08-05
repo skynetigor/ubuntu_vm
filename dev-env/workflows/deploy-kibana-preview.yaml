@@ -345,7 +345,30 @@ steps:
         KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}" \
           bash "$DEPLOY_DIR/kibana/scripts/wait-kibana.sh"
 
-  # ── Step 11: Upload workflows to Kibana ──────────────────────────────────
+  # ── Step 11: Index deployment record in deployed-previews ────────────────
+  - name: index_deployment
+    type: elasticsearch.request
+    with:
+      method: POST
+      path: /deployed-previews/_update/{{ steps.resolve.output.PROJECT }}
+      body:
+        doc:
+          updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
+          target: '{{ inputs.kibana_target }}'
+          port: {{ steps.assign_ports.output.KIBANA_PORT }}
+          public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
+          container_name: '{{ steps.resolve.output.PROJECT }}'
+          deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
+        upsert:
+          '@timestamp': '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
+          updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
+          target: '{{ inputs.kibana_target }}'
+          port: {{ steps.assign_ports.output.KIBANA_PORT }}
+          public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
+          container_name: '{{ steps.resolve.output.PROJECT }}'
+          deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
+
+  # ── Step 12: Upload workflows to Kibana ──────────────────────────────────
   - name: upload_workflows
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -360,7 +383,7 @@ steps:
         export ES_PASSWORD="{{ inputs.elastic_password }}"
         node "$DEPLOY_DIR/kibana/scripts/upload_workflows.js"
 
-  # ── Step 12: Register Cloudflare tunnel ingress ──────────────────────────
+  # ── Step 13: Register Cloudflare tunnel ingress ──────────────────────────
   - name: register_tunnel
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -373,7 +396,7 @@ steps:
         CF_SERVICE_URL="http://dev-vm:{{ steps.assign_ports.output.KIBANA_PORT }}"
         bash "$DEPLOY_DIR/kibana/scripts/register-tunnel.sh"
 
-  # ── Step 12: Docker logs for kibana container ────────────────────────────
+  # ── Step 14: Docker logs for kibana container ────────────────────────────
   - name: get_container_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
@@ -384,7 +407,7 @@ steps:
         echo "=== Kibana container logs ==="
         docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" logs --no-log-prefix kibana
 
-  # ── Step 13: Output setup logs from inside the Kibana container ──────────
+  # ── Step 15: Output setup logs from inside the Kibana container ──────────
   - name: get_setup_logs
     type: remoteHost.runCommand
     connector-id: dev-vm

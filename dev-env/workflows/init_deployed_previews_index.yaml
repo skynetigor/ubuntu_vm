@@ -1,0 +1,59 @@
+version: '1'
+name: Init Deployed-Previews Index
+description: |
+  Purpose:
+    Creates the `deployed-previews` Elasticsearch index with explicit mappings.
+    Tracks all active Kibana preview deployments managed by deploy-kibana-preview.
+    Each document is keyed by the deployment project name and holds enough
+    information to locate and identify any running preview.
+
+  How to run:
+    Trigger manually once after setting up the dev-env. Run again only if you
+    need to recreate the index (e.g. after deleting it manually).
+    Safe to re-run — if the index already exists it is left untouched.
+
+  Expected behavior:
+    - Index absent: fallback runs, creates index with mappings → COMPLETED.
+    - Index present: GET succeeds, fallback is skipped, logs "ready" → COMPLETED.
+enabled: true
+tags:
+  - setup
+  - elasticsearch
+  - init
+triggers:
+  - type: manual
+steps:
+  - name: check_index
+    type: elasticsearch.request
+    with:
+      method: GET
+      path: /deployed-previews
+    on-failure:
+      fallback:
+        - name: create_index
+          type: elasticsearch.request
+          with:
+            method: PUT
+            path: /deployed-previews
+            body:
+              mappings:
+                properties:
+                  '@timestamp':
+                    type: date
+                  updated_at:
+                    type: date
+                  target:
+                    type: keyword
+                  port:
+                    type: integer
+                  public_url:
+                    type: keyword
+                  container_name:
+                    type: keyword
+                  deploy_dir_name:
+                    type: keyword
+
+  - name: done
+    type: console
+    with:
+      message: 'Index deployed-previews is ready.'
