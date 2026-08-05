@@ -52,6 +52,13 @@ triggers:
           type: string
           description: Password for the elastic user. Defaults to a pre-generated UUID.
           default: "1ab1db3e-838a-4b1e-9944-88084c553998"
+        workflows_group:
+          type: string
+          description: |
+            Subdirectory under kibana/workflows/ to mount into the preview as the
+            workflows library. Available groups: sanity, scheduled.
+            The resolved path is: <deploy_dir>/kibana/workflows/<workflows_group>
+          default: "scheduled"
 
 steps:
   # ── Step 1: Resolve target URL → fork / branch / commit / project name ────
@@ -220,6 +227,7 @@ steps:
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
           echo "ES_PASSWORD={{ inputs.elastic_password }}"
           echo "KIBANA_SRC=/opt/kibana_repo"
+          echo "WORKFLOWS_DIR=$DEPLOY_DIR/kibana/workflows/{{ inputs.workflows_group }}"
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
