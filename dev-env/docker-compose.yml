@@ -84,10 +84,11 @@ services:
     restart: unless-stopped
 
   apm-server:
-    image: docker.elastic.co/elastic-agent/elastic-agent:${ES_VERSION:-9.6.0}
-    user: root
+    # NOT tied to ES_VERSION: that is a snapshot version (9.6.0) with no
+    # published image. Pin to a released apm-server tag instead.
+    image: docker.elastic.co/apm/apm-server:${APM_SERVER_VERSION:-8.11.0}
     volumes:
-      - ./apm-agent.yml:/usr/share/elastic-agent/elastic-agent.yml:ro
+      - ./apm-server.yml:/usr/share/apm-server/apm-server.yml:ro
     environment:
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
     ports:

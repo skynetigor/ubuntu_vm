@@ -1,0 +1,17 @@
+apm-server:
+  host: "0.0.0.0:8200"
+  # Without this, apm-server blocks ingestion until the APM integration
+  # is installed in Kibana via Fleet.
+  data_streams.wait_for_integration: false
+
+  rum:
+    enabled: true
+
+setup.template.enabled: true
+setup.ilm.enabled: false
+
+output.elasticsearch:
+  # apm-server shares the `elastic` compose network, so it reaches ES by service name
+  hosts: ["http://elasticsearch:9200"]
+  username: "elastic"
+  password: "${ES_PASSWORD:changeme}"

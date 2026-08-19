@@ -20,6 +20,10 @@ settings:
 consts:
   UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
   UBUNTU_VM_BRANCH: main
+  # Preview Kibanas run in DinD inside the dev-vm, so they cannot resolve the
+  # `apm-server` compose service name. Reach it via the host LAN IP where
+  # port 8200 is published.
+  APM_SERVER_URL: http://192.168.1.7:8200
 
 triggers:
   - type: manual
@@ -185,7 +189,7 @@ steps:
           echo "ES_PASSWORD={{ inputs.elastic_password }}"
           echo "KIBANA_SRC=/opt/kibana_repo"
           echo "ELASTIC_APM_ACTIVE=true"
-          echo "ELASTIC_APM_SERVER_URL=http://host.docker.internal:8200"
+          echo "ELASTIC_APM_SERVER_URL={{ consts.APM_SERVER_URL }}"
           echo "ELASTIC_APM_SERVICE_NAME=kibana-preview-${PROJECT}"
           echo "ELASTIC_APM_CONTEXT_PROPAGATION_ONLY=false"
           echo "ELASTIC_APM_SECRET_TOKEN="
