@@ -10,8 +10,7 @@ fi
 export KIBANA_SRC="${KIBANA_SRC:-$KIBANA_DIR/src}"
 
 echo "=== Kibana Local Build ==="
-echo "  Fork  : ${KIBANA_FORK:-https://github.com/elastic/kibana}"
-echo "  Branch: ${KIBANA_BRANCH:-main}"
+echo "  Target: ${KIBANA_TARGET:-https://github.com/elastic/kibana/tree/main}"
 echo "  Output: $KIBANA_SRC/dist"
 echo ""
 
