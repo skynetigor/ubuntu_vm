@@ -63,6 +63,9 @@ services:
     environment:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
+      - APM_ACTIVE=true
+      - APM_SERVER_URL=http://apm-server:8200
+      - APM_SERVICE_NAME=kibana-main
       - WORKFLOWS_DIR=/opt/kibana/setup/workflows
       - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
     ports:
@@ -71,6 +74,28 @@ services:
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
       - ./env/connectors.yml:/opt/kibana/setup/env/connectors.yml:ro
       - ./workflows:/opt/kibana/setup/workflows:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - elastic
+    restart: unless-stopped
+
+  apm-server:
+    image: docker.elastic.co/apm/apm-server:${ES_VERSION:-9.6.0}
+    command:
+      - apm-server
+      - -e
+      - -E
+      - apm-server.host=0.0.0.0:8200
+      - -E
+      - output.elasticsearch.hosts=["http://elasticsearch:9200"]
+      - -E
+      - output.elasticsearch.username=elastic
+      - -E
+      - output.elasticsearch.password=${ES_PASSWORD:-changeme}
+    ports:
+      - "8200:8200"
     depends_on:
       elasticsearch:
         condition: service_healthy

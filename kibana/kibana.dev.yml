@@ -20,3 +20,7 @@ uiSettings.globalOverrides:
 workflowsManagement.enabled: true
 workflowsExecutionEngine.enabled: true
 workflowsExtensions.experimentalSteps: true
+
+elastic.apm.active: ${APM_ACTIVE}
+elastic.apm.serverUrl: ${APM_SERVER_URL}
+elastic.apm.serviceName: ${APM_SERVICE_NAME}
