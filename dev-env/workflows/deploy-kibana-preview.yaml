@@ -85,7 +85,8 @@ steps:
         fi
 
         export KIBANA_TARGET="{{ inputs.kibana_target }}"
-        bash "$SCRIPTS_CACHE/kibana/scripts/resolve.sh"
+        source "$SCRIPTS_CACHE/kibana/scripts/resolve.sh"
+        SCRIPT_OUTPUT=$(printf '{"PROJECT":"%s","KIBANA_COMMIT":"%s"}' "$PROJECT" "$KIBANA_COMMIT")
 
   # ── Step 2: Set up per-deployment dir and shared kibana_repo ─────────────
   - name: setup_deployment
