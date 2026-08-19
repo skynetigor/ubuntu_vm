@@ -24,8 +24,8 @@ ubuntu_vm/
 **Prerequisites:** Docker Desktop, SSH key pair in `elastic_dev_vm/`.
 
 ```bash
-# 1. Configure
-cp kibana/.env.example kibana/.env   # then fill in KIBANA_FORK, KIBANA_BRANCH, etc.
+# 1. Configure (optional — set KIBANA_TARGET to build a specific PR/branch/commit)
+# e.g. echo 'KIBANA_TARGET=https://github.com/elastic/kibana/tree/my-branch' > kibana/.env
 
 # 2. Build Kibana and start all services
 bash dev-env/start.sh
@@ -50,8 +50,7 @@ The `kibana/workflows/deploy_kibana_vm.yaml` workflow can be triggered from a ru
 
 | Variable | Where | Description |
 |---|---|---|
-| `KIBANA_FORK` | `kibana/.env` | Git URL of the Kibana fork to clone |
-| `KIBANA_BRANCH` | `kibana/.env` | Branch to build |
+| `KIBANA_TARGET` | `kibana/.env` | GitHub URL to build — PR, branch, or commit (default: `elastic/kibana` main) |
 | `ES_PASSWORD` | `kibana/.env` | Elasticsearch `elastic` user password (default: `changeme`) |
 | `SSH_KEYS_BASE64` | shell / `.env` | Base64-encoded authorized public keys for the dev-vm |
 | `KIBANA_SSH_PRIVATE_KEY_BASE64` | shell / `.env` | Base64-encoded private key for Kibana's remote host connector |

@@ -6,11 +6,15 @@ Each script reads `kibana/.env` automatically and writes a `.{stage}commit` mark
 
 ## Scripts
 
+### `resolve.sh`
+Resolves a GitHub URL (`KIBANA_TARGET`) into `KIBANA_FORK`, `KIBANA_BRANCH`, `KIBANA_COMMIT`, and `PROJECT`. Accepts PR, branch, or commit URLs. Can be run standalone (sets `SCRIPT_OUTPUT` JSON) or sourced by other scripts to get the variables directly.
+
 ### `clone.sh`
 Clones or updates the Kibana source repository.
 
-- **First run:** clones `KIBANA_FORK` at `KIBANA_BRANCH` into `dist/kibana/src/`
-- **Subsequent runs:** fetches the branch tip from the remote; skips if already at that commit, pulls if there are new commits
+- Accepts `KIBANA_TARGET` (a GitHub PR / branch / commit URL); sources `resolve.sh` internally to derive the fork URL and ref
+- **First run:** clones the resolved fork at the resolved branch or commit into `dist/kibana/src/`
+- **Subsequent runs:** fetches the ref from the remote; skips if already at that commit, pulls if there are new commits
 - **Broken clone detection:** if `dist/kibana/src/` exists but is not a valid git repo (interrupted clone), it is deleted and re-cloned
 
 ### `bootstrap.sh`
@@ -26,7 +30,7 @@ Builds the Kibana distribution.
 - Activates the Node version from `.nvmrc` via NVM
 - Runs `node scripts/build` with flags that skip archives, OS packages, and CDN assets
 - Moves the output to `dist/kibana/dist/`
-- Updates `NODE_VERSION` in `kibana/.env` so docker-compose can pass it as a build arg
+- Copies `.nvmrc` into `kibana/` so the Dockerfile can read the Node version at build time
 
 ### `setup-root.sh`
 Sourced by `bootstrap.sh` and `compile.sh`. When running as root, wraps `yarn` to inject `--allow-root` into all `kbn` subcommands automatically.

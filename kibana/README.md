@@ -31,11 +31,11 @@ Each stage writes a `.{stage}commit` marker to `dist/kibana/`. On the next run t
 ```bash
 cd kibana
 
-# Configure
-cp .env.example .env   # fill in KIBANA_FORK, KIBANA_BRANCH, etc.
-
-# Full build + start
+# Full build + start (defaults to elastic/kibana main)
 bash run.sh
+
+# Build a specific fork/branch/PR
+KIBANA_TARGET=https://github.com/elastic/kibana/tree/my-branch bash run.sh
 
 # Build only
 bash build.sh
@@ -48,16 +48,13 @@ docker compose up -d --build
 
 | Variable | Default | Description |
 |---|---|---|
-| `KIBANA_FORK` | `https://github.com/elastic/kibana` | Git URL to clone |
-| `KIBANA_BRANCH` | `main` | Branch to build |
+| `KIBANA_TARGET` | `https://github.com/elastic/kibana/tree/main` | GitHub URL to build — PR, branch, or commit |
 | `ES_VERSION` | `9.6.0` | Elasticsearch snapshot version |
 | `ES_PASSWORD` | `changeme` | Password for `elastic` and `kibana_system` users |
 | `ES_PORT` | `5002` | Host port for Elasticsearch (workflow sets this automatically) |
 | `KIBANA_PORT` | `5601` | Host port for Kibana (workflow sets this automatically) |
 | `KIBANA_PUBLIC_URL` | _(derived from port)_ | Public base URL shown in Kibana config |
-| `NODE_VERSION` | _(from .nvmrc)_ | Written by compile.sh; used as Docker build arg |
-| `LOCAL_DIR` | `dist` | Local directory for cloned source and compiled output |
 
 ## Kibana config
 
-`kibana.dev.yml` is a template mounted into the container at `/etc/kibana-config/kibana.dev.yml`. The entrypoint runs `envsubst` over it to produce the final `kibana.yml`. Variables substituted: `${ES_PASSWORD}`, `${KIBANA_PUBLIC_URL}`, `${ES_HOST}`, `${KIBANA_BRANCH}`.
+`kibana.dev.yml` is a template mounted into the container at `/etc/kibana-config/kibana.dev.yml`. The entrypoint runs `envsubst` over it to produce the final `kibana.yml`. Variables substituted: `${ES_PASSWORD}`, `${KIBANA_PUBLIC_URL}`, `${ES_HOST}`.
