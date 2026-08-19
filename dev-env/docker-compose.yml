@@ -53,8 +53,6 @@ services:
   kibana:
     build:
       context: ../kibana
-      args:
-        NODE_VERSION: ${NODE_VERSION:-24.18.0}
     env_file:
       - path: ./env/es.env
         required: false

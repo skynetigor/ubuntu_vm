@@ -308,8 +308,6 @@ steps:
         DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
         export KIBANA_SRC=/opt/kibana_repo
         bash "$DEPLOY_DIR/kibana/scripts/compile.sh"
-        NODE_VERSION=$(cat "$KIBANA_SRC/.node_version")
-        echo "NODE_VERSION=${NODE_VERSION}" >> "$DEPLOY_DIR/kibana/env/.env"
 
   # ── Step 9: Start the stack ───────────────────────────────────────────────
   - name: start

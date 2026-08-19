@@ -58,8 +58,8 @@ OUT_DIR="$KIBANA_SRC/dist"
 rm -rf "$OUT_DIR"
 mv "$BUILD_DIR" "$OUT_DIR"
 
-# ── Persist node version for the workflow and Dockerfile ─────────────────────
-echo "$NODE_VERSION" > "$KIBANA_SRC/.node_version"
+# ── Make .nvmrc available in the Docker build context ────────────────────────
+cp .nvmrc "$KIBANA_DIR/.nvmrc"
 
 echo "$CURRENT_COMMIT" > "$COMMIT_FILE"
 echo ""

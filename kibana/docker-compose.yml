@@ -32,8 +32,6 @@ services:
   kibana:
     build:
       context: .
-      args:
-        NODE_VERSION: ${NODE_VERSION}
     env_file:
       - path: ./env/.env            # deployment-specific vars written by the workflow
         required: false
