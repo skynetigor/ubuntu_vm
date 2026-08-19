@@ -191,7 +191,7 @@ steps:
 
   # ── Step 5: Write user Kibana config overrides → KIBANA_CONFIG_OVERRIDES_B64
   - name: write_kibana_config
-    type: remoteHost.runJavascript
+    type: remoteHost.javascript
     connector-id: dev-vm
     with:
       code: |
@@ -304,7 +304,7 @@ steps:
         doc:
           updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
           target: '{{ inputs.kibana_target }}'
-          port: {{ steps.assign_ports.output.KIBANA_PORT }}
+          port: '{{ steps.assign_ports.output.KIBANA_PORT }}'
           public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
           container_name: '{{ steps.resolve.output.PROJECT }}'
           deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
@@ -312,7 +312,7 @@ steps:
           '@timestamp': '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
           updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
           target: '{{ inputs.kibana_target }}'
-          port: {{ steps.assign_ports.output.KIBANA_PORT }}
+          port: '{{ steps.assign_ports.output.KIBANA_PORT }}'
           public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
           container_name: '{{ steps.resolve.output.PROJECT }}'
           deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
