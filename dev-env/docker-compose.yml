@@ -84,18 +84,12 @@ services:
     restart: unless-stopped
 
   apm-server:
-    image: docker.elastic.co/apm/apm-server:${ES_VERSION:-9.6.0}
-    command:
-      - apm-server
-      - -e
-      - -E
-      - apm-server.host=0.0.0.0:8200
-      - -E
-      - output.elasticsearch.hosts=["http://elasticsearch:9200"]
-      - -E
-      - output.elasticsearch.username=elastic
-      - -E
-      - output.elasticsearch.password=${ES_PASSWORD:-changeme}
+    image: docker.elastic.co/elastic-agent/elastic-agent:${ES_VERSION:-9.6.0}
+    user: root
+    volumes:
+      - ./apm-agent.yml:/usr/share/elastic-agent/elastic-agent.yml:ro
+    environment:
+      - ES_PASSWORD=${ES_PASSWORD:-changeme}
     ports:
       - "8200:8200"
     depends_on:
