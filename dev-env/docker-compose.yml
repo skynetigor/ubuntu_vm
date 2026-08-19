@@ -63,9 +63,11 @@ services:
     environment:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
-      - APM_ACTIVE=true
-      - APM_SERVER_URL=http://apm-server:8200
-      - APM_SERVICE_NAME=kibana-main
+      - ELASTIC_APM_ACTIVE=true
+      - ELASTIC_APM_SERVER_URL=http://apm-server:8200
+      - ELASTIC_APM_SERVICE_NAME=kibana-main
+      - ELASTIC_APM_CONTEXT_PROPAGATION_ONLY=false
+      - ELASTIC_APM_SECRET_TOKEN=
       - WORKFLOWS_DIR=/opt/kibana/setup/workflows
       - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
     ports:
