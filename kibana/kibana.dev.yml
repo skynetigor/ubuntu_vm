@@ -19,3 +19,4 @@ uiSettings.globalOverrides:
 
 workflowsManagement.enabled: true
 workflowsExecutionEngine.enabled: true
+workflowsExtensions.experimentalSteps: true
