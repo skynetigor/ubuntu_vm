@@ -74,6 +74,9 @@ services:
       - "5002:5601"
     volumes:
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
+      # Main-Kibana-only config. Do NOT also set KIBANA_CONFIG_OVERRIDES_B64 for
+      # this service: entrypoint.sh would try to write to this read-only path.
+      - ./kibana.override.yml:/opt/kibana/config/kibana.override.yml:ro
       - ./env/connectors.yml:/opt/kibana/setup/env/connectors.yml:ro
       - ./workflows:/opt/kibana/setup/workflows:ro
     depends_on:

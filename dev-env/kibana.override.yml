@@ -1,0 +1,9 @@
+# Config applied only to the main dev-env Kibana, on top of kibana.dev.yml.
+#
+# Mounted at /opt/kibana/config/kibana.override.yml, which entrypoint.sh passes
+# as a second --config. Kept out of kibana.dev.yml because that file is shared
+# with every preview deployment (kibana/docker-compose.yml mounts it too).
+#
+# Required to author/run workflows that use experimental step types such as
+# remoteHost.javascript — without it the workflow editor rejects them.
+workflowsExtensions.experimentalSteps: true
