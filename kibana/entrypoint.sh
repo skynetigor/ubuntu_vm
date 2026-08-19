@@ -11,7 +11,7 @@ ES_PASS="${ES_PASSWORD:-changeme}"
 ES_URL="http://elasticsearch:9200"
 
 echo "=== Kibana Dev Container ==="
-echo "    Branch  : ${KIBANA_BRANCH:-main}"
+echo "    Target  : ${KIBANA_TARGET:-}"
 
 if [ -n "${KIBANA_SSH_PRIVATE_KEY_BASE64:-}" ]; then
   echo "$KIBANA_SSH_PRIVATE_KEY_BASE64" | base64 -d > /opt/kibana/config/dev-vm-key
@@ -19,7 +19,7 @@ if [ -n "${KIBANA_SSH_PRIVATE_KEY_BASE64:-}" ]; then
   echo "    SSH key : /opt/kibana/config/dev-vm-key"
 fi
 
-# Process config template — substitutes ${KIBANA_BRANCH} and ${ES_PASSWORD}
+# Process config template — substitutes ${ES_PASSWORD}, ${KIBANA_PUBLIC_URL}, etc.
 envsubst < /etc/kibana-config/kibana.dev.yml > /opt/kibana/config/kibana.yml
 
 # Apply user overrides if provided (base64-encoded YAML via KIBANA_CONFIG_OVERRIDES_B64)

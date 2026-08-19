@@ -11,8 +11,9 @@ COPY --chown=kibana:kibana dist /opt/kibana
 
 # The dist bundles a darwin Node binary — replace it with the correct linux binary.
 # Arch is detected at build time: aarch64 → arm64, x86_64 → x64.
-ARG NODE_VERSION
-RUN ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/') \
+COPY .nvmrc .nvmrc
+RUN NODE_VERSION=$(cat .nvmrc) \
+    && ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/x64/') \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${ARCH}.tar.gz" \
        -o /tmp/node.tar.gz \
     && rm -rf /opt/kibana/node \

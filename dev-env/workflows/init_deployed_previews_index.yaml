@@ -29,6 +29,7 @@ steps:
       method: GET
       path: /deployed-previews
     on-failure:
+      continue: true
       fallback:
         - name: create_index
           type: elasticsearch.request

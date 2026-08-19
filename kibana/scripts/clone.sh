@@ -7,17 +7,13 @@ if [ -f "$KIBANA_DIR/.env" ]; then
   set -a; source "$KIBANA_DIR/.env"; set +a
 fi
 
-KIBANA_FORK="${KIBANA_FORK:-https://github.com/elastic/kibana}"
-KIBANA_BRANCH="${KIBANA_BRANCH:-}"
+KIBANA_TARGET="${KIBANA_TARGET:-https://github.com/elastic/kibana/tree/main}"
 KIBANA_COMMIT="${KIBANA_COMMIT:-}"
 KIBANA_SRC="${KIBANA_SRC:-$KIBANA_DIR/src}"
 COMMIT_FILE="$KIBANA_SRC/.clonecommit"
 
-# At least one of KIBANA_BRANCH or KIBANA_COMMIT must be set
-if [ -z "$KIBANA_BRANCH" ] && [ -z "$KIBANA_COMMIT" ]; then
-  # Fallback to main so the script stays usable without a .env
-  KIBANA_BRANCH="main"
-fi
+# Resolve KIBANA_TARGET → KIBANA_FORK, KIBANA_BRANCH, KIBANA_COMMIT
+source "$(dirname "$0")/resolve.sh"
 
 if [ -d "$KIBANA_SRC" ] && git -C "$KIBANA_SRC" rev-parse HEAD >/dev/null 2>&1; then
   # ── Valid existing repo — fetch and update ────────────────────────────────
