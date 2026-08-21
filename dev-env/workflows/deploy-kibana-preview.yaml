@@ -68,6 +68,13 @@ triggers:
             - scheduled
             - sanity
           default: "scheduled"
+        ttl_days:
+          type: integer
+          description: |
+            Number of days after which the cleanup workflow will tear down this
+            preview. The clock resets on every redeploy (updated_at is refreshed).
+          default: 3
+          minimum: 1
 
 steps:
   # ── Step 1: Resolve target URL → commit / project name ───────────────────
@@ -319,6 +326,9 @@ steps:
           public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
           container_name: '{{ steps.resolve.output.PROJECT }}'
           deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
+          es_user: elastic
+          es_password: '{{ inputs.elastic_password }}'
+          ttl_days: '{{ inputs.ttl_days }}'
         upsert:
           '@timestamp': '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
           updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
@@ -327,6 +337,9 @@ steps:
           public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
           container_name: '{{ steps.resolve.output.PROJECT }}'
           deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
+          es_user: elastic
+          es_password: '{{ inputs.elastic_password }}'
+          ttl_days: '{{ inputs.ttl_days }}'
 
   # ── Step 12: Upload workflows to Kibana ──────────────────────────────────
   - name: upload_workflows

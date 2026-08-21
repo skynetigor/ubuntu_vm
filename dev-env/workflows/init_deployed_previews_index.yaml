@@ -53,6 +53,12 @@ steps:
                     type: keyword
                   deploy_dir_name:
                     type: keyword
+                  es_user:
+                    type: keyword
+                  es_password:
+                    type: keyword
+                  ttl_days:
+                    type: integer
 
   - name: done
     type: console
