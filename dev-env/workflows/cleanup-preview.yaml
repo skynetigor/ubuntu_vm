@@ -1,0 +1,123 @@
+version: '1'
+name: Cleanup Preview
+description: |
+  Tears down a single Kibana preview deployment end-to-end:
+    1. Fetches the deployment record from the deployed-previews index.
+    2. Stops the docker compose stack, removing volumes and built images.
+    3. Deregisters the Cloudflare tunnel ingress rule and DNS CNAME.
+    4. Deletes the deployment directory from dev-vm.
+    5. Removes the document from the deployed-previews index.
+
+  Each teardown step is non-fatal so a partially-torn-down preview is still
+  fully cleaned up. Can be triggered manually or called by cleanup-expired-previews.
+enabled: true
+tags:
+  - kibana
+  - preview
+  - cleanup
+
+consts:
+  UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
+  UBUNTU_VM_BRANCH: main
+
+triggers:
+  - type: manual
+    inputs:
+      required:
+        - project
+      properties:
+        project:
+          type: string
+          description: |
+            Deployment project name — equals the document _id in the
+            deployed-previews index.
+
+steps:
+  # ── Step 1: Fetch deployment record ──────────────────────────────────────
+  - name: fetch_deployment
+    type: elasticsearch.request
+    with:
+      method: GET
+      path: '/deployed-previews/_doc/{{ inputs.project }}'
+
+  # ── Step 2: Stop containers, remove volumes and built images ─────────────
+  - name: stop_stack
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    on-failure:
+      continue: true
+    with:
+      code: |
+        PROJECT="{{ steps.fetch_deployment.output._source.container_name }}"
+        DEPLOY_DIR="/opt/deployments/{{ steps.fetch_deployment.output._source.deploy_dir_name }}"
+        COMPOSE_FILE="$DEPLOY_DIR/kibana/docker-compose.yml"
+        ENV_FILE="$DEPLOY_DIR/kibana/env/.env"
+
+        if [ -f "$COMPOSE_FILE" ]; then
+          ENV_ARGS=""
+          if [ -f "$ENV_FILE" ]; then ENV_ARGS="--env-file $ENV_FILE"; fi
+
+          docker compose $ENV_ARGS \
+            -p "$PROJECT" \
+            -f "$COMPOSE_FILE" \
+            down --volumes --rmi all --remove-orphans
+          echo "=== Stack stopped and cleaned for $PROJECT ==="
+        else
+          echo "=== No compose file at $COMPOSE_FILE — stack may already be gone ==="
+          docker compose -p "$PROJECT" down --volumes --remove-orphans 2>/dev/null || true
+        fi
+
+  # ── Step 3: Deregister from Cloudflare tunnel ────────────────────────────
+  - name: deregister_tunnel
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    on-failure:
+      continue: true
+    with:
+      code: |
+        PROJECT="{{ steps.fetch_deployment.output._source.container_name }}"
+        SCRIPTS_CACHE="/opt/ubuntu_vm"
+
+        if [ -d "$SCRIPTS_CACHE/.git" ]; then
+          git -C "$SCRIPTS_CACHE" fetch --depth 1 origin "{{ consts.UBUNTU_VM_BRANCH }}"
+          git -C "$SCRIPTS_CACHE" reset --hard FETCH_HEAD
+        else
+          sudo mkdir -p "$SCRIPTS_CACHE" && sudo chown kibana:kibana "$SCRIPTS_CACHE"
+          git clone --depth 1 --branch "{{ consts.UBUNTU_VM_BRANCH }}" \
+            "{{ consts.UBUNTU_VM_REPO }}" "$SCRIPTS_CACHE"
+        fi
+
+        export CF_SUBDOMAIN=$(echo "$PROJECT" \
+          | tr '[:upper:]/' '[:lower:]-' \
+          | sed 's/[^a-z0-9-]/-/g' \
+          | cut -c1-20)
+
+        bash "$SCRIPTS_CACHE/kibana/scripts/deregister-tunnel.sh"
+
+  # ── Step 4: Remove the deploy directory ──────────────────────────────────
+  - name: remove_deploy_dir
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    on-failure:
+      continue: true
+    with:
+      code: |
+        DEPLOY_DIR="/opt/deployments/{{ steps.fetch_deployment.output._source.deploy_dir_name }}"
+        if [ -d "$DEPLOY_DIR" ]; then
+          rm -rf "$DEPLOY_DIR"
+          echo "=== Removed: $DEPLOY_DIR ==="
+        else
+          echo "=== Already gone: $DEPLOY_DIR ==="
+        fi
+
+  # ── Step 5: Delete the ES document ───────────────────────────────────────
+  - name: delete_record
+    type: elasticsearch.request
+    with:
+      method: DELETE
+      path: '/deployed-previews/_doc/{{ inputs.project }}'
+
+  - name: done
+    type: console
+    with:
+      message: 'Preview {{ inputs.project }} cleaned up.'

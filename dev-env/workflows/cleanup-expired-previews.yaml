@@ -2,26 +2,17 @@ version: '1'
 name: Cleanup Expired Previews
 description: |
   Runs every 10 minutes. Queries the deployed-previews index for entries whose
-  updated_at is older than PREVIEW_TTL_DAYS, then for each expired preview:
-    1. Stops the docker compose stack and removes its volumes and images.
-    2. Deregisters the Cloudflare tunnel ingress rule and DNS CNAME.
-    3. Deletes the deployment directory from dev-vm.
-    4. Removes the document from the deployed-previews index.
+  per-document TTL (ttl_days) has elapsed since updated_at, then delegates
+  each teardown to the cleanup-preview workflow.
 
-  Each cleanup step is non-fatal (on-failure: continue) so a partially-torn-down
-  preview does not block cleanup of the remaining expired entries.
-
-  Adjust PREVIEW_TTL_DAYS to change the expiry window.
+  Adjust ttl_days per deployment at deploy time via the deploy-kibana-preview
+  workflow input (default: 3 days). The clock resets on every redeploy.
 enabled: true
 tags:
   - kibana
   - preview
   - cleanup
   - scheduled
-
-consts:
-  UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
-  UBUNTU_VM_BRANCH: main
 
 triggers:
   - type: scheduled
@@ -30,7 +21,7 @@ triggers:
   - type: manual
 
 steps:
-  # ── Find previews whose per-document TTL has elapsed ────────────────────
+  # ── Find previews whose per-document TTL has elapsed ─────────────────────
   # Each document carries its own ttl_days (set at deploy time). The Painless
   # script computes the expiry threshold per document. Fallback: 3 days for
   # documents deployed before ttl_days was introduced.
@@ -50,101 +41,19 @@ steps:
                   ? (long) doc['ttl_days'].value : 3L;
                 return doc['updated_at'].value.toInstant().toEpochMilli()
                   < System.currentTimeMillis() - ttl * 86400000L;
-        _source:
-          - container_name
-          - deploy_dir_name
-          - ttl_days
+        _source: []
 
-  # ── Tear down each expired preview ──────────────────────────────────────
+  # ── Delegate each teardown to cleanup-preview ─────────────────────────────
   - name: cleanup_each
     type: foreach
     foreach: '${{ steps.find_expired.output.hits.hits }}'
     steps:
-      # Step A: Stop containers, remove volumes, remove built images.
-      # --rmi all removes images defined in the compose file (the Kibana and ES
-      # images built for this project). Non-fatal: compose file may be gone if
-      # the deploy dir was already cleaned up manually.
-      - name: stop_stack
-        type: remoteHost.runCommand
-        connector-id: dev-vm
-        on-failure:
-          continue: true
+      - name: cleanup
+        type: workflow.execute
         with:
-          code: |
-            PROJECT="{{ foreach.item._source.container_name }}"
-            DEPLOY_DIR="/opt/deployments/{{ foreach.item._source.deploy_dir_name }}"
-            COMPOSE_FILE="$DEPLOY_DIR/kibana/docker-compose.yml"
-            ENV_FILE="$DEPLOY_DIR/kibana/env/.env"
-
-            if [ -f "$COMPOSE_FILE" ]; then
-              ENV_ARGS=""
-              if [ -f "$ENV_FILE" ]; then ENV_ARGS="--env-file $ENV_FILE"; fi
-
-              docker compose $ENV_ARGS \
-                -p "$PROJECT" \
-                -f "$COMPOSE_FILE" \
-                down --volumes --rmi all --remove-orphans
-              echo "=== Stack stopped and cleaned for $PROJECT ==="
-            else
-              echo "=== No compose file at $COMPOSE_FILE — stack may already be gone ==="
-              # Try stopping by project name alone in case the dir is missing
-              docker compose -p "$PROJECT" down --volumes --remove-orphans 2>/dev/null || true
-            fi
-
-      # Step B: Deregister from Cloudflare tunnel.
-      # Reconstructs CF_SUBDOMAIN using the same slug logic as deploy-kibana-preview.
-      # Non-fatal: CF vars may be absent in environments without Cloudflare.
-      - name: deregister_tunnel
-        type: remoteHost.runCommand
-        connector-id: dev-vm
-        on-failure:
-          continue: true
-        with:
-          code: |
-            PROJECT="{{ foreach.item._source.container_name }}"
-            SCRIPTS_CACHE="/opt/ubuntu_vm"
-
-            if [ -d "$SCRIPTS_CACHE/.git" ]; then
-              git -C "$SCRIPTS_CACHE" fetch --depth 1 origin "{{ consts.UBUNTU_VM_BRANCH }}"
-              git -C "$SCRIPTS_CACHE" reset --hard FETCH_HEAD
-            else
-              sudo mkdir -p "$SCRIPTS_CACHE" && sudo chown kibana:kibana "$SCRIPTS_CACHE"
-              git clone --depth 1 --branch "{{ consts.UBUNTU_VM_BRANCH }}" \
-                "{{ consts.UBUNTU_VM_REPO }}" "$SCRIPTS_CACHE"
-            fi
-
-            # Replicate slug logic from deploy-kibana-preview write_env step
-            export CF_SUBDOMAIN=$(echo "$PROJECT" \
-              | tr '[:upper:]/' '[:lower:]-' \
-              | sed 's/[^a-z0-9-]/-/g' \
-              | cut -c1-20)
-
-            bash "$SCRIPTS_CACHE/kibana/scripts/deregister-tunnel.sh"
-
-      # Step C: Remove the deploy directory and its contents from dev-vm.
-      # Non-fatal: directory may already be gone.
-      - name: remove_deploy_dir
-        type: remoteHost.runCommand
-        connector-id: dev-vm
-        on-failure:
-          continue: true
-        with:
-          code: |
-            DEPLOY_DIR="/opt/deployments/{{ foreach.item._source.deploy_dir_name }}"
-            if [ -d "$DEPLOY_DIR" ]; then
-              rm -rf "$DEPLOY_DIR"
-              echo "=== Removed: $DEPLOY_DIR ==="
-            else
-              echo "=== Already gone: $DEPLOY_DIR ==="
-            fi
-
-      # Step D: Delete the ES document.
-      # Uses _id which equals the project name (set by deploy-kibana-preview).
-      - name: delete_record
-        type: elasticsearch.request
-        with:
-          method: DELETE
-          path: '/deployed-previews/_doc/{{ foreach.item._id }}'
+          workflow-id: cleanup-preview
+          inputs:
+            project: '{{ foreach.item._id }}'
 
   - name: done
     type: console
