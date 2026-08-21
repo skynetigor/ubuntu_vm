@@ -24,6 +24,7 @@ consts:
   # `apm-server` compose service name. Reach it via the host LAN IP where
   # port 8200 is published.
   APM_SERVER_URL: http://192.168.1.7:8200
+  INTERNAL_PREVIEWS_HOST: dev-vm
 
 triggers:
   - type: manual
@@ -394,17 +395,46 @@ steps:
     connector-id: dev-vm
     with:
       code: |
+        PROJECT="{{ steps.resolve.output.PROJECT }}"
+        TARGET="{{ inputs.kibana_target }}"
+        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
+        ES_PORT="{{ steps.assign_ports.output.ES_PORT }}"
+        KIBANA_PORT="{{ steps.assign_ports.output.KIBANA_PORT }}"
+        KIBANA_PUBLIC_URL="{{ steps.write_env.output.KIBANA_PUBLIC_URL }}"
+        ES_PASSWORD="{{ inputs.elastic_password }}"
+
         echo "═══════════════════════════════════════════"
         echo "  Kibana Preview Deployed"
         echo "═══════════════════════════════════════════"
-        echo "  Target  : {{ inputs.kibana_target }}"
-        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
+        echo "  Target  : $TARGET"
         if [ -n "$KIBANA_COMMIT" ]; then
         echo "  Commit  : $KIBANA_COMMIT"
         fi
-        
-        echo "  ES      : localhost:{{ steps.assign_ports.output.ES_PORT }}"
-        echo "  Kibana  : {{ steps.write_env.output.KIBANA_PUBLIC_URL }}"
+
+        echo "  ES      : localhost:$ES_PORT"
+        echo "  Kibana  : $KIBANA_PUBLIC_URL"
         echo "  User    : elastic"
-        echo "  Password: {{ inputs.elastic_password }}"
+        echo "  Password: $ES_PASSWORD"
         echo "═══════════════════════════════════════════"
+
+        # Structured form of the same summary. stdout above is only logged;
+        # SCRIPT_OUTPUT is what callers (e.g. workflow.execute) actually receive.
+        # es_url/kibana_url are localhost-form: correct from inside the dev-vm,
+        # which is where remoteHost.* steps run.
+        SCRIPT_OUTPUT=$(printf \
+          '{"project":"%s","target":"%s","commit":"%s","es_port":%s,"kibana_port":%s,"es_url":"http://localhost:%s","kibana_url":"http://localhost:%s","public_url":"%s","es_user":"elastic","es_password":"%s"}' \
+          "$PROJECT" "$TARGET" "$KIBANA_COMMIT" \
+          "$ES_PORT" "$KIBANA_PORT" "$ES_PORT" "$KIBANA_PORT" \
+          "$KIBANA_PUBLIC_URL" "$ES_PASSWORD")
+
+  - name: output
+    type: workflow.output
+    with:
+      kibana_internal_url: 'http://{{ consts.INTERNAL_PREVIEWS_HOST }}:{{ steps.summary.output.kibana_port }}'
+      es_internal_url: 'http://{{ consts.INTERNAL_PREVIEWS_HOST }}:{{ steps.summary.output.es_port }}'
+      es_user: '{{ steps.summary.output.es_user }}'
+      es_password: '{{ steps.summary.output.es_password }}'
+      project: '{{ steps.summary.output.project }}'
+      target: '{{ steps.summary.output.target }}'
+      commit: '{{ steps.summary.output.commit }}'
+      public_url: '{{ steps.summary.output.public_url }}'

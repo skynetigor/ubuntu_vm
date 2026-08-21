@@ -1,0 +1,354 @@
+version: '1'
+name: Benchmark Workflow Executions
+description: |
+  Deploys one Kibana preview per entry in `deployments`, then benchmarks
+  workflow-execution throughput and scheduling lag against each one.
+
+  Deploy and benchmark run pairwise inside a foreach, so only one preview is
+  under load at a time — concurrent benchmarks on the same dev-vm would
+  contend for CPU and corrupt the numbers.
+
+  Each iteration writes a full JSON report to the main ES index (see
+  consts.REPORT_INDEX) and returns a compact summary as the step output.
+  Progress goes to stderr, which surfaces as Kibana workflow execution logs.
+enabled: true
+tags:
+  - kibana
+  - benchmark
+  - workflows
+
+settings:
+  # Never run two benchmarks at once: they would compete for dev-vm CPU.
+  concurrency:
+    key: '{{ workflow.id }}'
+    strategy: queue
+
+consts:
+  REPORT_INDEX: workflow-benchmarks
+  host: dev-vm
+
+triggers:
+  - type: manual
+    inputs:
+      properties:
+        deployments:
+          type: array
+          description: |
+            One entry per preview to deploy and benchmark. Fields mirror the
+            deploy-kibana-preview inputs; omitted fields fall back to that
+            workflow's defaults.
+          minItems: 1
+          items:
+            type: object
+            properties:
+              kibana_target:
+                type: string
+                description: GitHub PR / branch / commit URL to deploy.
+              elastic_password:
+                type: string
+                description: Password for the elastic user in this preview.
+              workflows_group:
+                type: string
+                enum:
+                  - scheduled
+                  - sanity
+                description: Which workflows library to mount into the preview.
+            required:
+              - kibana_target
+        count:
+          type: integer
+          description: Number of executions to schedule per preview.
+          default: 1000
+          minimum: 1
+        concurrency:
+          type: integer
+          description: HTTP concurrency used while scheduling executions.
+          default: 50
+          minimum: 1
+      required:
+        - deployments
+
+steps:
+  # ── Deploy + benchmark, one preview at a time ─────────────────────────────
+  - name: run_matrix
+    type: foreach
+    foreach: '${{ inputs.deployments }}'
+    steps:
+      # Blocks until the child workflow completes; its output is the summary
+      # object emitted by deploy-kibana-preview's final `summary` step.
+      - name: deploy
+        type: workflow.execute
+        with:
+          workflow-id: deploy-kibana-preview
+          inputs:
+            kibana_target: '{{ foreach.item.kibana_target }}'
+            # Liquid `default` matters here: a missing key renders as an empty
+            # string, which would OVERRIDE the child's default rather than
+            # letting it apply.
+            elastic_password: '{{ foreach.item.elastic_password | default: "1ab1db3e-838a-4b1e-9944-88084c553998" }}'
+
+      - name: upload_workflow
+        type: http
+        with:
+          url: '{{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow'
+          method: POST
+          headers:
+            Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+            kbn-xsrf: 'true'
+            elastic-api-version: '2023-10-31'
+          body:
+            yaml: |
+              name: Benchmark workflow
+              enabled: true
+              description: This is a new workflow
+              triggers:
+                - type: manual
+              steps:
+                - name: hello_world_step
+                  type: console
+                  with:
+                    message: "aa"
+            
+
+      - name: schedule
+        type: foreach
+        foreach: '${{ (0...inputs.count) | json }}'
+        steps:
+          - name: schedule_one
+            type: http
+            with:
+              url: '{{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow/{{ steps.upload_workflow.output.data.workflowExecutionId }}/run'
+              method: POST
+              headers:
+                Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+                kbn-xsrf: 'true'
+                elastic-api-version: '2023-10-31'
+              body:
+                inputs: {}
+          - name: batch_pause
+            type: wait
+            if: '{{ (foreach.index | modulo: 50) == 49 }}'
+            with:
+              duration: 1s
+
+      - name: wait_for_completions
+        type: while
+        condition: '{{ steps.check.output.total < inputs.count }}'
+        steps:
+          - name: check
+            type: http
+            with:
+              url: >-
+                {{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow/{{ steps.upload_workflow.output.data.workflowExecutionId }}/executions?statuses=completed&statuses=failed&statuses=cancelled&statuses=timed_out&size=0
+              method: GET
+              headers:
+                Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+                kbn-xsrf: 'true'
+                elastic-api-version: '2023-10-31'
+          - name: poll_wait
+            type: wait
+            with:
+              duration: '1s'
+
+      - name: fetch_metrics
+        type: http
+        with:
+          url: '{{ steps.deploy.output.es_internal_url }}/.workflows-executions/_search'
+          method: POST
+          headers:
+            Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+            Content-Type: application/json
+          body:
+            size: 0
+            query:
+              bool:
+                filter:
+                  - term:
+                      workflowId: '{{ steps.upload_workflow.output.data.workflowExecutionId }}'
+            aggs:
+              by_status:
+                terms:
+                  field: status
+                  size: 20
+              completed:
+                filter:
+                  term:
+                    status: completed
+                aggs:
+                  duration_stats:
+                    stats:
+                      field: duration
+                  scheduling_lag:
+                    scripted_metric:
+                      init_script: 'state.v = []'
+                      map_script: >-
+                        if (doc['startedAt'].size() > 0 && doc['createdAt'].size() > 0)
+                        { state.v.add(doc['startedAt'].value.toInstant().toEpochMilli() -
+                        doc['createdAt'].value.toInstant().toEpochMilli()); }
+                      combine_script: return state.v
+                      reduce_script: >-
+                        List all = []; for (s in states) { all.addAll(s); }
+                        if (all.isEmpty()) return null; Collections.sort(all);
+                        long sum = 0; for (long l : all) sum += l;
+                        return ['count': all.size(), 'min_ms': all.get(0),
+                        'max_ms': all.get(all.size()-1), 'avg_ms': (double)sum/all.size(),
+                        'p50_ms': all.get((int)(all.size()*0.50)),
+                        'p75_ms': all.get((int)(all.size()*0.75)),
+                        'p95_ms': all.get((int)(all.size()*0.95)),
+                        'p99_ms': all.get((int)(all.size()*0.99))]
+                  e2e_latency:
+                    scripted_metric:
+                      init_script: 'state.v = []'
+                      map_script: >-
+                        if (doc['finishedAt'].size() > 0 && doc['createdAt'].size() > 0)
+                        { state.v.add(doc['finishedAt'].value.toInstant().toEpochMilli() -
+                        doc['createdAt'].value.toInstant().toEpochMilli()); }
+                      combine_script: return state.v
+                      reduce_script: >-
+                        List all = []; for (s in states) { all.addAll(s); }
+                        if (all.isEmpty()) return null; Collections.sort(all);
+                        long sum = 0; for (long l : all) sum += l;
+                        return ['count': all.size(), 'min_ms': all.get(0),
+                        'max_ms': all.get(all.size()-1), 'avg_ms': (double)sum/all.size(),
+                        'p50_ms': all.get((int)(all.size()*0.50)),
+                        'p75_ms': all.get((int)(all.size()*0.75)),
+                        'p95_ms': all.get((int)(all.size()*0.95)),
+                        'p99_ms': all.get((int)(all.size()*0.99))]
+                  created_min:
+                    min:
+                      field: createdAt
+                  finished_min:
+                    min:
+                      field: finishedAt
+                  finished_max:
+                    max:
+                      field: finishedAt
+                  over_time:
+                    date_histogram:
+                      field: finishedAt
+                      fixed_interval: 30s
+                      min_doc_count: 1
+              failed:
+                filter:
+                  terms:
+                    status:
+                      - failed
+                      - error
+                      - cancelled
+
+      - name: fetch_tm_snapshot
+        type: http
+        with:
+          url: '{{ steps.deploy.output.es_internal_url }}/.kibana_task_manager/_search'
+          method: POST
+          headers:
+            Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+            Content-Type: application/json
+          body:
+            size: 0
+            query:
+              term:
+                task.taskType: workflow:run
+            aggs:
+              by_status:
+                terms:
+                  field: task.status
+                  size: 10
+
+      - name: collect_metrics
+        type: code.javascript
+        timeout: 5m
+        with:
+          code: |
+            (() => {
+              const PROJECT = "{{ steps.deploy.output.project }}";
+              const TARGET = "{{ steps.deploy.output.target }}";
+              const COMMIT = "{{ steps.deploy.output.commit }}";
+              const WF = "{{ steps.upload_workflow.output.data.workflowExecutionId }}";
+              const COUNT = parseInt("{{ inputs.count }}", 10);
+
+              const log = (m) => process.stderr.write(
+                "[" + new Date().toISOString() + "] " + m + "\n");
+
+              const raw = {{ steps.fetch_metrics.output | json }};
+              const tmRaw = {{ steps.fetch_tm_snapshot.output | json }};
+
+              const ag = raw.aggregations || {};
+              const c = ag.completed || {};
+              const dur = c.duration_stats || {};
+              const lag = c.scheduling_lag && c.scheduling_lag.value;
+              const e2e = c.e2e_latency && c.e2e_latency.value;
+              const nDone = c.doc_count || 0;
+              const nFail = (ag.failed && ag.failed.doc_count) || 0;
+
+              const fMin = c.finished_min && c.finished_min.value;
+              const fMax = c.finished_max && c.finished_max.value;
+              const createdMin = c.created_min && c.created_min.value;
+              const spanMs = fMin && fMax ? fMax - fMin : null;
+              const wallMs = fMax && createdMin ? fMax - createdMin : spanMs;
+              const avgRps = spanMs && nDone > 1
+                ? Number(((nDone - 1) / (spanMs / 1000)).toFixed(2)) : null;
+
+              const buckets = ((c.over_time && c.over_time.buckets) || []).map((b) => ({
+                window_start: b.key_as_string,
+                completed: b.doc_count,
+                rps: Number((b.doc_count / 30).toFixed(2))
+              }));
+              const peakRps = buckets.length
+                ? Math.max.apply(null, buckets.map((b) => b.rps)) : null;
+
+              const s2 = (v) => (v != null ? Number((v / 1000).toFixed(2)) : null);
+              const pct = (o) => (o ? {
+                count: o.count, min_s: s2(o.min_ms), avg_s: s2(o.avg_ms),
+                p50_s: s2(o.p50_ms), p75_s: s2(o.p75_ms), p95_s: s2(o.p95_ms),
+                p99_s: s2(o.p99_ms), max_s: s2(o.max_ms)
+              } : null);
+
+              const tm = Object.fromEntries(
+                (((tmRaw.aggregations || {}).by_status || {}).buckets || [])
+                  .map((b) => [b.key, b.doc_count]));
+
+              const report = {
+                "@timestamp": new Date().toISOString(),
+                project: PROJECT, target: TARGET, commit: COMMIT,
+                workflow_id: WF, requested: COUNT,
+                total_wall_time_s: wallMs != null ? Number((wallMs / 1000).toFixed(1)) : null,
+                status_breakdown: Object.fromEntries(
+                  ((ag.by_status && ag.by_status.buckets) || [])
+                    .map((b) => [b.key, b.doc_count])),
+                throughput: {
+                  completed: nDone, failed: nFail,
+                  completion_span_s: s2(spanMs),
+                  avg_rps: avgRps, peak_rps_30s: peakRps,
+                  over_time: buckets
+                },
+                scheduling_lag: pct(lag),
+                e2e_latency: pct(e2e),
+                execution_duration: {
+                  count: dur.count || 0, min_s: s2(dur.min),
+                  avg_s: s2(dur.avg), max_s: s2(dur.max)
+                },
+                task_manager: tm
+              };
+
+              log("DONE completed:" + nDone + " failed:" + nFail +
+                  " avg_rps:" + avgRps + " lag_p95:" +
+                  (report.scheduling_lag ? report.scheduling_lag.p95_s : "n/a") +
+                  "s dur_avg:" + report.execution_duration.avg_s + "s");
+
+              process.stdout.write(JSON.stringify(report));
+            })();
+
+      - name: index_report
+        type: elasticsearch.request
+        with:
+          method: POST
+          path: '/{{ consts.REPORT_INDEX }}/_doc'
+          body: '{{ steps.collect_metrics.output }}'
+
+  - name: done
+    type: console
+    with:
+      message: >-
+        Benchmarked {{ inputs.deployments | size }} preview(s).
+        Full reports indexed to {{ consts.REPORT_INDEX }} on the main ES.
