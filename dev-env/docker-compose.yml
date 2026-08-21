@@ -103,6 +103,29 @@ services:
       - elastic
     restart: unless-stopped
 
+  workflows-ui:
+    build:
+      context: ../webapp
+    container_name: workflows-ui
+    ports:
+      - '${WEBAPP_PORT:-5000}:5000'
+    environment:
+      - ES_HOST=http://elasticsearch:9200
+      - KIBANA_HOST=http://kibana:5601
+      - CF_SUBDOMAIN=workflows-ui
+      - CF_SERVICE_URL=http://workflows-ui:5000
+    env_file:
+      - path: ./env/cloudflare.env
+        required: false
+      - path: ./env/webapp.env
+        required: false
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - elastic
+    restart: unless-stopped
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     env_file:
