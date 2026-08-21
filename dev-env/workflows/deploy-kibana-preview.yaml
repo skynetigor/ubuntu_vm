@@ -402,12 +402,9 @@ steps:
         if [ -n "$KIBANA_COMMIT" ]; then
         echo "  Commit  : $KIBANA_COMMIT"
         fi
+        
         echo "  ES      : localhost:{{ steps.assign_ports.output.ES_PORT }}"
+        echo "  Kibana  : {{ steps.write_env.output.KIBANA_PUBLIC_URL }}"
         echo "  User    : elastic"
         echo "  Password: {{ inputs.elastic_password }}"
-        echo "  Kibana  : http://192.168.1.7:{{ steps.assign_ports.output.KIBANA_PORT }}"
-        KIBANA_PUBLIC_URL="{{ steps.write_env.output.KIBANA_PUBLIC_URL }}"
-        if [ -n "$KIBANA_PUBLIC_URL" ]; then
-        echo "  Public  : $KIBANA_PUBLIC_URL"
-        fi
         echo "═══════════════════════════════════════════"
