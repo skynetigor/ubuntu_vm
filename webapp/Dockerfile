@@ -2,7 +2,7 @@
 FROM node:20-slim AS ng-build
 WORKDIR /build/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install --legacy-peer-deps
 COPY frontend/ ./
 RUN npm run build -- --configuration production
 
@@ -10,7 +10,7 @@ RUN npm run build -- --configuration production
 FROM node:20-slim
 WORKDIR /app
 COPY backend/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 COPY backend/src ./src
 COPY --from=ng-build /build/frontend/dist/frontend/browser ./public
 COPY entrypoint.sh ./scripts/entrypoint.sh
