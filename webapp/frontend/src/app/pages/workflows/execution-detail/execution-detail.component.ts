@@ -65,7 +65,7 @@ export class ExecutionDetailComponent implements OnInit {
   }
 
   onClose(open: boolean) {
-    if (!open) this.router.navigate(['../..'], { relativeTo: this.route });
+    if (!open) this.router.navigate(['..'], { relativeTo: this.route });
   }
 
   private buildTree(steps: any[]): TreeNode[] {

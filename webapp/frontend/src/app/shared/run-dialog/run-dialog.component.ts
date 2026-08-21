@@ -22,7 +22,7 @@ interface FieldDef { key: string; label: string; type: string; enum?: string[]; 
         @for (f of fields; track f.key) {
           <div class="flex flex-column gap-1">
             <label [for]="f.key" class="font-medium text-sm">
-              {{ f.label }}<span class="text-red-400" *ngIf="f.required"> *</span>
+              {{ f.label }}@if (f.required) {<span class="text-red-400"> *</span>}
             </label>
             @if (f.enum) {
               <p-select [inputId]="f.key" [(ngModel)]="values[f.key]" [name]="f.key"

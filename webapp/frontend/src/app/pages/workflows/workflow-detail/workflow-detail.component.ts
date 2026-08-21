@@ -1,5 +1,5 @@
 import { Component, OnInit, OnDestroy, signal } from '@angular/core';
-import { ActivatedRoute, RouterOutlet } from '@angular/router';
+import { ActivatedRoute, Router, RouterOutlet } from '@angular/router';
 import { DatePipe, SlicePipe } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -72,7 +72,7 @@ export class WorkflowDetailComponent implements OnInit, OnDestroy {
   private pollTimer: any;
   private page = 1;
 
-  constructor(private route: ActivatedRoute, private api: ApiService, private toast: MessageService) {}
+  constructor(private route: ActivatedRoute, private router: Router, private api: ApiService, private toast: MessageService) {}
 
   ngOnInit() {
     this.route.params.subscribe(p => {
@@ -112,7 +112,9 @@ export class WorkflowDetailComponent implements OnInit, OnDestroy {
     }
   }
 
-  openExecution(ex: any) {}
+  openExecution(ex: any) {
+    this.router.navigate(['executions', ex.id], { relativeTo: this.route });
+  }
 
   onStarted(res: any) {
     this.toast.add({ severity: 'success', summary: 'Started', detail: `Execution ${res?.data?.executionId ?? ''}` });
