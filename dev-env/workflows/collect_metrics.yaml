@@ -130,18 +130,20 @@ steps:
               ].filter(m => m);
             });
 
-      - name: prepare_bulk_ops
+      - name: prepare_bulk_body
         type: code.javascript
         with:
-          code: |-
+          code: |
             var metrics = {{ steps.build_metrics.output | json }};
-            return metrics.map(m => ({
-              index: { _index: "{{ consts.METRICS_INDEX }}", _id: m.id },
-              document: m
-            }));
+            var index = "{{ consts.METRICS_INDEX }}";
+            return metrics.flatMap(m => [
+              JSON.stringify({ index: { _index: index, _id: m.id } }),
+              JSON.stringify(m)
+            ]).join('\n') + '\n';
 
       - name: bulk_index_metrics
-        type: elasticsearch.bulk
+        type: elasticsearch.request
         with:
-          index: "{{ consts.METRICS_INDEX }}"
-          operations: "${{ steps.prepare_bulk_ops.output }}"
+          method: POST
+          path: /_bulk
+          body: '${{ steps.prepare_bulk_body.output }}'
