@@ -111,6 +111,8 @@ steps:
                 filter:
                   - term:
                       project: '{{ steps.deploy.output.project }}'
+                  - term:
+                      workflowId: '{{ consts.WORKFLOW_ID }}'
                   - range:
                       '@timestamp':
                         gte: '{{ steps.record_benchmark_start.output.ts }}'
