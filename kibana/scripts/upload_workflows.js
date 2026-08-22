@@ -8,9 +8,16 @@
 //   KIBANA_URL      — default: http://localhost:5601
 //   KIBANA_USERNAME — default: elastic
 //   KIBANA_PASSWORD — default: changeme
+//
+// Manifest:
+//   If a manifest.yaml exists in WORKFLOWS_DIR, it controls per-workflow config.
+//   Keys are workflow names (matching the 'name:' field). Supported options:
+//     upload_count: N  — upload N copies of the workflow (default: 1)
+//   Copies beyond the first get an ID/name suffix: "-2", "-3", etc.
 
 const fs   = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +52,27 @@ const HEADERS = {
   'x-elastic-internal-origin': 'Kibana',
   'Content-Type':              'application/json',
 };
+
+// ── Manifest ──────────────────────────────────────────────────────────────────
+
+function loadManifest(dir) {
+  const candidates = ['manifest.yaml', 'manifest.yml'];
+  for (const name of candidates) {
+    const p = path.join(dir, name);
+    if (!fs.existsSync(p)) continue;
+    const parsed = yaml.load(fs.readFileSync(p, 'utf8')) || {};
+    const { defaults = {}, ...workflows } = parsed;
+    console.log(`    Loaded manifest: ${p}`);
+    return { defaults: { upload_count: 1, ...defaults }, workflows };
+  }
+  console.log('    No manifest found — using defaults (upload_count: 1)');
+  return { defaults: { upload_count: 1 }, workflows: {} };
+}
+
+function getWorkflowConfig(manifest, workflowName) {
+  const override = manifest.workflows[workflowName] || {};
+  return { ...manifest.defaults, ...override };
+}
 
 // ── HTTP helpers ───────────────────────────────────────────────────────────────
 
@@ -85,7 +113,10 @@ async function fetchAllWorkflows() {
     for (const w of results) {
       const id   = w.id   || w.workflow_id;
       const name = w.name || w.workflow_name;
-      if (id && name) byName[name] = id;
+      if (id && name) {
+        if (!byName[name]) byName[name] = [];
+        byName[name].push(id);
+      }
     }
     const totalItems = resp.total ?? resp.totalCount ?? (page * 100);
     if (!results.length || page * 100 >= totalItems) break;
@@ -93,7 +124,6 @@ async function fetchAllWorkflows() {
   }
   return byName;
 }
-
 
 function extractField(lines, field) {
   const prefix = `${field}:`;
@@ -105,11 +135,19 @@ function stripId(rawYaml) {
   return rawYaml.split('\n').filter(l => !l.startsWith('id:')).join('\n');
 }
 
+function copyName(name, index) {
+  return index === 0 ? name : `${name} (${index + 1})`;
+}
+
+function copyId(fileBaseName, index) {
+  return index === 0 ? fileBaseName : `${fileBaseName}-${index + 1}`;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   const workflowFiles = fs.readdirSync(WORKFLOWS_DIR)
-    .filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
+    .filter(f => (f.endsWith('.yml') || f.endsWith('.yaml')) && f !== 'manifest.yaml' && f !== 'manifest.yml')
     .sort()
     .map(f => path.join(WORKFLOWS_DIR, f));
 
@@ -118,16 +156,21 @@ async function main() {
     process.exit(0);
   }
 
+  console.log(`=== Loading manifest ===`);
+  const manifest = loadManifest(WORKFLOWS_DIR);
+
   console.log(`=== Fetching existing workflows from ${KIBANA_URL} ===`);
   const existingByName = await fetchAllWorkflows();
-  console.log(`    Found ${Object.keys(existingByName).length} existing workflow(s)`);
+  console.log(`    Found ${Object.keys(existingByName).length} existing workflow name(s)`);
 
   let errors = 0;
   for (const filePath of workflowFiles) {
-    const rawYaml = fs.readFileSync(filePath, 'utf8');
-    const lines   = rawYaml.split('\n');
-    const name    = extractField(lines, 'name');
-    const fileName = path.basename(filePath, path.extname(filePath)).replace(/_/g, '-');
+    const rawYaml    = fs.readFileSync(filePath, 'utf8');
+    const lines      = rawYaml.split('\n');
+    const name       = extractField(lines, 'name');
+    const fileBase   = path.basename(filePath, path.extname(filePath)).replace(/_/g, '-');
+    const config     = getWorkflowConfig(manifest, fileBase);
+    const uploadCount = Math.max(1, config.upload_count || 1);
 
     if (!name) {
       console.error(`ERROR [${path.basename(filePath)}]: no top-level 'name:' field found`);
@@ -135,23 +178,34 @@ async function main() {
       continue;
     }
 
-    try {
-      if (name in existingByName) {
-        const existingId = existingByName[name];
-        console.log(`=== Updating: ${name} (${existingId}) ===`);
-        await kibanaApi('PUT', `/api/workflows/workflow/${existingId}`, { yaml: stripId(rawYaml) });
-        console.log(`    id: ${existingId}`);
-      } else {
-        console.log(`=== Creating: ${name} ===`);
-        const result = await kibanaApi("POST", "/api/workflows", {
-          workflows: [{ id: fileName, yaml: stripId(rawYaml) }],
-        });
-        const id = result?.id;
-        console.log(`    id: ${id}`);
+    for (let i = 0; i < uploadCount; i++) {
+      const targetName = copyName(name, i);
+      const targetId   = copyId(fileBase, i);
+      const existingIds = existingByName[targetName] || [];
+
+      const yamlForUpload = stripId(rawYaml).replace(
+        /^name:.*$/m,
+        `name: ${targetName}`
+      );
+
+      try {
+        if (existingIds.length > 0) {
+          const existingId = existingIds[0];
+          console.log(`=== Updating: ${targetName} (${existingId}) ===`);
+          await kibanaApi('PUT', `/api/workflows/workflow/${existingId}`, { yaml: yamlForUpload });
+          console.log(`    id: ${existingId}`);
+        } else {
+          console.log(`=== Creating: ${targetName} ===`);
+          const result = await kibanaApi('POST', '/api/workflows', {
+            workflows: [{ id: targetId, yaml: yamlForUpload }],
+          });
+          const id = result?.id;
+          console.log(`    id: ${id}`);
+        }
+      } catch (e) {
+        console.error(`ERROR [${targetName}]: ${e.message}`);
+        errors++;
       }
-    } catch (e) {
-      console.error(`ERROR [${name}]: ${e.message}`);
-      errors++;
     }
   }
 

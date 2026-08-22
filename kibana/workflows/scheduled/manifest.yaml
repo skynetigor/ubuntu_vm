@@ -1,0 +1,9 @@
+# Upload manifest for scheduled workflows.
+# Keys match the 'name:' field in the workflow YAML file.
+# Omitted workflows use the default (upload_count: 1).
+defaults:
+  upload_count: 1
+
+# Example override:
+# cron_heartbeat:
+#   upload_count: 3

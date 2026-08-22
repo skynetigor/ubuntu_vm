@@ -1,0 +1,8 @@
+# Upload manifest for scheduled workflows.
+# Keys match the 'name:' field in the workflow YAML file.
+# Omitted workflows use the default (upload_count: 1).
+defaults:
+  upload_count: 1
+
+workflow:
+  upload_count: 1000

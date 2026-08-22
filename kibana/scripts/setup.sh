@@ -23,5 +23,6 @@ runNode() {
 run wait-kibana  bash "$SETUP_DIR/wait-kibana.sh"
 run register-tunnel  bash "$SETUP_DIR/register-tunnel.sh"
 run kibana-init  bash "$SETUP_DIR/kibana-init.sh"
+run npm-install  npm --prefix "$SETUP_DIR" install --omit=dev
 runNode upload_connectors.js
 runNode upload_workflows.js

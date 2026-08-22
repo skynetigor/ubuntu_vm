@@ -1,0 +1,11 @@
+name: Benchmark no-op workflow
+enabled: true
+triggers:
+  - type: scheduled
+    with:
+      interval: 1m
+steps:
+  - name: no-op
+    type: console
+    with:
+      message: 'No-op workflow executed at {{ now }}'
