@@ -61,17 +61,17 @@ function loadManifest(dir) {
     const p = path.join(dir, name);
     if (!fs.existsSync(p)) continue;
     const parsed = yaml.load(fs.readFileSync(p, 'utf8')) || {};
-    const { defaults = {}, ...workflows } = parsed;
+    const { ...workflows } = parsed;
     console.log(`    Loaded manifest: ${p}`);
-    return { defaults: { upload_count: 1, ...defaults }, workflows };
+    return { workflows };
   }
   console.log('    No manifest found — using defaults (upload_count: 1)');
-  return { defaults: { upload_count: 1 }, workflows: {} };
+  return { workflows: {} };
 }
 
 function getWorkflowConfig(manifest, fileBase) {
   const override = manifest.workflows[fileBase] || {};
-  return { ...manifest.defaults, ...override };
+  return { ...override };
 }
 
 // ── HTTP helpers ───────────────────────────────────────────────────────────────
@@ -91,22 +91,6 @@ async function kibanaApi(method, apiPath, body) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-function extractField(lines, field) {
-  const prefix = `${field}:`;
-  const line   = lines.find(l => l.startsWith(prefix));
-  return line ? line.slice(prefix.length).trim().replace(/^['"]|['"]$/g, '') : null;
-}
-
-function buildYaml(rawYaml, targetId, targetName) {
-  return rawYaml
-    .split('\n')
-    .filter(l => !l.startsWith('id:') && !l.startsWith('name:'))
-    .join('\n')
-    .replace(/^\n+/, '')
-    .replace(/\n+$/, '')
-    .replace(/^/, `id: ${targetId}\nname: ${targetName}\n`);
-}
 
 function copyName(name, index) {
   return index === 0 ? name : `${name} (${index + 1})`;
@@ -163,30 +147,20 @@ async function main() {
   const tasks = [];
 
   for (const filePath of workflowFiles) {
-    const rawYaml    = fs.readFileSync(filePath, 'utf8');
-    const lines      = rawYaml.split('\n');
-    const name       = extractField(lines, 'name');
+    const rawYaml = fs.readFileSync(filePath, "utf8");
     const fileBase   = path.basename(filePath, path.extname(filePath)).replace(/_/g, '-');
     const config     = getWorkflowConfig(manifest, fileBase);
     const uploadCount = Math.max(1, config.upload_count || 1);
 
-    if (!name) {
-      console.error(`ERROR [${path.basename(filePath)}]: no top-level 'name:' field found`);
-      errors++;
-      continue;
-    }
-
     for (let i = 0; i < uploadCount; i++) {
-      const targetName    = copyName(name, i);
-      const targetId      = copyId(fileBase, i);
-      const yamlForUpload = buildYaml(rawYaml, targetId, targetName);
+      const targetId = copyId(fileBase, i);
 
       tasks.push(async () => {
-        console.log(`=== Upserting: ${targetName} ===`);
+        console.log(`=== Upserting: ${targetId} ===`);
         try {
-          await upsert(targetId, yamlForUpload);
+          await upsert(targetId, rawYaml);
         } catch (e) {
-          console.error(`ERROR [${targetName}]: ${e.message}`);
+          console.error(`ERROR [${targetId}]: ${e.message}`);
           errors++;
         }
       });

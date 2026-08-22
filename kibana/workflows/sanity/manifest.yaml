@@ -1,8 +1,6 @@
 # Upload manifest for sanity workflows.
 # Keys match the 'name:' field in the workflow YAML file.
 # Omitted workflows use the default (upload_count: 1).
-defaults:
-  upload_count: 1
 
 # Example override:
 # dal_bulk_write_large_foreach:
