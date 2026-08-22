@@ -1,0 +1,62 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start",
+      "type": "shell",
+      "command": "bash start.sh",
+      "options": { "cwd": "${workspaceFolder}/dev-env" },
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Rebuild: dev-vm",
+      "type": "shell",
+      "command": "docker compose -f dev-env/docker-compose.yml up --build -d dev-vm",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Rebuild: elasticsearch",
+      "type": "shell",
+      "command": "docker compose -f dev-env/docker-compose.yml up --build -d elasticsearch",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Rebuild: kibana",
+      "type": "shell",
+      "command": "docker compose -f dev-env/docker-compose.yml up --build -d kibana",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Rebuild: apm-server",
+      "type": "shell",
+      "command": "docker compose -f dev-env/docker-compose.yml up --build -d apm-server",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Rebuild: workflows-ui",
+      "type": "shell",
+      "command": "docker compose -f dev-env/docker-compose.yml up --build -d workflows-ui",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Rebuild: cloudflared",
+      "type": "shell",
+      "command": "docker compose -f dev-env/docker-compose.yml up --build -d cloudflared",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "new" }
+    },
+    {
+      "label": "Clean up all",
+      "type": "shell",
+      "command": "docker compose -f dev-env/docker-compose.yml down -v && docker image prune -af",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "new" }
+    }
+  ]
+}

@@ -314,6 +314,7 @@ steps:
           public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
           container_name: '{{ steps.resolve.output.PROJECT }}'
           deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
+          es_internal_url: http://{{ consts.INTERNAL_PREVIEWS_HOST }}:{{ steps.assign_ports.output.ES_PORT }}
           es_user: elastic
           es_password: '{{ inputs.elastic_password }}'
           ttl_days: '{{ inputs.ttl_days }}'

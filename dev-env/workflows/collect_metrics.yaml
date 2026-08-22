@@ -1,0 +1,144 @@
+name: Collect metrics
+description: Collects workflow metrics for deployments
+enabled: false
+consts:
+  DEPLOYMENTS_INDEX: deployed-previews
+  METRICS_INDEX: workflow_metrics
+  METRICS:
+    - metric: workflowExecution.count
+      unit: int
+      expression: return 1;
+triggers:
+  - type: manual
+  - type: scheduled
+    with:
+      every: 1m
+steps:
+  - name: create_workflow_metrics_collector_index
+    type: elasticsearch.request
+    on-failure:
+      continue: true
+    with:
+      method: POST
+      path: /{{ consts.METRICS_INDEX }}
+      body:
+        mappings:
+          dynamic: false
+          properties:
+            id:
+              type: keyword
+            "@timestamp":
+              type: date
+            spaceId:
+              type: keyword
+            metric:
+              type: keyword
+            value:
+              type: double
+            unit:
+              type: keyword
+            tags:
+              type: keyword
+  - name: fetch_deployments
+    type: elasticsearch.request
+    with:
+      method: GET
+      path: /{{consts.DEPLOYMENTS_INDEX}}/_search
+  - name: foreach_deployment
+    type: foreach
+    foreach: "{{steps.fetch_deployments.output.hits.hits}}"
+    steps:
+      - name: kibana_auth_var
+        type: data.set
+        with:
+          Authorization: "Basic {{foreach.item._source.es_user | append: ':' | append: foreach.item._source.es_password | base64_encode}}"
+      - name: fetch_executions
+        type: http
+        with:
+          url: "{{ foreach.item._source.es_internal_url }}/.workflows-executions/_search"
+          method: POST
+          headers:
+            Authorization: "{{ steps.kibana_auth_var.output.Authorization }}"
+            Content-Type: application/json
+          body:
+            _source:
+              - id
+              - startedAt
+              - createdAt
+              - finishedAt
+              - duration
+            query:
+              bool:
+                must:
+                  - range:
+                      createdAt:
+                        gte: now-2m
+      - name: build_metrics
+        type: code.javascript
+        with:
+          code: |
+            var executions = {{ steps.fetch_executions.output.data.hits.hits | map: "_source" | json }};
+
+            function buildItem({ execution, metricName, value }) {
+              var id = `${metricName}_${execution.id}`;
+              var metric = `workflow.${metricName}`;
+              var unit = undefined;
+
+              switch(typeof value) {
+                case 'number': {
+                  unit = 'int';
+                  break;
+                }
+                default: {
+                  throw new Error(`${metricName}:${typeof value} metric unit isn't supported.`);
+                }
+              }
+
+              return {
+                id,
+                value,
+                metric,
+                unit,
+                _id: id,
+                ['@timestamp']: execution.createdAt,
+                spaceId: execution.spaceId
+              }
+            }
+
+            return executions.flatMap((execution) => {
+              const { id, createdAt, startedAt, duration } = execution;
+              return [
+                buildItem({
+                  execution,
+                  metricName: 'count',
+                  value: 1,
+                  unit: 'int'
+                }),
+                duration ? buildItem({
+                    execution,
+                    metricName: 'duration',
+                    value: duration,
+                  }) : null,
+                createdAt || startedAt ? buildItem({
+                  execution,
+                  metricName: 'queueTime',
+                  value: new Date(startedAt).getTime() - new Date(createdAt).getTime(),
+                }) : undefined
+              ].filter(m => m)
+            });
+
+      - name: prepare_bulk_ops
+        type: code.javascript
+        with:
+          code: |-
+            var metrics = {{ steps.build_metrics.output | json }};
+            return metrics.map(m => ({
+              index: { _index: "{{ consts.METRICS_INDEX }}", _id: m.id },
+              document: m
+            }));
+
+      - name: bulk_index_metrics
+        type: elasticsearch.bulk
+        with:
+          index: "{{ consts.METRICS_INDEX }}"
+          operations: "${{ steps.prepare_bulk_ops.output }}"

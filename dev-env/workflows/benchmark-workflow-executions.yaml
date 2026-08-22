@@ -88,6 +88,11 @@ steps:
             # letting it apply.
             elastic_password: '{{ foreach.item.elastic_password | default: "1ab1db3e-838a-4b1e-9944-88084c553998" }}'
             workflows_group: '${{ foreach.item.workflows_group | default: "benchmark_no_op" }}'
+      
+      - name: wait
+        type: wait
+        with:
+          duration: 5m
 
       - name: kibana_auth_var
         type: data.set
@@ -213,7 +218,7 @@ steps:
               const WF = "{{ consts.WORKFLOW_ID }}";
               const COUNT = parseInt("{{ inputs.count }}", 10);
 
-              const log = (m) => process.stderr.write(
+              const log = (m) => console.log(
                 "[" + new Date().toISOString() + "] " + m + "\n");
 
               const raw = {{ steps.fetch_metrics.output | json }};
@@ -282,7 +287,7 @@ steps:
                   (report.scheduling_lag ? report.scheduling_lag.p95_s : "n/a") +
                   "s dur_avg:" + report.execution_duration.avg_s + "s");
 
-              process.stdout.write(JSON.stringify(report));
+              return report;
             })();
 
       - name: index_report
