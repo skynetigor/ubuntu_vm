@@ -2,4 +2,4 @@
 # Keys match the 'name:' field in the workflow YAML file.
 # Omitted workflows use the default (upload_count: 1).
 workflow:
-  upload_count: 150
+  upload_count: 500
