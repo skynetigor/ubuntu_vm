@@ -111,23 +111,21 @@ steps:
               };
             }
 
-            return executions.flatMap((execution) => {
-              const { createdAt, startedAt, finishedAt, duration } = execution;
-              return [
-                buildItem({ execution, metricName: 'count', value: 1 }),
-                duration != null ? buildItem({ execution, metricName: 'duration', value: duration }) : null,
-                createdAt && startedAt ? buildItem({
-                  execution,
-                  metricName: 'queueTime',
-                  value: new Date(startedAt).getTime() - new Date(createdAt).getTime(),
-                }) : null,
-                createdAt && finishedAt ? buildItem({
-                  execution,
-                  metricName: 'e2eLatency',
-                  value: new Date(finishedAt).getTime() - new Date(createdAt).getTime(),
-                }) : null,
-              ].filter(m => m);
-            });
+            var result = [];
+            while (executions.length) {
+              var execution = executions.splice(0, 1)[0];
+              var { createdAt, startedAt, finishedAt, duration } = execution;
+              result.push(buildItem({ execution, metricName: 'count', value: 1 }));
+              if (duration != null)
+                result.push(buildItem({ execution, metricName: 'duration', value: duration }));
+              if (createdAt && startedAt)
+                result.push(buildItem({ execution, metricName: 'queueTime',
+                  value: new Date(startedAt).getTime() - new Date(createdAt).getTime() }));
+              if (createdAt && finishedAt)
+                result.push(buildItem({ execution, metricName: 'e2eLatency',
+                  value: new Date(finishedAt).getTime() - new Date(createdAt).getTime() }));
+            }
+            return result;
 
       - name: prepare_bulk_body
         type: code.javascript
