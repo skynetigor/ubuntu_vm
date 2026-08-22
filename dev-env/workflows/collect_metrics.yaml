@@ -99,7 +99,6 @@ steps:
 
               return {
                 id,
-                _id: id,
                 metric: `workflow.${metricName}`,
                 value,
                 unit: 'int',
@@ -137,9 +136,9 @@ steps:
             var metrics = {{ steps.build_metrics.output | json }};
             var index = "{{ consts.METRICS_INDEX }}";
             return metrics.flatMap(m => [
-              JSON.stringify({ index: { _index: index, _id: m.id } }),
-              JSON.stringify(m)
-            ]).join('\n') + '\n';
+              { index: { _index: index, _id: m.id } },
+              m
+            ]);
 
       - name: bulk_index_metrics
         type: elasticsearch.request
