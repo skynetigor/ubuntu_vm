@@ -133,10 +133,13 @@ steps:
           code: |
             var metrics = {{ steps.build_metrics.output | json }};
             var index = "{{ consts.METRICS_INDEX }}";
-            return metrics.flatMap(m => [
-              JSON.stringify({ index: { _index: index, _id: m.id } }),
-              JSON.stringify(m)
-            ]).join('\n') + '\n';
+            var body = '';
+            while (metrics.length) {
+              var m = metrics.splice(0, 1)[0];
+              body += JSON.stringify({ index: { _index: index, _id: m.id } }) + '\n';
+              body += JSON.stringify(m) + '\n';
+            }
+            return body;
 
       - name: bulk_index_metrics
         type: elasticsearch.request
