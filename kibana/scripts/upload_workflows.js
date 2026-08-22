@@ -11,7 +11,7 @@
 //
 // Manifest:
 //   If a manifest.yaml exists in WORKFLOWS_DIR, it controls per-workflow config.
-//   Keys are workflow names (matching the 'name:' field). Supported options:
+//   Keys are workflow filenames (without extension). Supported options:
 //     upload_count: N  — upload N copies of the workflow (default: 1)
 //   Copies beyond the first get an ID/name suffix: "-2", "-3", etc.
 
@@ -47,10 +47,10 @@ const KIBANA_PASSWORD = process.env.ES_PASSWORD || 'changeme';
 
 const AUTH    = Buffer.from(`${KIBANA_USERNAME}:${KIBANA_PASSWORD}`).toString('base64');
 const HEADERS = {
-  'Authorization':             `Basic ${AUTH}`,
-  'kbn-xsrf':                  'true',
-  'x-elastic-internal-origin': 'Kibana',
-  'Content-Type':              'application/json',
+  'Authorization':       `Basic ${AUTH}`,
+  'kbn-xsrf':            'true',
+  'elastic-api-version': '2023-10-31',
+  'Content-Type':        'application/json',
 };
 
 // ── Manifest ──────────────────────────────────────────────────────────────────
@@ -69,8 +69,8 @@ function loadManifest(dir) {
   return { defaults: { upload_count: 1 }, workflows: {} };
 }
 
-function getWorkflowConfig(manifest, workflowName) {
-  const override = manifest.workflows[workflowName] || {};
+function getWorkflowConfig(manifest, fileBase) {
+  const override = manifest.workflows[fileBase] || {};
   return { ...manifest.defaults, ...override };
 }
 
@@ -90,40 +90,7 @@ async function kibanaApi(method, apiPath, body) {
   return text ? JSON.parse(text) : null;
 }
 
-// ── Fetch existing workflows (paginated) ──────────────────────────────────────
-
-async function fetchAllWorkflows() {
-  const byName = {};
-  let page = 1;
-  while (true) {
-    let resp;
-    try {
-      resp = await kibanaApi('POST', '/api/workflows/search', { size: 100, page, query: '' });
-    } catch (e) {
-      if (e.message.includes('HTTP 404')) {
-        console.warn('    /api/workflows/search returned 404 — assuming no existing workflows');
-        return byName;
-      }
-      throw e;
-    }
-    const results = Array.isArray(resp)
-      ? resp
-      : (resp.results || resp.workflows || resp.data || resp.items || []);
-    console.log(`    page ${page}: ${results.length} item(s) (response keys: ${Object.keys(resp || {}).join(', ')})`);
-    for (const w of results) {
-      const id   = w.id   || w.workflow_id;
-      const name = w.name || w.workflow_name;
-      if (id && name) {
-        if (!byName[name]) byName[name] = [];
-        byName[name].push(id);
-      }
-    }
-    const totalItems = resp.total ?? resp.totalCount ?? (page * 100);
-    if (!results.length || page * 100 >= totalItems) break;
-    page++;
-  }
-  return byName;
-}
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function extractField(lines, field) {
   const prefix = `${field}:`;
@@ -131,8 +98,14 @@ function extractField(lines, field) {
   return line ? line.slice(prefix.length).trim().replace(/^['"]|['"]$/g, '') : null;
 }
 
-function stripId(rawYaml) {
-  return rawYaml.split('\n').filter(l => !l.startsWith('id:')).join('\n');
+function buildYaml(rawYaml, targetId, targetName) {
+  return rawYaml
+    .split('\n')
+    .filter(l => !l.startsWith('id:') && !l.startsWith('name:'))
+    .join('\n')
+    .replace(/^\n+/, '')
+    .replace(/\n+$/, '')
+    .replace(/^/, `id: ${targetId}\nname: ${targetName}\n`);
 }
 
 function copyName(name, index) {
@@ -141,6 +114,21 @@ function copyName(name, index) {
 
 function copyId(fileBaseName, index) {
   return index === 0 ? fileBaseName : `${fileBaseName}-${index + 1}`;
+}
+
+// ── Upsert ─────────────────────────────────────────────────────────────────────
+// PUT first (update). If 404 the workflow doesn't exist yet — POST to create.
+// This avoids needing a list/search step entirely.
+
+async function upsert(targetId, yamlForUpload) {
+  try {
+    await kibanaApi('PUT', `/api/workflows/workflow/${targetId}`, { yaml: yamlForUpload });
+    console.log(`    Updated (${targetId})`);
+  } catch (e) {
+    if (!e.message.includes('HTTP 404')) throw e;
+    await kibanaApi('POST', '/api/workflows/workflow', { yaml: yamlForUpload });
+    console.log(`    Created (${targetId})`);
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -159,10 +147,6 @@ async function main() {
   console.log(`=== Loading manifest ===`);
   const manifest = loadManifest(WORKFLOWS_DIR);
 
-  console.log(`=== Fetching existing workflows from ${KIBANA_URL} ===`);
-  const existingByName = await fetchAllWorkflows();
-  console.log(`    Found ${Object.keys(existingByName).length} existing workflow name(s)`);
-
   let errors = 0;
   for (const filePath of workflowFiles) {
     const rawYaml    = fs.readFileSync(filePath, 'utf8');
@@ -179,29 +163,13 @@ async function main() {
     }
 
     for (let i = 0; i < uploadCount; i++) {
-      const targetName = copyName(name, i);
-      const targetId   = copyId(fileBase, i);
-      const existingIds = existingByName[targetName] || [];
+      const targetName     = copyName(name, i);
+      const targetId       = copyId(fileBase, i);
+      const yamlForUpload  = buildYaml(rawYaml, targetId, targetName);
 
-      const yamlForUpload = stripId(rawYaml).replace(
-        /^name:.*$/m,
-        `name: ${targetName}`
-      );
-
+      console.log(`=== Upserting: ${targetName} ===`);
       try {
-        if (existingIds.length > 0) {
-          const existingId = existingIds[0];
-          console.log(`=== Updating: ${targetName} (${existingId}) ===`);
-          await kibanaApi('PUT', `/api/workflows/workflow/${existingId}`, { yaml: yamlForUpload });
-          console.log(`    id: ${existingId}`);
-        } else {
-          console.log(`=== Creating: ${targetName} ===`);
-          const result = await kibanaApi('POST', '/api/workflows', {
-            workflows: [{ id: targetId, yaml: yamlForUpload }],
-          });
-          const id = result?.id;
-          console.log(`    id: ${id}`);
-        }
+        await upsert(targetId, yamlForUpload);
       } catch (e) {
         console.error(`ERROR [${targetName}]: ${e.message}`);
         errors++;
