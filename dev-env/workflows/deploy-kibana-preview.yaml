@@ -78,6 +78,40 @@ triggers:
           minimum: 1
 
 steps:
+  - name: ensure_deployments_index
+    type: elasticsearch.request
+    on-failure:
+      continue: true
+    with:
+      method: PUT
+      path: /deployed-previews
+      body:
+        mappings:
+          dynamic: false
+          properties:
+            '@timestamp':
+              type: date
+            updated_at:
+              type: date
+            target:
+              type: keyword
+            port:
+              type: integer
+            public_url:
+              type: keyword
+            container_name:
+              type: keyword
+            deploy_dir_name:
+              type: keyword
+            es_internal_url:
+              type: keyword
+            es_user:
+              type: keyword
+            es_password:
+              type: keyword
+            ttl_days:
+              type: integer
+
   # ── Step 1: Resolve target URL → commit / project name ───────────────────
   # Output: { PROJECT, KIBANA_COMMIT }
   - name: resolve
