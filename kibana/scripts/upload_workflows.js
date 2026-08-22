@@ -131,6 +131,18 @@ async function upsert(targetId, yamlForUpload) {
   }
 }
 
+// ── Concurrency ───────────────────────────────────────────────────────────────
+
+async function runConcurrent(tasks, concurrency) {
+  const active = new Set();
+  for (const task of tasks) {
+    const p = task().finally(() => active.delete(p));
+    active.add(p);
+    if (active.size >= concurrency) await Promise.race(active);
+  }
+  await Promise.all(active);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -148,6 +160,8 @@ async function main() {
   const manifest = loadManifest(WORKFLOWS_DIR);
 
   let errors = 0;
+  const tasks = [];
+
   for (const filePath of workflowFiles) {
     const rawYaml    = fs.readFileSync(filePath, 'utf8');
     const lines      = rawYaml.split('\n');
@@ -163,19 +177,23 @@ async function main() {
     }
 
     for (let i = 0; i < uploadCount; i++) {
-      const targetName     = copyName(name, i);
-      const targetId       = copyId(fileBase, i);
-      const yamlForUpload  = buildYaml(rawYaml, targetId, targetName);
+      const targetName    = copyName(name, i);
+      const targetId      = copyId(fileBase, i);
+      const yamlForUpload = buildYaml(rawYaml, targetId, targetName);
 
-      console.log(`=== Upserting: ${targetName} ===`);
-      try {
-        await upsert(targetId, yamlForUpload);
-      } catch (e) {
-        console.error(`ERROR [${targetName}]: ${e.message}`);
-        errors++;
-      }
+      tasks.push(async () => {
+        console.log(`=== Upserting: ${targetName} ===`);
+        try {
+          await upsert(targetId, yamlForUpload);
+        } catch (e) {
+          console.error(`ERROR [${targetName}]: ${e.message}`);
+          errors++;
+        }
+      });
     }
   }
+
+  await runConcurrent(tasks, 5);
 
   console.log('=== Done ===');
   process.exit(errors ? 1 : 0);
