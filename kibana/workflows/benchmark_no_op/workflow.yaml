@@ -3,7 +3,7 @@ enabled: true
 triggers:
   - type: scheduled
     with:
-      interval: 1m
+      every: 1m
 steps:
   - name: no-op
     type: console
