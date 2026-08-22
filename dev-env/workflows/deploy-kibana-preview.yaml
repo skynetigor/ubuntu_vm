@@ -67,6 +67,7 @@ triggers:
           enum:
             - scheduled
             - sanity
+            - benchmark_no_op
           default: "scheduled"
         ttl_days:
           type: integer

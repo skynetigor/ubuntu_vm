@@ -26,6 +26,7 @@ settings:
 consts:
   REPORT_INDEX: workflow-benchmarks
   host: dev-vm
+  WORKFLOW_ID: benchmark-no-op
 
 triggers:
   - type: manual
@@ -86,78 +87,12 @@ steps:
             # string, which would OVERRIDE the child's default rather than
             # letting it apply.
             elastic_password: '{{ foreach.item.elastic_password | default: "1ab1db3e-838a-4b1e-9944-88084c553998" }}'
-            workflows_group: '{{ foreach.item.workflows_group | default: "benchmark_no_op" }}'
+            workflows_group: '${{ foreach.item.workflows_group | default: "benchmark_no_op" }}'
 
       - name: kibana_auth_var
         type: data.set
         with:
           Authorization: "Basic {{steps.deploy.output.es_user | append: ':' | append: steps.deploy.output.es_password | base64_encode}}"
-
-      # - name: upload_workflow
-      #   type: http
-      #   with:
-      #     url: '{{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow'
-      #     method: POST
-      #     headers:
-      #       Authorization: '{{ steps.kibana_auth_var.output.Authorization }}'
-      #       kbn-xsrf: 'true'
-      #       elastic-api-version: '2023-10-31'
-      #       Content-Type: application/json
-      #     body:
-      #       yaml: |
-      #         name: Benchmark workflow
-      #         enabled: true
-      #         description: This is a new workflow
-      #         triggers:
-      #           - type: manual
-      #         steps:
-      #           - name: hello_world_step
-      #             type: console
-      #             with:
-      #               message: "aa"
-            
-
-      - name: schedule
-        type: foreach
-        foreach: '${{ (0...inputs.count) | json }}'
-        steps:
-          - name: schedule_one
-            type: http
-            with:
-              url: '{{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow/{{ steps.upload_workflow.output.data.id }}/run'
-              method: POST
-              headers:
-                Authorization: '{{ steps.kibana_auth_var.output.Authorization }}'
-                kbn-xsrf: 'true'
-                elastic-api-version: '2023-10-31'
-                Content-Type: application/json
-              body:
-                inputs: {}
-          - name: batch_pause
-            type: wait
-            if: '{{ (foreach.index | modulo: 50) == 49 }}'
-            with:
-              duration: 1s
-
-      - name: wait_for_completions
-        type: while
-        condition: '{{ steps.check.output.total < inputs.count }}'
-        steps:
-          - name: check
-            type: http
-            with:
-              url: >-
-                {{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow/{{ steps.upload_workflow.output.data.id }}/executions?statuses=completed&statuses=failed&statuses=cancelled&statuses=timed_out&size=0
-              method: GET
-              headers:
-                Authorization: '{{ steps.kibana_auth_var.output.Authorization }}'
-                kbn-xsrf: 'true'
-                elastic-api-version: '2023-10-31'
-                Content-Type: application/json
-          - name: poll_wait
-            type: wait
-            with:
-              duration: '1s'
 
       - name: fetch_metrics
         type: http
@@ -173,7 +108,7 @@ steps:
               bool:
                 filter:
                   - term:
-                      workflowId: '{{ steps.upload_workflow.output.data.workflowExecutionId }}'
+                      workflowId: '{{ consts.WORKFLOW_ID }}'
             aggs:
               by_status:
                 terms:
@@ -273,7 +208,7 @@ steps:
               const PROJECT = "{{ steps.deploy.output.project }}";
               const TARGET = "{{ steps.deploy.output.target }}";
               const COMMIT = "{{ steps.deploy.output.commit }}";
-              const WF = "{{ steps.upload_workflow.output.data.workflowExecutionId }}";
+              const WF = "{{ consts.WORKFLOW_ID }}";
               const COUNT = parseInt("{{ inputs.count }}", 10);
 
               const log = (m) => process.stderr.write(

@@ -24,6 +24,7 @@ RUN NODE_VERSION=$(cat .nvmrc) \
     && chmod +x /opt/kibana/bin/* /opt/kibana/node/default/bin/*
 
 COPY --chown=kibana:kibana scripts/ /opt/kibana/setup/
+RUN cd /opt/kibana/setup && /opt/kibana/node/default/bin/npm install --omit=dev
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
