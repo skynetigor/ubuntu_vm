@@ -87,13 +87,24 @@ steps:
             # letting it apply.
             elastic_password: '{{ foreach.item.elastic_password | default: "1ab1db3e-838a-4b1e-9944-88084c553998" }}'
 
+      - name: kibana_auth
+        type: code.javascript
+        with:
+          code: |
+            (() => {
+              const encoded = Buffer.from(
+                "{{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}"
+              ).toString('base64');
+              process.stdout.write(JSON.stringify({ header: 'Basic ' + encoded }));
+            })();
+
       - name: upload_workflow
         type: http
         with:
           url: '{{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow'
           method: POST
           headers:
-            Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+            Authorization: '{{ steps.kibana_auth.output.header }}'
             kbn-xsrf: 'true'
             elastic-api-version: '2023-10-31'
           body:
@@ -120,7 +131,7 @@ steps:
               url: '{{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow/{{ steps.upload_workflow.output.data.workflowExecutionId }}/run'
               method: POST
               headers:
-                Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+                Authorization: '{{ steps.kibana_auth.output.header }}'
                 kbn-xsrf: 'true'
                 elastic-api-version: '2023-10-31'
               body:
@@ -142,7 +153,7 @@ steps:
                 {{ steps.deploy.output.kibana_internal_url }}/api/workflows/workflow/{{ steps.upload_workflow.output.data.workflowExecutionId }}/executions?statuses=completed&statuses=failed&statuses=cancelled&statuses=timed_out&size=0
               method: GET
               headers:
-                Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+                Authorization: '{{ steps.kibana_auth.output.header }}'
                 kbn-xsrf: 'true'
                 elastic-api-version: '2023-10-31'
           - name: poll_wait
@@ -156,7 +167,7 @@ steps:
           url: '{{ steps.deploy.output.es_internal_url }}/.workflows-executions/_search'
           method: POST
           headers:
-            Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+            Authorization: '{{ steps.kibana_auth.output.header }}'
             Content-Type: application/json
           body:
             size: 0
@@ -242,7 +253,7 @@ steps:
           url: '{{ steps.deploy.output.es_internal_url }}/.kibana_task_manager/_search'
           method: POST
           headers:
-            Authorization: 'Basic {{ steps.deploy.output.es_user }}:{{ steps.deploy.output.es_password }}'
+            Authorization: '{{ steps.kibana_auth.output.header }}'
             Content-Type: application/json
           body:
             size: 0
