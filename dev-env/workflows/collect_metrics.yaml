@@ -145,4 +145,6 @@ steps:
         with:
           method: POST
           path: /_bulk
+          headers:
+            Content-Type: application/x-ndjson
           body: '${{ steps.prepare_bulk_body.output }}'
