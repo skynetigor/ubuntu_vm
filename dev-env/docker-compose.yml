@@ -53,6 +53,7 @@ services:
   kibana:
     build:
       context: ../kibana
+    image: kibana-dev:${KIBANA_IMAGE_TAG:-latest}
     env_file:
       - path: ./env/es.env
         required: false
