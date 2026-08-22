@@ -73,8 +73,6 @@ RUN mkdir -p "$NVM_DIR" \
     # Give kibana full ownership of its home (covers NVM and .ssh)
     && chown -R kibana:kibana /home/kibana
 
-RUN npm install -g js-yaml
-
 # Make NVM available in all shell types:
 #   /etc/profile.d  — login shells (ssh -l, su -, interactive login)
 #   /etc/bash.bashrc — non-login interactive shells
