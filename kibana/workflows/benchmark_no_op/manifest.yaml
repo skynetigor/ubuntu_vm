@@ -5,4 +5,4 @@ defaults:
   upload_count: 1
 
 workflow:
-  upload_count: 1000
+  upload_count: 150

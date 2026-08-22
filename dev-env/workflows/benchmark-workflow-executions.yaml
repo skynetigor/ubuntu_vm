@@ -109,6 +109,8 @@ steps:
                 filter:
                   - term:
                       workflowId: '{{ consts.WORKFLOW_ID }}'
+                  - term:
+                      startedAfter: '${{ execution.startedAt }}'
             aggs:
               by_status:
                 terms:
