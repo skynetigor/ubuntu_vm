@@ -338,6 +338,7 @@ steps:
     with:
       code: |
         DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
+        npm install --prefix "$DEPLOY_DIR/kibana/scripts" --omit=dev --silent
         export WORKFLOWS_DIR="$DEPLOY_DIR/kibana/workflows/{{ inputs.workflows_group }}"
         export KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}"
         export KIBANA_USERNAME="elastic"
