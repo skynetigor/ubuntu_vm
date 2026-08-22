@@ -53,7 +53,6 @@ services:
   kibana:
     build:
       context: ../kibana
-    image: kibana-dev:${KIBANA_IMAGE_TAG:-latest}
     env_file:
       - path: ./env/es.env
         required: false
@@ -80,6 +79,14 @@ services:
       - ./kibana.override.yml:/opt/kibana/config/kibana.override.yml:ro
       - ./env/connectors.yml:/opt/kibana/setup/env/connectors.yml:ro
       - ./workflows:/opt/kibana/setup/workflows:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl -sf -u "elastic:$$ES_PASSWORD" http://localhost:5601/api/status | grep -q "\"level\":\"available\""'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
     depends_on:
       elasticsearch:
         condition: service_healthy
