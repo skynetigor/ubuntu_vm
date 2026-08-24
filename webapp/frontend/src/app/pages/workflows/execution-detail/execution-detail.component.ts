@@ -59,7 +59,7 @@ export class ExecutionDetailComponent implements OnInit {
     this.route.params.subscribe(p => {
       this.api.getExecution(p['eid']).subscribe(ex => {
         this.execution.set(ex);
-        this.stepTree.set(this.buildTree(ex.steps ?? []));
+        this.stepTree.set(this.buildTree(ex.stepExecutions ?? []));
       });
     });
   }
@@ -71,7 +71,7 @@ export class ExecutionDetailComponent implements OnInit {
   private buildTree(steps: any[]): TreeNode[] {
     return steps.map(s => ({
       label: s.name ?? s.stepId,
-      data: { status: s.status, duration: s.duration },
+      data: { status: s.status, duration: s.executionTimeMs },
       children: s.steps ? this.buildTree(s.steps) : [],
       expanded: true,
     }));

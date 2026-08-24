@@ -24,7 +24,7 @@ import { ApiService } from '../../../core/api.service';
         </div>
       </div>
 
-      <p-table [value]="reports()" [(selection)]="selectedRows" dataKey="id"
+      <p-table [value]="reports()" [(selection)]="selectedRows" dataKey="id" selectionMode="multiple"
                [loading]="loading()" [paginator]="true" [rows]="20"
                [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)"
                (selectionChange)="selected.set($event)"

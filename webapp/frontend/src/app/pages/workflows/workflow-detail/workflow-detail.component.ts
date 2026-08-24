@@ -43,7 +43,7 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'timed_out', 'erro
               <td class="font-mono text-xs">{{ ex.id | slice:0:12 }}…</td>
               <td>{{ ex.startedAt | date:'short' }}</td>
               <td>{{ ex.duration | duration }}</td>
-              <td>{{ ex.executionType ?? '—' }}</td>
+              <td>{{ ex.triggerType ?? '—' }}</td>
             </tr>
           </ng-template>
           <ng-template pTemplate="empty"><tr><td colspan="5" class="text-center text-color-secondary p-4">No executions yet</td></tr></ng-template>
@@ -85,7 +85,7 @@ export class WorkflowDetailComponent implements OnInit, OnDestroy {
   ngOnDestroy() { clearInterval(this.pollTimer); }
 
   runSchema() {
-    return this.workflow()?.triggers?.[0]?.inputs ?? {};
+    return this.workflow()?.definition?.triggers?.[0]?.inputs ?? {};
   }
 
   loadExecutions(page = 1) {

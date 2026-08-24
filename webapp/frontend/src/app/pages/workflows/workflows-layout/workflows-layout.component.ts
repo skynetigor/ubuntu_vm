@@ -33,6 +33,7 @@ import { AuthService } from '../../../core/auth.service';
                class="flex align-items-center gap-2 px-3 py-2 cursor-pointer hover:surface-100 no-underline text-color border-none">
               <span class="flex-1 text-sm font-medium">{{ wf.name }}</span>
               <p-tag [value]="triggerType(wf)" severity="secondary" styleClass="text-xs" />
+              <p-tag [value]="wf.enabled ? 'on' : 'off'" [severity]="wf.enabled ? 'success' : 'danger'" styleClass="text-xs" />
             </a>
           }
           @if (loading()) {
@@ -68,7 +69,7 @@ export class WorkflowsLayoutComponent implements OnInit {
   }
 
   triggerType(wf: any): string {
-    const t = wf.triggers?.[0]?.type;
+    const t = wf.definition?.triggers?.[0]?.type;
     return t === 'manual' ? 'manual' : t === 'scheduled' ? 'cron' : t ?? '?';
   }
 }

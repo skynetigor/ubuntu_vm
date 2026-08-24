@@ -15,7 +15,7 @@ function kibanaHeaders(authHeader) {
 // GET /api/workflows
 router.get('/', async (req, res) => {
   try {
-    const r = await fetch(`${KIBANA_HOST}/api/workflows/workflow`, {
+    const r = await fetch(`${KIBANA_HOST}/api/workflows`, {
       headers: kibanaHeaders(req.esCredentials.authHeader),
     });
     const body = await r.json();

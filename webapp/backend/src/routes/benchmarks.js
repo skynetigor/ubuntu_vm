@@ -29,7 +29,10 @@ router.get('/', async (req, res) => {
       }),
     });
     const body = await r.json();
-    if (!r.ok) return res.status(r.status).json(body);
+    if (!r.ok) {
+      if (r.status === 404) return res.json({ total: 0, page, size, results: [] });
+      return res.status(r.status).json(body);
+    }
     res.json({
       total: body.hits?.total?.value ?? 0,
       page,
