@@ -17,47 +17,58 @@ tags:
 triggers:
   - type: scheduled
     with:
-      interval: 10m
+      every: 10m
   - type: manual
 
 steps:
-  # ── Find previews whose per-document TTL has elapsed ─────────────────────
-  # Each document carries its own ttl_days (set at deploy time). The Painless
-  # script computes the expiry threshold per document. Fallback: 3 days for
-  # documents deployed before ttl_days was introduced.
-  - name: find_expired
+  - name: fetch_all
     type: elasticsearch.request
     with:
       method: POST
       path: /deployed-previews/_search
       body:
         size: 50
-        query:
-          script:
-            script:
-              lang: painless
-              source: >-
-                long ttl = doc['ttl_days'].size() > 0
-                  ? (long) doc['ttl_days'].value : 3L;
-                return doc['updated_at'].value.toInstant().toEpochMilli()
-                  < System.currentTimeMillis() - ttl * 86400000L;
-        _source: []
+        _source:
+          - updated_at
+          - ttl_days
+
+  - name: find_expired
+    type: code.javascript
+    with:
+      code: |
+        const hits = {{ steps.fetch_all.output.hits.hits | json }};
+        const now = Date.now();
+        return hits.filter(h => {
+          const ttlDays = h._source.ttl_days ?? 3;
+          const updatedAt = new Date(h._source.updated_at).getTime();
+          return now - updatedAt > ttlDays * 86400000;
+        }).map(h => h._id);
 
   # ── Delegate each teardown to cleanup-preview ─────────────────────────────
   - name: cleanup_each
     type: foreach
-    foreach: '${{ steps.find_expired.output.hits.hits }}'
+    foreach: '${{ steps.find_expired.output }}'
     steps:
       - name: cleanup
         type: workflow.execute
         with:
           workflow-id: cleanup-preview
           inputs:
-            project: '{{ foreach.item._id }}'
+            project: '{{ foreach.item }}'
+
+  - name: docker_prune
+    type: remoteHost.runCommand
+    connector-id: dev-vm
+    on-failure:
+      continue: true
+    with:
+      code: |
+        docker system prune -f
+        echo "=== docker system prune complete ==="
 
   - name: done
     type: console
     with:
       message: >-
         Cleanup pass complete.
-        Processed {{ steps.find_expired.output.hits.hits | size }} expired preview(s).
+        Processed {{ steps.find_expired.output | size }} expired preview(s).

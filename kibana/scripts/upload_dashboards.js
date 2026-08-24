@@ -67,10 +67,14 @@ async function kibanaApi(method, apiPath, body) {
 async function getOrCreateDataView({ title, timeField }) {
   const result = await kibanaApi('GET', '/api/data_views');
   const existing = (result.data_view || []).find(d => d.title === title);
-  if (existing) return existing.id;
+  if (existing) {
+    console.log(`    Data view: reusing ${existing.id} (${title})`);
+    return existing.id;
+  }
   const r = await kibanaApi('POST', '/api/data_views/data_view', {
     data_view: { title, timeFieldName: timeField },
   });
+  console.log(`    Data view: created ${r.data_view.id} (${title})`);
   return r.data_view.id;
 }
 
@@ -212,7 +216,6 @@ async function upsertDashboard(def) {
   console.log(`=== Dashboard: ${def.title} ===`);
 
   const dvId = await getOrCreateDataView(def.dataView);
-  console.log(`    Data view: ${dvId} (${def.dataView.title})`);
 
   const panelsJSON = def.panels.map(p => ({
     panelIndex: p.id,
@@ -267,6 +270,8 @@ async function main() {
     console.log(`No JSON files found in ${DASHBOARDS_DIR}. Skipping.`);
     process.exit(0);
   }
+
+  console.log(`=== Uploading ${files.length} dashboard(s) from ${DASHBOARDS_DIR} ===`);
 
   let errors = 0;
   for (const file of files) {
