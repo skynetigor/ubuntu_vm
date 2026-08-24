@@ -68,6 +68,7 @@ triggers:
             - scheduled
             - sanity
             - benchmark_no_op
+            - none
           default: "scheduled"
         ttl_days:
           type: integer
@@ -159,7 +160,16 @@ steps:
         fi
         echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
 
-  # ── Step 3: Assign ports for this project ────────────────────────────────
+  # ── Step 3: Look up existing ports from deployment index ─────────────────
+  - name: fetch_deployment
+    type: elasticsearch.request
+    on-failure:
+      continue: true
+    with:
+      method: GET
+      path: /deployed-previews/_doc/{{ steps.resolve.output.PROJECT }}
+
+  # ── Step 4: Assign ports for this project ────────────────────────────────
   # Output: { ES_PORT, KIBANA_PORT }
   - name: assign_ports
     type: remoteHost.runCommand
@@ -167,8 +177,8 @@ steps:
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/deployments/$PROJECT"
-        PORT_FILE="$DEPLOY_DIR/.ports"
+        EXISTING_ES_PORT="{{ steps.fetch_deployment.output._source.es_port | default: '' }}"
+        EXISTING_KIBANA_PORT="{{ steps.fetch_deployment.output._source.port | default: '' }}"
 
         find_free_port() {
           local start=$1
@@ -182,13 +192,24 @@ steps:
           return 1
         }
 
-        if [ -f "$PORT_FILE" ]; then
-          set -a; source "$PORT_FILE"; set +a
-          echo "=== Reusing ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
+        port_free() {
+          ! ss -tlnp 2>/dev/null | grep -q ":${1}[^0-9]"
+        }
+
+        if [ -n "$EXISTING_ES_PORT" ] && [ -n "$EXISTING_KIBANA_PORT" ]; then
+          if port_free "$EXISTING_ES_PORT" && port_free "$EXISTING_KIBANA_PORT"; then
+            ES_PORT=$EXISTING_ES_PORT
+            KIBANA_PORT=$EXISTING_KIBANA_PORT
+            echo "=== Reusing ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
+          else
+            echo "=== Saved ports for $PROJECT conflict (ES=$EXISTING_ES_PORT, Kibana=$EXISTING_KIBANA_PORT taken), reassigning ==="
+            ES_PORT=$(find_free_port 5003)
+            KIBANA_PORT=$(find_free_port $((ES_PORT + 1)))
+            echo "=== Reassigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
+          fi
         else
           ES_PORT=$(find_free_port 5003)
           KIBANA_PORT=$(find_free_port $((ES_PORT + 1)))
-          printf 'ES_PORT=%s\nKIBANA_PORT=%s\n' "$ES_PORT" "$KIBANA_PORT" > "$PORT_FILE"
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         fi
 
@@ -345,6 +366,7 @@ steps:
         updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
         target: '{{ inputs.kibana_target }}'
         port: '{{ steps.assign_ports.output.KIBANA_PORT }}'
+        es_port: '{{ steps.assign_ports.output.ES_PORT }}'
         public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
         container_name: '{{ steps.resolve.output.PROJECT }}'
         deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
@@ -357,6 +379,7 @@ steps:
   - name: upload_workflows
     type: remoteHost.runCommand
     connector-id: dev-vm
+    if: '{{ inputs.workflows_group != "none" }}'
     on-failure:
       continue: true
     with:

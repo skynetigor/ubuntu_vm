@@ -25,3 +25,4 @@ run register-tunnel  bash "$SETUP_DIR/register-tunnel.sh"
 run kibana-init  bash "$SETUP_DIR/kibana-init.sh"
 runNode upload_connectors.js
 runNode upload_workflows.js
+runNode upload_dashboards.js

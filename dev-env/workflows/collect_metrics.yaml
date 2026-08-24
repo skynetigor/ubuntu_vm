@@ -15,7 +15,7 @@ steps:
     on-failure:
       continue: true
     with:
-      method: POST
+      method: PUT
       path: /{{ consts.METRICS_INDEX }}
       body:
         mappings:
@@ -25,10 +25,6 @@ steps:
               type: keyword
             "@timestamp":
               type: date
-            finishedAt:
-              type: date
-            status:
-              type: keyword
             workflowId:
               type: keyword
             spaceId:
@@ -58,6 +54,7 @@ steps:
         type: data.set
         with:
           Authorization: "Basic {{foreach.item.es_user | append: ':' | append: foreach.item.es_password | base64_encode}}"
+
       - name: fetch_executions
         type: http
         with:
@@ -67,7 +64,7 @@ steps:
             Authorization: "{{ steps.kibana_auth_var.output.Authorization }}"
             Content-Type: application/json
           body:
-            size: 10000
+            size: 5000
             _source:
               - id
               - workflowId
@@ -83,69 +80,89 @@ steps:
                       createdAt:
                         gte: now-2m
 
-      - name: build_metrics
+      - name: convert_to_chunks
         type: code.javascript
         with:
           code: |
-            var executions = {{ steps.fetch_executions.output.data.hits.hits | map: "_source" | json }};
-            var project = '{{foreach.item.container_name}}';
-
-            function buildItem({ execution, metricName, value }) {
-              var id = `${metricName}_${execution.id}`;
-
-              if (typeof value !== 'number') {
-                throw new Error(`${metricName}:${typeof value} metric unit isn't supported.`);
+            var executions = {{ steps.fetch_executions.output.data.hits.hits | map: '_source' | json }};
+            var chunks = [];
+            while(executions.length) {
+              if (!chunks.length || (chunks.at(-1) && chunks.at(-1).length >= 500)) {
+                chunks.push([]);
               }
 
-              return {
-                id,
-                metric: `workflow.${metricName}`,
-                value,
-                unit: 'int',
-                ['@timestamp']: execution.createdAt,
-                finishedAt: execution.finishedAt || null,
-                status: execution.status,
-                workflowId: execution.workflowId,
-                spaceId: execution.spaceId,
-                project
-              };
+              chunks.at(-1).push(executions.pop());
             }
+            return chunks;
 
-            var result = [];
-            while (executions.length) {
-              var execution = executions.splice(0, 1)[0];
-              var { createdAt, startedAt, finishedAt, duration } = execution;
-              result.push(buildItem({ execution, metricName: 'count', value: 1 }));
-              if (duration != null)
-                result.push(buildItem({ execution, metricName: 'duration', value: duration }));
-              if (createdAt && startedAt)
-                result.push(buildItem({ execution, metricName: 'queueTime',
-                  value: new Date(startedAt).getTime() - new Date(createdAt).getTime() }));
-              if (createdAt && finishedAt)
-                result.push(buildItem({ execution, metricName: 'e2eLatency',
-                  value: new Date(finishedAt).getTime() - new Date(createdAt).getTime() }));
-            }
-            return result;
+      - name: handle_batches
+        type: foreach
+        foreach: "${{ steps.convert_to_chunks.output }}"
+        steps:
+          - name: build_metrics
+            type: code.javascript
+            with:
+              code: |
+                var executions = {{ foreach.item | json }};
+                var project = '{{steps.foreach_deployment.item.container_name}}';
+                var result = [];
 
-      - name: prepare_bulk_body
-        type: code.javascript
-        with:
-          code: |
-            var metrics = {{ steps.build_metrics.output | json }};
-            var index = "{{ consts.METRICS_INDEX }}";
-            var body = '';
-            while (metrics.length) {
-              var m = metrics.splice(0, 1)[0];
-              body += JSON.stringify({ index: { _index: index, _id: m.id } }) + '\n';
-              body += JSON.stringify(m) + '\n';
-            }
-            return body;
+                function insert({ execution, metricName, value }) {
+                  var id = `${metricName}_${execution.id}`;
 
-      - name: bulk_index_metrics
-        type: elasticsearch.request
-        with:
-          method: POST
-          path: /_bulk
-          headers:
-            Content-Type: application/x-ndjson
-          body: '${{ steps.prepare_bulk_body.output }}'
+                  if (typeof value !== 'number') {
+                    throw new Error(`${metricName}:${typeof value} metric unit isn't supported.`);
+                  }
+
+                  result.push({
+                    id,
+                    metric: `workflowExecution.${metricName}`,
+                    value,
+                    unit: 'int',
+                    ['@timestamp']: execution.createdAt,
+                    finishedAt: execution.finishedAt || null,
+                    status: execution.status,
+                    workflowId: execution.workflowId,
+                    spaceId: execution.spaceId,
+                    project
+                  });
+                }
+
+                while (executions.length) {
+                  var execution = executions.pop();
+                  if (!execution) continue;
+                  var { createdAt, startedAt, finishedAt, duration } = execution;
+                  insert({ execution, metricName: 'count', value: 1 });
+                  if (duration != null)
+                    insert({ execution, metricName: 'duration', value: duration });
+                  if (createdAt && startedAt)
+                    insert({ execution, metricName: 'queueTime',
+                      value: new Date(startedAt).getTime() - new Date(createdAt).getTime() });
+                  if (createdAt && finishedAt)
+                    insert({ execution, metricName: 'e2eLatency',
+                      value: new Date(finishedAt).getTime() - new Date(createdAt).getTime() });
+                }
+                return result;
+
+          - name: prepare_bulk_body
+            type: code.javascript
+            with:
+              code: |
+                var metrics = {{ steps.build_metrics.output | slice: 0, 5000 | json }};
+                var index = "{{ consts.METRICS_INDEX }}";
+                var body = '';
+                while (metrics.length) {
+                  var m = metrics.pop();
+                  body += JSON.stringify({ index: { _index: index, _id: m.id } }) + '\n';
+                  body += JSON.stringify(m) + '\n';
+                }
+                return body;
+
+          - name: bulk_index_metrics
+            type: elasticsearch.request
+            with:
+              method: POST
+              path: /_bulk
+              headers:
+                Content-Type: application/x-ndjson
+              body: '${{ steps.prepare_bulk_body.output }}'

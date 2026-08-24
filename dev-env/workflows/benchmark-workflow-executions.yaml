@@ -27,6 +27,21 @@ consts:
   REPORT_INDEX: workflow-benchmarks
   host: dev-vm
   WORKFLOW_ID: benchmark-no-op
+  SCHEDULE_CONCURENCY: 50
+  BENCHMARK_WORKFLOW_ID: benchmark-workflow
+  BENCHMARK_WORKFLOW: |
+    name: Benchmark Workflow
+    enabled: true
+    description: Minimal workflow used by the benchmark script — do not edit manually
+    triggers:
+      - type: manual
+
+    steps:
+      - name: hello_world_step
+        type: console
+        with:
+          message: "Hello World!"
+  
 
 triggers:
   - type: manual
@@ -77,136 +92,438 @@ steps:
     steps:
       # Blocks until the child workflow completes; its output is the summary
       # object emitted by deploy-kibana-preview's final `summary` step.
-      - name: deploy
-        type: workflow.execute
-        with:
-          workflow-id: deploy-kibana-preview
-          inputs:
-            kibana_target: '{{ foreach.item.kibana_target }}'
-            # Liquid `default` matters here: a missing key renders as an empty
-            # string, which would OVERRIDE the child's default rather than
-            # letting it apply.
-            elastic_password: '{{ foreach.item.elastic_password | default: "1ab1db3e-838a-4b1e-9944-88084c553998" }}'
-            workflows_group: '${{ foreach.item.workflows_group | default: "benchmark_no_op" }}'
+      # - name: deploy
+      #   type: workflow.execute
+      #   with:
+      #     workflow-id: deploy-kibana-preview
+      #     inputs:
+      #       kibana_target: '{{ foreach.item.kibana_target }}'
+      #       # Liquid `default` matters here: a missing key renders as an empty
+      #       # string, which would OVERRIDE the child's default rather than
+      #       # letting it apply.
+      #       elastic_password: '{{ foreach.item.elastic_password | default: "1ab1db3e-838a-4b1e-9944-88084c553998" }}'
+      #       workflows_group: '${{ foreach.item.workflows_group | default: "benchmark_no_op" }}'
       
-      - name: record_benchmark_start
+      - name: deploy
+        type: code.javascript
+        with:
+          code: |
+            return {
+               kibana_url: 'http://192.168.1.7:5008',
+               es_internal_url: 'http://192.168.1.7:5007',
+               es_user: 'elastic',
+               es_password: '1ab1db3e-838a-4b1e-9944-88084c553998',
+            }
+        
+      - name: kibana_auth_var
         type: data.set
         with:
-          ts: '{{ "now" | date: "%Y-%m-%dT%H:%M:%SZ" }}'
-
-      - name: wait
-        type: wait
+          kibana_headers:
+            Authorization: "Basic {{steps.deploy.output.es_user | append: ':' | append: steps.deploy.output.es_password | base64_encode}}"
+            'Content-Type': 'application/json'
+            'kbn-xsrf': 'true'
+      
+      - name: create_benchmark_workflow
+        type: http
+        on-failure:
+          continue: true
         with:
-          duration: 5m
-
-      - name: fetch_benchmark_metrics
-        type: elasticsearch.request
-        with:
-          method: POST
-          path: /workflow_metrics/_search
+          url: "{{steps.deploy.output.kibana_url}}/api/workflows/workflow"
+          method: 'POST'
+          headers: ${{variables.kibana_headers}}
           body:
-            size: 10000
+            yaml: ${{consts.BENCHMARK_WORKFLOW}}
+
+      - name: schedule_executions
+        type: remoteHost.javascript
+        connector-id: dev-vm
+        with:
+          code: |
+            var COUNT = {{inputs.count}};
+            var WORKFLOW_ID = "{{steps.create_benchmark_workflow.output.data.id}}"
+            var CONCURRENCY = {{consts.SCHEDULE_CONCURENCY}}
+            var scheduleUrl = "{{steps.deploy.output.kibana_url}}/api/workflows/workflow/{{steps.create_benchmark_workflow.output.data.id}}/run";
+            var scheduleBody = JSON.stringify({ inputs: {} });
+            var kibanaHeaders = {{variables.kibana_headers | json}};
+            const now = () => new Date().toISOString();
+            const log = (msg) => console.log(`[${now()}] ${msg}\n`);
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            async function scheduleOne() {
+              const MAX_RETRIES = 5;
+              let lastErr;
+              for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                if (attempt > 0) await sleep(500 * 2 ** (attempt - 1)); // 500ms, 1s, 2s, 4s
+                try {
+                  const res = await fetch(scheduleUrl, { method: 'POST', headers: kibanaHeaders, body: scheduleBody });
+                  if (res.ok) {
+                    const { workflowExecutionId } = await res.json();
+                    return workflowExecutionId;
+                  }
+                  const text = await res.text();
+                  const err = new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+                  if (res.status < 500) throw err; // 4xx — non-retryable
+                  lastErr = err;
+                } catch (e) {
+                  if (e.message.startsWith('HTTP 4')) throw e; // propagate 4xx immediately
+                  lastErr = e;
+                }
+              }
+              throw lastErr;
+            }
+            async function scheduleAll() {
+              log(`Scheduling ${COUNT} executions for workflow "${WORKFLOW_ID}" (concurrency=${CONCURRENCY})`);
+              const scheduledIds = [];
+              const errorMessages = new Map(); // message -> count
+              let errors = 0;
+              const scheduleStart = Date.now();
+
+              for (let start = 0; start < COUNT; start += CONCURRENCY) {
+                const batch = [];
+                for (let j = start; j < Math.min(start + CONCURRENCY, COUNT); j++) {
+                  batch.push(
+                    scheduleOne().catch((e) => {
+                      errors++;
+                      const msg = e.message ?? String(e);
+                      errorMessages.set(msg, (errorMessages.get(msg) ?? 0) + 1);
+                      return null;
+                    })
+                  );
+                }
+                const results = await Promise.all(batch);
+                for (const id of results) {
+                  if (id) scheduledIds.push(id);
+                }
+                const pct = Math.round((Math.min(start + CONCURRENCY, COUNT) / COUNT) * 100);
+                log(`\r  ${Math.min(start + CONCURRENCY, COUNT)}/${COUNT} (${pct}%) — ok:${scheduledIds.length} err:${errors}`);
+              }
+
+              if (errors > 0) {
+                log('\n');
+                for (const [msg, count] of errorMessages) {
+                  process.stderr.write(`  [schedule error x${count}] ${msg}\n`);
+                }
+              }
+
+              const scheduleMs = Date.now() - scheduleStart;
+              log('\n');
+              log(`Scheduled ${scheduledIds.length} executions in ${(scheduleMs / 1000).toFixed(1)}s (${errors} errors)`);
+
+              return { scheduledIds, errors, errorMessages, scheduleMs };
+            }
+            return scheduleAll();
+
+      - name: wait_for_completion
+        type: http
+        with:
+          url: '{{steps.deploy.output.kibana_url}}/api/workflows/workflow/executions?sortField=startedAt&sortOrder=desc&page=1&size=1&trackTotalHits=true&kql=%28workflowId%3A%20{{steps.create_benchmark_workflow.output.data.id}}%29'
+          method: 'GET'
+          headers: ${{variables.kibana_headers}}
+
+      - name: fetch_metrics
+        type: http
+        with:
+          url: '{{ steps.deploy.output.es_internal_url }}/.workflows-executions/_search'
+          headers:
+            Authorization: '{{ steps.kibana_auth_var.output.Authorization }}'
+            Content-Type: application/json
+          method: POST
+          body:
+            size: 0
             query:
               bool:
                 filter:
                   - term:
-                      project: '{{ steps.deploy.output.project }}'
-                  - term:
                       workflowId: '{{ consts.WORKFLOW_ID }}'
-                  - range:
-                      '@timestamp':
-                        gte: '{{ steps.record_benchmark_start.output.ts }}'
+                  # - terms:
+                  #     id: '${{ scheduledIds }}'
+            aggs:
+              by_status:
+                terms:
+                  field: status
+                  size: 20
+              completed:
+                filter:
+                  term:
+                    status: completed
+                aggs:
+                  duration_stats:
+                    stats:
+                      field: duration
+                  scheduling_lag:
+                    scripted_metric:
+                      init_script: 'state.lags = []'
+                      map_script: |
+                        if (doc['startedAt'].size() > 0 && doc['createdAt'].size() > 0) {
+                          long lag = doc['startedAt'].value.toInstant().toEpochMilli()
+                                  - doc['createdAt'].value.toInstant().toEpochMilli();
+                          state.lags.add(lag);
+                        }
+                      combine_script: 'return state.lags'
+                      reduce_script: |
+                        List all = [];
+                        for (s in states) { all.addAll(s); }
+                        if (all.isEmpty()) return null;
+                        Collections.sort(all);
+                        long sum = 0;
+                        for (long l : all) sum += l;
+                        return [
+                          'count': all.size(),
+                          'min_ms': all.get(0),
+                          'max_ms': all.get(all.size() - 1),
+                          'avg_ms': (double)sum / all.size(),
+                          'p50_ms': all.get((int)(all.size() * 0.50)),
+                          'p75_ms': all.get((int)(all.size() * 0.75)),
+                          'p95_ms': all.get((int)(all.size() * 0.95)),
+                          'p99_ms': all.get((int)(all.size() * 0.99))
+                        ]
+                  e2e_latency:
+                    scripted_metric:
+                      init_script: 'state.lats = []'
+                      map_script: |
+                        if (doc['finishedAt'].size() > 0 && doc['createdAt'].size() > 0) {
+                          long lat = doc['finishedAt'].value.toInstant().toEpochMilli()
+                                  - doc['createdAt'].value.toInstant().toEpochMilli();
+                          state.lats.add(lat);
+                        }
+                      combine_script: 'return state.lats'
+                      reduce_script: |
+                        List all = [];
+                        for (s in states) { all.addAll(s); }
+                        if (all.isEmpty()) return null;
+                        Collections.sort(all);
+                        long sum = 0;
+                        for (long l : all) sum += l;
+                        return [
+                          'count': all.size(),
+                          'min_ms': all.get(0),
+                          'max_ms': all.get(all.size() - 1),
+                          'avg_ms': (double)sum / all.size(),
+                          'p50_ms': all.get((int)(all.size() * 0.50)),
+                          'p75_ms': all.get((int)(all.size() * 0.75)),
+                          'p95_ms': all.get((int)(all.size() * 0.95)),
+                          'p99_ms': all.get((int)(all.size() * 0.99))
+                        ]
+                  started_at_min:
+                    min:
+                      field: startedAt
+                  started_at_max:
+                    max:
+                      field: startedAt
+                  finished_at_min:
+                    min:
+                      field: finishedAt
+                  finished_at_max:
+                    max:
+                      field: finishedAt
+                  created_at_min:
+                    min:
+                      field: createdAt
+                  created_at_max:
+                    max:
+                      field: createdAt
+                  throughput_over_time:
+                    date_histogram:
+                      field: finishedAt
+                      fixed_interval: 30s
+                      min_doc_count: 1
+              failed:
+                filter:
+                  terms:
+                    status:
+                      - failed
+                      - error
+                      - cancelled
+                aggs:
+                  by_status:
+                    terms:
+                      field: status
+                      size: 10
 
       - name: build_report
         type: code.javascript
         with:
           code: |
-            const PROJECT = "{{ steps.deploy.output.project }}";
-            const TARGET = "{{ steps.deploy.output.target }}";
-            const COMMIT = "{{ steps.deploy.output.commit }}";
-            const WF = "{{ consts.WORKFLOW_ID }}";
-            const COUNT = parseInt("{{ inputs.count }}", 10);
+            var r = {{ steps.fetch_metrics.output | json }};
+            const aggs = r.aggregations ?? {};
+            const comp = aggs.completed ?? {};
+            const lag = comp.scheduling_lag?.value;
+            const e2e = comp.e2e_latency?.value;
+            const dur = comp.duration_stats ?? {};
+            const completedCount = comp.doc_count ?? 0;
+            const failedCount = aggs.failed?.doc_count ?? 0;
 
-            const docs = {{ steps.fetch_benchmark_metrics.output.hits.hits | map: "_source" | json }};
+            const finMin = comp.finished_at_min?.value;
+            const finMax = comp.finished_at_max?.value;
+            const completionSpanMs = finMin && finMax ? finMax - finMin : null;
+            const avgRps =
+              completionSpanMs && completedCount > 1
+                ? (completedCount - 1) / (completionSpanMs / 1000)
+                : null;
 
-            const byMetric = (name) => docs.filter(d => d.metric === name);
-            const countDocs    = byMetric('workflow.count');
-            const durationDocs = byMetric('workflow.duration');
-            const queueDocs    = byMetric('workflow.queueTime');
-            const e2eDocs      = byMetric('workflow.e2eLatency');
+            const throughputBuckets = (comp.throughput_over_time?.buckets ?? []).map((b) => ({
+              window_start: b.key_as_string,
+              completed: b.doc_count,
+              rps: parseFloat((b.doc_count / 30).toFixed(2)),
+            }));
 
-            const completed = durationDocs.length;
-            const failed    = countDocs.filter(d => d.status !== 'completed').length;
+            const peakRps =
+              throughputBuckets.length > 0
+                ? Math.max(...throughputBuckets.map((b) => b.rps))
+                : null;
 
-            const s2 = (v) => v != null ? Number((v / 1000).toFixed(2)) : null;
-
-            const percentiles = (values) => {
-              if (!values.length) return null;
-              const sorted = [...values].sort((a, b) => a - b);
-              const p = (pct) => sorted[Math.floor(sorted.length * pct)];
-              const sum = sorted.reduce((a, b) => a + b, 0);
-              return {
-                count: sorted.length,
-                min_s: s2(sorted[0]),
-                avg_s: s2(sum / sorted.length),
-                p50_s: s2(p(0.50)),
-                p75_s: s2(p(0.75)),
-                p95_s: s2(p(0.95)),
-                p99_s: s2(p(0.99)),
-                max_s: s2(sorted[sorted.length - 1])
-              };
-            };
-
-            const finishTimes = countDocs
-              .filter(d => d.status === 'completed' && d.finishedAt)
-              .map(d => new Date(d.finishedAt).getTime())
-              .sort((a, b) => a - b);
-
-            const buckets = [];
-            if (finishTimes.length) {
-              const minT = finishTimes[0];
-              const maxT = finishTimes[finishTimes.length - 1];
-              for (let t = minT; t <= maxT; t += 30000) {
-                const c = finishTimes.filter(ft => ft >= t && ft < t + 30000).length;
-                if (c > 0) buckets.push({
-                  window_start: new Date(t).toISOString(),
-                  completed: c,
-                  rps: Number((c / 30).toFixed(2))
-                });
-              }
-            }
-            const peakRps = buckets.length ? Math.max(...buckets.map(b => b.rps)) : null;
-
-            const createdTimes = countDocs.map(d => new Date(d['@timestamp']).getTime()).sort((a, b) => a - b);
-            const createdMin  = createdTimes.length ? createdTimes[0] : null;
-            const finishedMax = finishTimes.length ? finishTimes[finishTimes.length - 1] : null;
-            const finishedMin = finishTimes.length ? finishTimes[0] : null;
-            const wallMs = createdMin && finishedMax ? finishedMax - createdMin : null;
-            const spanMs = finishedMin && finishedMax ? finishedMax - finishedMin : null;
-            const avgRps = spanMs && completed > 1
-              ? Number(((completed - 1) / (spanMs / 1000)).toFixed(2)) : null;
-
-            const statusBreakdown = {};
-            for (const d of countDocs) {
-              statusBreakdown[d.status] = (statusBreakdown[d.status] || 0) + 1;
-            }
+            const ms = (v) => (v != null ? Math.round(v) : null);
+            const s2 = (v) => (v != null ? parseFloat((v / 1000).toFixed(2)) : null);
 
             return {
-              '@timestamp': new Date().toISOString(),
-              project: PROJECT, target: TARGET, commit: COMMIT,
-              workflow_id: WF, requested: COUNT,
-              total_wall_time_s: wallMs != null ? Number((wallMs / 1000).toFixed(1)) : null,
-              status_breakdown: statusBreakdown,
+              status_breakdown: Object.fromEntries(
+                (aggs.by_status?.buckets ?? []).map((b) => [b.key, b.doc_count])
+              ),
+              failed_breakdown: Object.fromEntries(
+                (aggs.failed?.by_status?.buckets ?? []).map((b) => [b.key, b.doc_count])
+              ),
               throughput: {
-                completed, failed,
-                completion_span_s: s2(spanMs),
-                avg_rps: avgRps, peak_rps_30s: peakRps,
-                over_time: buckets
+                completed: completedCount,
+                failed: failedCount,
+                completion_span_s: s2(completionSpanMs),
+                avg_rps: avgRps != null ? parseFloat(avgRps.toFixed(2)) : null,
+                peak_rps_30s_bucket: peakRps,
+                over_time: throughputBuckets,
               },
-              scheduling_lag: percentiles(queueDocs.map(d => d.value)),
-              e2e_latency: percentiles(e2eDocs.map(d => d.value)),
-              execution_duration: percentiles(durationDocs.map(d => d.value))
+              scheduling_lag: lag
+                ? {
+                    description: 'createdAt → startedAt  (time task waited in queue)',
+                    count: lag.count,
+                    min_s: s2(lag.min_ms),
+                    avg_s: s2(lag.avg_ms),
+                    p50_s: s2(lag.p50_ms),
+                    p75_s: s2(lag.p75_ms),
+                    p95_s: s2(lag.p95_ms),
+                    p99_s: s2(lag.p99_ms),
+                    max_s: s2(lag.max_ms),
+                  }
+                : null,
+              execution_duration: {
+                description: 'startedAt → finishedAt  (actual task run time)',
+                count: dur.count ?? 0,
+                min_s: s2(dur.min),
+                avg_s: s2(dur.avg),
+                max_s: s2(dur.max),
+              },
+              e2e_latency: e2e
+                ? {
+                    description: 'createdAt → finishedAt  (total wall-clock per execution)',
+                    count: e2e.count,
+                    min_s: s2(e2e.min_ms),
+                    avg_s: s2(e2e.avg_ms),
+                    p50_s: s2(e2e.p50_ms),
+                    p75_s: s2(e2e.p75_ms),
+                    p95_s: s2(e2e.p95_ms),
+                    p99_s: s2(e2e.p99_ms),
+                    max_s: s2(e2e.max_ms),
+                  }
+                : null,
+              timestamps: {
+                created_at_min: comp.created_at_min?.value_as_string ?? null,
+                created_at_max: comp.created_at_max?.value_as_string ?? null,
+                started_at_min: comp.started_at_min?.value_as_string ?? null,
+                started_at_max: comp.started_at_max?.value_as_string ?? null,
+                finished_at_min: comp.finished_at_min?.value_as_string ?? null,
+                finished_at_max: comp.finished_at_max?.value_as_string ?? null,
+              },
             };
+      
+      - name: rich_report
+        type: code.javascript
+        with:
+          code: |
+              const metrics = {{ steps.build_report.output | json }};
+              const fmt = (v, unit = 's') => (v != null ? `${v}${unit}` : 'n/a');
+              const num = (n) => (n != null ? n.toLocaleString() : 'n/a');
+              const col = (label, value, w = 24) => `  ${label.padEnd(w)}${value}`;
+
+              // const tmSnap = ...;  // TODO: wire in task manager snapshot
+              // const idle = tmSnap.by_status.idle ?? 0;
+              // const running = tmSnap.by_status.running ?? 0;
+              // const internalParallelism = running || '?';
+              // const pr = tmSnap.parallel_runner;
+              // const theoreticalMax = running > 0 && d.avg_s ? parseFloat((running / d.avg_s).toFixed(1)) : null;
+              // const gap = theoreticalMax && t.avg_rpm ? `~${Math.round((1 - t.avg_rpm / theoreticalMax) * 100)}%` : 'n/a';
+
+              const t = metrics.throughput;
+              const l = metrics.scheduling_lag;
+              const d = metrics.execution_duration;
+              const e = metrics.e2e_latency;
+
+              const peakRpm = t.peak_rpm_30s;
+              const peakCount30s = peakRpm != null ? Math.round(peakRpm / 2) : null;
+
+              const lines = [];
+              lines.push('');
+              lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+              lines.push('  BENCHMARK REPORT');
+              lines.push(`  Workflow: ${metrics.workflow_id}  |  Requested: ${num(metrics.requested)}  |  Wall time: ${fmt(metrics.total_wall_time_s)}`);
+              lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+              lines.push('');
+              lines.push('### Throughput');
+              lines.push(col('Completed', `${num(t.completed)} / ${num(metrics.requested)}`));
+              lines.push(col('Failed / errored', num(t.failed)));
+              lines.push(col('Avg RPM', t.avg_rpm != null ? `~${t.avg_rpm} executions/min` : 'n/a'));
+              lines.push(col('Peak RPM (30s bucket)', peakRpm != null ? `~${peakRpm}/min (${peakCount30s} per 30s)` : 'n/a'));
+              // lines.push(col('Theoretical max', theoreticalMax != null ? `~${theoreticalMax}/s (${internalParallelism} concurrent ÷ ${d.avg_s}s each)` : 'n/a'));
+              // lines.push(col('Gap vs theoretical', gap));
+
+              if (l) {
+                lines.push('');
+                lines.push('### Scheduling lag  (createdAt → startedAt)');
+                lines.push(col('min', fmt(l.min_s)));
+                lines.push(col('avg', fmt(l.avg_s)));
+                lines.push(col('p50', fmt(l.p50_s)));
+                lines.push(col('p75', fmt(l.p75_s)));
+                lines.push(col('p95', fmt(l.p95_s)));
+                lines.push(col('p99', fmt(l.p99_s)));
+                lines.push(col('max', fmt(l.max_s)));
+                if (t.avg_rpm && l.avg_s) {
+                  const drainMin = (metrics.requested / t.avg_rpm).toFixed(0);
+                  lines.push('');
+                  lines.push(`  At ${t.avg_rpm}/min throughput, ${num(metrics.requested)} tasks = ~${drainMin} min drain time.`);
+                  lines.push(`  Tasks scheduled last waited up to ${fmt(l.max_s)} (p99: ${fmt(l.p99_s)}).`);
+                }
+              }
+
+              lines.push('');
+              lines.push('### Execution duration  (startedAt → finishedAt)');
+              lines.push(col('min', fmt(d.min_s)));
+              lines.push(col('avg', fmt(d.avg_s)));
+              lines.push(col('max', fmt(d.max_s)));
+
+              if (e) {
+                lines.push('');
+                lines.push('### E2E latency  (createdAt → finishedAt)');
+                lines.push(col('min', fmt(e.min_s)));
+                lines.push(col('avg', fmt(e.avg_s)));
+                lines.push(col('p50', fmt(e.p50_s)));
+                lines.push(col('p75', fmt(e.p75_s)));
+                lines.push(col('p95', fmt(e.p95_s)));
+                lines.push(col('p99', fmt(e.p99_s)));
+                lines.push(col('max', fmt(e.max_s)));
+              }
+
+              lines.push('');
+              lines.push('### Throughput over time (30s buckets)');
+              const maxRpm = Math.max(...t.over_time.map((b) => b.rpm), 0);
+              for (const b of t.over_time) {
+                const barLen = maxRpm > 0 ? Math.round((b.rpm / maxRpm) * 30) : 0;
+                const bar = '█'.repeat(barLen);
+                const ts = b.window_start.slice(11, 19);
+                lines.push(`  ${ts}  ${String(b.completed).padStart(5)} done  (${String(b.rpm).padStart(6)}/min)  ${bar}`);
+              }
+
+              lines.push('');
+              lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+              lines.push('');
+
+              return lines.join('\n');
 
       - name: index_report
         type: elasticsearch.request

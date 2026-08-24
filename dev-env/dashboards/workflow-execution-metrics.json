@@ -1,0 +1,81 @@
+{
+  "id": "workflow-execution-metrics",
+  "title": "Workflow Execution Metrics",
+  "description": "Queue time, WPM, percentiles, executions, duration, e2e latency",
+  "timeFrom": "now-7d",
+  "dataView": {
+    "title": "workflow_metrics",
+    "timeField": "@timestamp"
+  },
+  "panels": [
+    {
+      "id": "p1", "x": 0, "y": 0, "w": 24, "h": 15,
+      "type": "xy",
+      "title": "Queue Time",
+      "query": "metric: \"workflowExecution.queueTime\"",
+      "seriesType": "line",
+      "breakdownField": "project",
+      "breakdownLimit": 5,
+      "metricOp": "average",
+      "metricField": "value",
+      "yTitle": "Avg queue time (ms)"
+    },
+    {
+      "id": "p2", "x": 24, "y": 0, "w": 24, "h": 15,
+      "type": "xy",
+      "title": "WPM (Workflows per Minute)",
+      "query": "metric: \"workflowExecution.count\"",
+      "seriesType": "bar",
+      "breakdownField": "project",
+      "breakdownLimit": 5,
+      "metricOp": "sum",
+      "metricField": "value",
+      "yTitle": "Workflows / min"
+    },
+    {
+      "id": "p3", "x": 0, "y": 15, "w": 48, "h": 15,
+      "type": "percentiles",
+      "title": "E2E Latency Percentiles (p50 / p75 / p95 / p99)",
+      "query": "metric: \"workflowExecution.e2eLatency\"",
+      "metricField": "value",
+      "percentiles": [50, 75, 95, 99],
+      "yTitle": "E2E latency (ms)"
+    },
+    {
+      "id": "p4", "x": 0, "y": 30, "w": 24, "h": 15,
+      "type": "xy",
+      "title": "Executions Count",
+      "query": "metric: \"workflowExecution.count\"",
+      "seriesType": "bar",
+      "breakdownField": "status",
+      "breakdownLimit": 6,
+      "metricOp": "sum",
+      "metricField": "value",
+      "yTitle": "Executions"
+    },
+    {
+      "id": "p5", "x": 24, "y": 30, "w": 24, "h": 15,
+      "type": "xy",
+      "title": "Average Duration",
+      "query": "metric: \"workflowExecution.duration\"",
+      "seriesType": "line",
+      "breakdownField": "project",
+      "breakdownLimit": 5,
+      "metricOp": "average",
+      "metricField": "value",
+      "yTitle": "Avg duration (ms)"
+    },
+    {
+      "id": "p6", "x": 0, "y": 45, "w": 48, "h": 15,
+      "type": "xy",
+      "title": "E2E Latency",
+      "query": "metric: \"workflowExecution.e2eLatency\"",
+      "seriesType": "line",
+      "breakdownField": "project",
+      "breakdownLimit": 5,
+      "metricOp": "average",
+      "metricField": "value",
+      "yTitle": "Avg e2e latency (ms)"
+    }
+  ]
+}

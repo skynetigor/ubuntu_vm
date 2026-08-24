@@ -70,6 +70,7 @@ services:
       - ELASTIC_APM_SECRET_TOKEN=
       - WORKFLOWS_DIR=/opt/kibana/setup/workflows
       - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
+      - DASHBOARDS_DIR=/opt/kibana/setup/dashboards
     ports:
       - "5002:5601"
     volumes:
@@ -79,6 +80,7 @@ services:
       - ./kibana.override.yml:/opt/kibana/config/kibana.override.yml:ro
       - ./env/connectors.yml:/opt/kibana/setup/env/connectors.yml:ro
       - ./workflows:/opt/kibana/setup/workflows:ro
+      - ./dashboards:/opt/kibana/setup/dashboards:ro
     healthcheck:
       test:
         - CMD-SHELL
