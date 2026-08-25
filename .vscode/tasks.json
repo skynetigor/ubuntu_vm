@@ -54,7 +54,7 @@
     {
       "label": "Clean up all",
       "type": "shell",
-      "command": "docker compose -f dev-env/docker-compose.yml down -v && docker image prune -af",
+      "command": "docker compose -f dev-env/docker-compose.yml down -v && docker system prune -f",
       "options": { "cwd": "${workspaceFolder}" },
       "presentation": { "reveal": "always", "panel": "new" }
     }
