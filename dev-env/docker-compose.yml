@@ -74,6 +74,8 @@ services:
     ports:
       - "5002:5601"
     volumes:
+      - ${KIBANA_DIST:-../kibana/dist}:/opt/kibana
+      - ${SCRIPTS_DIR:-../kibana/scripts}:/opt/kibana/setup
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
       # Main-Kibana-only config. Do NOT also set KIBANA_CONFIG_OVERRIDES_B64 for
       # this service: entrypoint.sh would try to write to this read-only path.
