@@ -375,7 +375,7 @@ steps:
           -f "$DEPLOY_DIR/kibana/docker-compose.yml" \
           up --build --wait kibana
         echo "=== Stack started (project: $PROJECT) ==="
-        docker compose -p "$PROJECT" ps
+        docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" ps
 
   # ── Step 10: Index deployment record in deployed-previews ───────────────────
   - name: index_deployment
