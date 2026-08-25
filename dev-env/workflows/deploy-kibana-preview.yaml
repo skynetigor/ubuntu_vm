@@ -121,9 +121,11 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        KIBANA_TARGET: '{{ inputs.kibana_target }}'
+        UBUNTU_VM_REPO: '{{ consts.UBUNTU_VM_REPO }}'
+        UBUNTU_VM_BRANCH: '{{ consts.UBUNTU_VM_BRANCH }}'
       code: |
-        UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
-        UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
         SCRIPTS_CACHE="/opt/ubuntu_vm"
 
         if [ -d "$SCRIPTS_CACHE/.git" ]; then
@@ -134,21 +136,21 @@ steps:
           git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$SCRIPTS_CACHE"
         fi
 
-        export KIBANA_TARGET="{{ inputs.kibana_target }}"
         source "$SCRIPTS_CACHE/kibana/scripts/resolve.sh"
-        SCRIPT_OUTPUT=$(printf '{"PROJECT":"%s","KIBANA_COMMIT":"%s"}' "$PROJECT" "$KIBANA_COMMIT")
+        echo "PROJECT=$PROJECT" >> $STEP_OUTPUT
+        echo "KIBANA_COMMIT=$KIBANA_COMMIT" >> $STEP_OUTPUT
 
   # ── Step 2: Set up per-deployment dir ────────────────────────────────────
   - name: setup_deployment
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+        UBUNTU_VM_REPO: '{{ consts.UBUNTU_VM_REPO }}'
+        UBUNTU_VM_BRANCH: '{{ consts.UBUNTU_VM_BRANCH }}'
       code: |
-        PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/$PROJECT"
-        UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
-        UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
-
         sudo mkdir -p "$DEPLOY_DIR"
         sudo chown kibana:kibana "$DEPLOY_DIR"
 
@@ -177,11 +179,11 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+        EXISTING_ES_PORT: '{{ steps.fetch_deployment.output._source.es_port | default: "" }}'
+        EXISTING_KIBANA_PORT: '{{ steps.fetch_deployment.output._source.port | default: "" }}'
       code: |
-        PROJECT="{{ steps.resolve.output.PROJECT }}"
-        EXISTING_ES_PORT="{{ steps.fetch_deployment.output._source.es_port | default: '' }}"
-        EXISTING_KIBANA_PORT="{{ steps.fetch_deployment.output._source.port | default: '' }}"
-
         find_free_port() {
           local start=$1
           for port in $(seq "$start" 5998); do
@@ -215,7 +217,8 @@ steps:
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         fi
 
-        SCRIPT_OUTPUT="{\"ES_PORT\":${ES_PORT},\"KIBANA_PORT\":${KIBANA_PORT}}"
+        echo "ES_PORT=$ES_PORT" >> $STEP_OUTPUT
+        echo "KIBANA_PORT=$KIBANA_PORT" >> $STEP_OUTPUT
 
   # ── Step 4: Write kibana/.env from resolved values, ports, and env vars ───
   # Output: { CF_SUBDOMAIN, KIBANA_PUBLIC_URL }
@@ -223,14 +226,16 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+        KIBANA_TARGET: '{{ inputs.kibana_target }}'
+        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
+        ES_PORT: '{{ steps.assign_ports.output.ES_PORT }}'
+        KIBANA_PORT: '{{ steps.assign_ports.output.KIBANA_PORT }}'
+        ES_PASSWORD: '{{ inputs.elastic_password }}'
+        APM_SERVER_URL: '{{ consts.APM_SERVER_URL }}'
       code: |
-        PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/$PROJECT"
-        KIBANA_TARGET="{{ inputs.kibana_target }}"
-        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
-        ES_PORT="{{ steps.assign_ports.output.ES_PORT }}"
-        KIBANA_PORT="{{ steps.assign_ports.output.KIBANA_PORT }}"
-
         CF_SUBDOMAIN=$(echo "$PROJECT" \
           | tr '[:upper:]/' '[:lower:]-' \
           | sed 's/[^a-z0-9-]/-/g' \
@@ -252,31 +257,32 @@ steps:
           echo "KIBANA_PORT=${KIBANA_PORT}"
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
-          echo "ES_PASSWORD={{ inputs.elastic_password }}"
+          echo "ES_PASSWORD=$ES_PASSWORD"
           echo "KIBANA_SRC=$DEPLOY_DIR/kibana/src"
           echo "KIBANA_DIST=$DEPLOY_DIR/kibana/dist"
           echo "SCRIPTS_DIR=$DEPLOY_DIR/kibana/scripts"
           echo "ELASTIC_APM_ACTIVE=true"
-          echo "ELASTIC_APM_SERVER_URL={{ consts.APM_SERVER_URL }}"
+          echo "ELASTIC_APM_SERVER_URL=$APM_SERVER_URL"
           echo "ELASTIC_APM_SERVICE_NAME=kibana-preview-${PROJECT}"
           echo "ELASTIC_APM_CONTEXT_PROPAGATION_ONLY=false"
           echo "ELASTIC_APM_SECRET_TOKEN="
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
-        SCRIPT_OUTPUT=$(printf '{"CF_SUBDOMAIN":"%s","KIBANA_PUBLIC_URL":"%s"}' \
-          "$CF_SUBDOMAIN" "$KIBANA_PUBLIC_URL")
+        echo "CF_SUBDOMAIN=$CF_SUBDOMAIN" >> $STEP_OUTPUT
+        echo "KIBANA_PUBLIC_URL=$KIBANA_PUBLIC_URL" >> $STEP_OUTPUT
 
   # ── Step 5: Write user Kibana config overrides → KIBANA_CONFIG_OVERRIDES_B64
   - name: write_kibana_config
     type: remoteHost.javascript
     connector-id: dev-vm
     with:
+      env:
+        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
       code: |
         const fs = require("fs");
         const cfg = {{ inputs.kibana_config | json }} || {};
-        const project = "{{ steps.resolve.output.PROJECT }}";
-        const envFile = `/opt/${project}/kibana/env/.env`;
+        const envFile = `${process.env.DEPLOY_DIR}/kibana/env/.env`;
 
         function toYaml(obj, depth) {
           const pad = "  ".repeat(depth);
@@ -311,11 +317,12 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+        KIBANA_SRC: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/src'
+        KIBANA_TARGET: '{{ inputs.kibana_target }}'
+        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
       code: |
-        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
-        export KIBANA_SRC="$DEPLOY_DIR/kibana/src"
-        export KIBANA_TARGET="{{ inputs.kibana_target }}"
-        export KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
         bash "$DEPLOY_DIR/kibana/scripts/clone.sh"
 
   # ── Step 7: Bootstrap dependencies ───────────────────────────────────────
@@ -323,11 +330,11 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+        KIBANA_SRC: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/src'
+        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
       code: |
-        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
-        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
-        export KIBANA_SRC="$DEPLOY_DIR/kibana/src"
-
         CACHE_DIR="/opt/kibana-cache/$KIBANA_COMMIT"
         if [ -d "$CACHE_DIR/node_modules" ]; then
           echo "=== Cache hit — symlinking node_modules ($KIBANA_COMMIT) ==="
@@ -343,11 +350,11 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+        KIBANA_SRC: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/src'
+        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
       code: |
-        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
-        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
-        export KIBANA_SRC="$DEPLOY_DIR/kibana/src"
-
         CACHE_DIR="/opt/kibana-cache/$KIBANA_COMMIT"
         if [ -d "$CACHE_DIR/dist" ]; then
           echo "=== Cache hit — hard-linking dist ($KIBANA_COMMIT) ==="
@@ -365,17 +372,13 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana'
       code: |
-        PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/$PROJECT"
-
-        docker compose \
-          --env-file "$DEPLOY_DIR/kibana/env/.env" \
-          -p "$PROJECT" \
-          -f "$DEPLOY_DIR/kibana/docker-compose.yml" \
-          up --build --wait kibana
+        docker compose --env-file env/.env -p "$PROJECT" up --build --wait kibana
         echo "=== Stack started (project: $PROJECT) ==="
-        docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" ps
+        docker compose -p "$PROJECT" ps
 
   # ── Step 10: Index deployment record in deployed-previews ───────────────────
   - name: index_deployment
@@ -405,14 +408,15 @@ steps:
     on-failure:
       continue: true
     with:
+      env:
+        WORKFLOWS_DIR: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/workflows/{{ inputs.workflows_group }}'
+        KIBANA_URL: 'http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}'
+        KIBANA_USERNAME: elastic
+        ES_PASSWORD: '{{ inputs.elastic_password }}'
+      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/scripts'
       code: |
-        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
-        npm install --prefix "$DEPLOY_DIR/kibana/scripts" --omit=dev --silent
-        export WORKFLOWS_DIR="$DEPLOY_DIR/kibana/workflows/{{ inputs.workflows_group }}"
-        export KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}"
-        export KIBANA_USERNAME="elastic"
-        export ES_PASSWORD="{{ inputs.elastic_password }}"
-        node "$DEPLOY_DIR/kibana/scripts/upload_workflows.js"
+        npm install --omit=dev --silent
+        node upload_workflows.js
 
   # ── Step 12: Register Cloudflare tunnel ingress ──────────────────────────
   - name: register_tunnel
@@ -421,32 +425,35 @@ steps:
     on-failure:
       continue: true
     with:
+      env:
+        CF_SUBDOMAIN: '{{ steps.write_env.output.CF_SUBDOMAIN }}'
+        CF_SERVICE_URL: 'http://dev-vm:{{ steps.assign_ports.output.KIBANA_PORT }}'
+      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/scripts'
       code: |
-        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
-        CF_SUBDOMAIN="{{ steps.write_env.output.CF_SUBDOMAIN }}"
-        CF_SERVICE_URL="http://dev-vm:{{ steps.assign_ports.output.KIBANA_PORT }}"
-        bash "$DEPLOY_DIR/kibana/scripts/register-tunnel.sh"
+        bash register-tunnel.sh
 
   # ── Step 13: Docker logs for kibana container ────────────────────────────
   - name: get_container_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana'
       code: |
-        PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/$PROJECT"
         echo "=== Kibana container logs ==="
-        docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" logs --no-log-prefix kibana
+        docker compose -p "$PROJECT" logs --no-log-prefix kibana
 
   # ── Step 14: Output setup logs from inside the Kibana container ──────────
   - name: get_setup_logs
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana'
       code: |
-        PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/$PROJECT"
-        CONTAINER=$(docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" ps -q kibana)
+        CONTAINER=$(docker compose -p "$PROJECT" ps -q kibana)
         SETUP_DIR="/opt/kibana/setup"
         echo "=== setup.log ==="
         docker exec "$CONTAINER" cat "$SETUP_DIR/setup.log" 2>/dev/null || true
@@ -465,15 +472,15 @@ steps:
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
+      env:
+        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+        TARGET: '{{ inputs.kibana_target }}'
+        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
+        ES_PORT: '{{ steps.assign_ports.output.ES_PORT }}'
+        KIBANA_PORT: '{{ steps.assign_ports.output.KIBANA_PORT }}'
+        KIBANA_PUBLIC_URL: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
+        ES_PASSWORD: '{{ inputs.elastic_password }}'
       code: |
-        PROJECT="{{ steps.resolve.output.PROJECT }}"
-        TARGET="{{ inputs.kibana_target }}"
-        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
-        ES_PORT="{{ steps.assign_ports.output.ES_PORT }}"
-        KIBANA_PORT="{{ steps.assign_ports.output.KIBANA_PORT }}"
-        KIBANA_PUBLIC_URL="{{ steps.write_env.output.KIBANA_PUBLIC_URL }}"
-        ES_PASSWORD="{{ inputs.elastic_password }}"
-
         echo "═══════════════════════════════════════════"
         echo "  Kibana Preview Deployed"
         echo "═══════════════════════════════════════════"
@@ -488,15 +495,18 @@ steps:
         echo "  Password: $ES_PASSWORD"
         echo "═══════════════════════════════════════════"
 
-        # Structured form of the same summary. stdout above is only logged;
-        # SCRIPT_OUTPUT is what callers (e.g. workflow.execute) actually receive.
         # es_url/kibana_url are localhost-form: correct from inside the dev-vm,
         # which is where remoteHost.* steps run.
-        SCRIPT_OUTPUT=$(printf \
-          '{"project":"%s","target":"%s","commit":"%s","es_port":%s,"kibana_port":%s,"es_url":"http://localhost:%s","kibana_url":"http://localhost:%s","public_url":"%s","es_user":"elastic","es_password":"%s"}' \
-          "$PROJECT" "$TARGET" "$KIBANA_COMMIT" \
-          "$ES_PORT" "$KIBANA_PORT" "$ES_PORT" "$KIBANA_PORT" \
-          "$KIBANA_PUBLIC_URL" "$ES_PASSWORD")
+        echo "project=$PROJECT" >> $STEP_OUTPUT
+        echo "target=$TARGET" >> $STEP_OUTPUT
+        echo "commit=$KIBANA_COMMIT" >> $STEP_OUTPUT
+        echo "es_port=$ES_PORT" >> $STEP_OUTPUT
+        echo "kibana_port=$KIBANA_PORT" >> $STEP_OUTPUT
+        echo "es_url=http://localhost:$ES_PORT" >> $STEP_OUTPUT
+        echo "kibana_url=http://localhost:$KIBANA_PORT" >> $STEP_OUTPUT
+        echo "public_url=$KIBANA_PUBLIC_URL" >> $STEP_OUTPUT
+        echo "es_user=elastic" >> $STEP_OUTPUT
+        echo "es_password=$ES_PASSWORD" >> $STEP_OUTPUT
 
   - name: output
     type: workflow.output

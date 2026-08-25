@@ -7,7 +7,7 @@ Each script reads `kibana/.env` automatically and writes a `.{stage}commit` mark
 ## Scripts
 
 ### `resolve.sh`
-Resolves a GitHub URL (`KIBANA_TARGET`) into `KIBANA_FORK`, `KIBANA_BRANCH`, `KIBANA_COMMIT`, and `PROJECT`. Accepts PR, branch, or commit URLs. Can be run standalone (sets `SCRIPT_OUTPUT` JSON) or sourced by other scripts to get the variables directly.
+Resolves a GitHub URL (`KIBANA_TARGET`) into `KIBANA_FORK`, `KIBANA_BRANCH`, `KIBANA_COMMIT`, and `PROJECT`. Accepts PR, branch, or commit URLs. Can be run standalone (sets `STEP_OUTPUT` JSON) or sourced by other scripts to get the variables directly.
 
 ### `clone.sh`
 Clones or updates the Kibana source repository.
