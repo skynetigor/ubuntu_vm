@@ -102,7 +102,7 @@ steps:
               type: keyword
             container_name:
               type: keyword
-            deploy_dir_name:
+            deploy_dir:
               type: keyword
             es_internal_url:
               type: keyword
@@ -111,6 +111,8 @@ steps:
             es_password:
               type: keyword
             ttl_days:
+              type: integer
+            es_port:
               type: integer
 
   # ── Step 1: Resolve target URL → commit / project name ───────────────────
@@ -136,19 +138,19 @@ steps:
         source "$SCRIPTS_CACHE/kibana/scripts/resolve.sh"
         SCRIPT_OUTPUT=$(printf '{"PROJECT":"%s","KIBANA_COMMIT":"%s"}' "$PROJECT" "$KIBANA_COMMIT")
 
-  # ── Step 2: Set up per-deployment dir and shared kibana_repo ─────────────
+  # ── Step 2: Set up per-deployment dir ────────────────────────────────────
   - name: setup_deployment
     type: remoteHost.runCommand
     connector-id: dev-vm
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        DEPLOY_DIR="/opt/$PROJECT"
         UBUNTU_VM_REPO="{{ consts.UBUNTU_VM_REPO }}"
         UBUNTU_VM_BRANCH="{{ consts.UBUNTU_VM_BRANCH }}"
 
-        sudo mkdir -p "$DEPLOY_DIR" /opt/kibana_repo
-        sudo chown kibana:kibana "$DEPLOY_DIR" /opt/kibana_repo
+        sudo mkdir -p "$DEPLOY_DIR"
+        sudo chown kibana:kibana "$DEPLOY_DIR"
 
         if [ -d "$DEPLOY_DIR/.git" ]; then
           echo "=== Updating ubuntu_vm in $DEPLOY_DIR ($UBUNTU_VM_BRANCH) ==="
@@ -223,7 +225,7 @@ steps:
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        DEPLOY_DIR="/opt/$PROJECT"
         KIBANA_TARGET="{{ inputs.kibana_target }}"
         KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
         ES_PORT="{{ steps.assign_ports.output.ES_PORT }}"
@@ -251,7 +253,9 @@ steps:
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
           echo "ES_VERSION=${ES_VERSION:-9.6.0}"
           echo "ES_PASSWORD={{ inputs.elastic_password }}"
-          echo "KIBANA_SRC=/opt/kibana_repo"
+          echo "KIBANA_SRC=$DEPLOY_DIR/kibana/src"
+          echo "KIBANA_DIST=$DEPLOY_DIR/kibana/dist"
+          echo "SCRIPTS_DIR=$DEPLOY_DIR/kibana/scripts"
           echo "ELASTIC_APM_ACTIVE=true"
           echo "ELASTIC_APM_SERVER_URL={{ consts.APM_SERVER_URL }}"
           echo "ELASTIC_APM_SERVICE_NAME=kibana-preview-${PROJECT}"
@@ -272,7 +276,7 @@ steps:
         const fs = require("fs");
         const cfg = {{ inputs.kibana_config | json }} || {};
         const project = "{{ steps.resolve.output.PROJECT }}";
-        const envFile = `/opt/deployments/${project}/kibana/env/.env`;
+        const envFile = `/opt/${project}/kibana/env/.env`;
 
         function toYaml(obj, depth) {
           const pad = "  ".repeat(depth);
@@ -308,8 +312,8 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
-        export KIBANA_SRC=/opt/kibana_repo
+        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
+        export KIBANA_SRC="$DEPLOY_DIR/kibana/src"
         export KIBANA_TARGET="{{ inputs.kibana_target }}"
         export KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
         bash "$DEPLOY_DIR/kibana/scripts/clone.sh"
@@ -320,9 +324,19 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
-        export KIBANA_SRC=/opt/kibana_repo
-        bash "$DEPLOY_DIR/kibana/scripts/bootstrap.sh"
+        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
+        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
+        export KIBANA_SRC="$DEPLOY_DIR/kibana/src"
+
+        CACHE_DIR="/opt/kibana-cache/$KIBANA_COMMIT"
+        if [ -d "$CACHE_DIR/node_modules" ]; then
+          echo "=== Cache hit — symlinking node_modules ($KIBANA_COMMIT) ==="
+          ln -sfn "$CACHE_DIR/node_modules" "$KIBANA_SRC/node_modules"
+        else
+          bash "$DEPLOY_DIR/kibana/scripts/bootstrap.sh"
+          mkdir -p "$CACHE_DIR"
+          cp -al "$KIBANA_SRC/node_modules" "$CACHE_DIR/node_modules"
+        fi
 
   # ── Step 8: Compile / build distribution ─────────────────────────────────
   - name: compile
@@ -330,9 +344,21 @@ steps:
     connector-id: dev-vm
     with:
       code: |
-        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
-        export KIBANA_SRC=/opt/kibana_repo
-        bash "$DEPLOY_DIR/kibana/scripts/compile.sh"
+        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
+        KIBANA_COMMIT="{{ steps.resolve.output.KIBANA_COMMIT }}"
+        export KIBANA_SRC="$DEPLOY_DIR/kibana/src"
+
+        CACHE_DIR="/opt/kibana-cache/$KIBANA_COMMIT"
+        if [ -d "$CACHE_DIR/dist" ]; then
+          echo "=== Cache hit — hard-linking dist ($KIBANA_COMMIT) ==="
+          rm -rf "$DEPLOY_DIR/kibana/dist"
+          cp -al "$CACHE_DIR/dist" "$DEPLOY_DIR/kibana/dist"
+        else
+          bash "$DEPLOY_DIR/kibana/scripts/compile.sh"
+          mkdir -p "$CACHE_DIR"
+          cp -al "$KIBANA_SRC/dist" "$CACHE_DIR/dist"
+          cp -al "$KIBANA_SRC/dist" "$DEPLOY_DIR/kibana/dist"
+        fi
 
   # ── Step 9: Start the stack ───────────────────────────────────────────────
   - name: start
@@ -341,11 +367,7 @@ steps:
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/deployments/$PROJECT"
-
-        # Hard-link compiled dist into build context (zero extra disk — same inodes)
-        rm -rf "$DEPLOY_DIR/kibana/dist"
-        cp -al /opt/kibana_repo/dist "$DEPLOY_DIR/kibana/dist"
+        DEPLOY_DIR="/opt/$PROJECT"
 
         docker compose \
           --env-file "$DEPLOY_DIR/kibana/env/.env" \
@@ -369,7 +391,7 @@ steps:
         es_port: '{{ steps.assign_ports.output.ES_PORT }}'
         public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
         container_name: '{{ steps.resolve.output.PROJECT }}'
-        deploy_dir_name: '{{ steps.resolve.output.PROJECT }}'
+        deploy_dir: '/opt/{{ steps.resolve.output.PROJECT }}'
         es_internal_url: http://{{ consts.INTERNAL_PREVIEWS_HOST }}:{{ steps.assign_ports.output.ES_PORT }}
         es_user: elastic
         es_password: '{{ inputs.elastic_password }}'
@@ -384,7 +406,7 @@ steps:
       continue: true
     with:
       code: |
-        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
+        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
         npm install --prefix "$DEPLOY_DIR/kibana/scripts" --omit=dev --silent
         export WORKFLOWS_DIR="$DEPLOY_DIR/kibana/workflows/{{ inputs.workflows_group }}"
         export KIBANA_URL="http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}"
@@ -400,7 +422,7 @@ steps:
       continue: true
     with:
       code: |
-        DEPLOY_DIR="/opt/deployments/{{ steps.resolve.output.PROJECT }}"
+        DEPLOY_DIR="/opt/{{ steps.resolve.output.PROJECT }}"
         CF_SUBDOMAIN="{{ steps.write_env.output.CF_SUBDOMAIN }}"
         CF_SERVICE_URL="http://dev-vm:{{ steps.assign_ports.output.KIBANA_PORT }}"
         bash "$DEPLOY_DIR/kibana/scripts/register-tunnel.sh"
@@ -412,7 +434,7 @@ steps:
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        DEPLOY_DIR="/opt/$PROJECT"
         echo "=== Kibana container logs ==="
         docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" logs --no-log-prefix kibana
 
@@ -423,7 +445,7 @@ steps:
     with:
       code: |
         PROJECT="{{ steps.resolve.output.PROJECT }}"
-        DEPLOY_DIR="/opt/deployments/$PROJECT"
+        DEPLOY_DIR="/opt/$PROJECT"
         CONTAINER=$(docker compose -p "$PROJECT" -f "$DEPLOY_DIR/kibana/docker-compose.yml" ps -q kibana)
         SETUP_DIR="/opt/kibana/setup"
         echo "=== setup.log ==="

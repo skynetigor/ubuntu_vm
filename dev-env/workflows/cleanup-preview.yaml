@@ -49,7 +49,7 @@ steps:
     with:
       code: |
         PROJECT="{{ steps.fetch_deployment.output._source.container_name }}"
-        DEPLOY_DIR="/opt/deployments/{{ steps.fetch_deployment.output._source.deploy_dir_name }}"
+        DEPLOY_DIR="{{ steps.fetch_deployment.output._source.deploy_dir }}"
         COMPOSE_FILE="$DEPLOY_DIR/kibana/docker-compose.yml"
         ENV_FILE="$DEPLOY_DIR/kibana/env/.env"
 
@@ -102,7 +102,7 @@ steps:
       continue: true
     with:
       code: |
-        DEPLOY_DIR="/opt/deployments/{{ steps.fetch_deployment.output._source.deploy_dir_name }}"
+        DEPLOY_DIR="{{ steps.fetch_deployment.output._source.deploy_dir }}"
         if [ -d "$DEPLOY_DIR" ]; then
           rm -rf "$DEPLOY_DIR"
           echo "=== Removed: $DEPLOY_DIR ==="
