@@ -109,8 +109,8 @@ steps:
         with:
           code: |
             return {
-               kibana_url: 'http://192.168.1.7:5008',
-               es_internal_url: 'http://192.168.1.7:5007',
+               es_internal_url: 'http://192.168.1.7:5005',
+               kibana_url: 'http://192.168.1.7:5006',
                es_user: 'elastic',
                es_password: '1ab1db3e-838a-4b1e-9944-88084c553998',
             }
@@ -210,22 +210,40 @@ steps:
 
               return { scheduledIds, errors, errorMessages, scheduleMs };
             }
-            return scheduleAll();
+            
+            scheduleAll().then(({scheduledIds, errors}) => {
+              require('process').stdout.write(JSON.stringify(scheduledIds))
+            });
 
-      - name: wait_for_completion
-        type: http
-        with:
-          url: '{{steps.deploy.output.kibana_url}}/api/workflows/workflow/executions?sortField=startedAt&sortOrder=desc&page=1&size=1&trackTotalHits=true&kql=%28workflowId%3A%20{{steps.create_benchmark_workflow.output.data.id}}%29'
-          method: 'GET'
-          headers: ${{variables.kibana_headers}}
+      - name: while
+        type: while
+        condition: ${{steps.wait_some_time.output.data.total > 0}}
+        steps:
+          - name: wait_some_time
+            if: ${{ foreach.index > 0 }}
+            type: wait
+            with:
+              duration: 2s
+
+          - name: wait_for_completion
+            type: http
+            with:
+              url: '{{ steps.deploy.output.es_internal_url }}/.workflows-executions/_search'
+              headers: ${{variables.kibana_headers}}
+              method: POST
+              # body:
+              #   size: 0
+              #   query:
+              #     bool:
+              #       filter:
+              #         - term:
+              #             status: running
 
       - name: fetch_metrics
         type: http
         with:
           url: '{{ steps.deploy.output.es_internal_url }}/.workflows-executions/_search'
-          headers:
-            Authorization: '{{ steps.kibana_auth_var.output.Authorization }}'
-            Content-Type: application/json
+          headers: ${{variables.kibana_headers}}
           method: POST
           body:
             size: 0
@@ -233,9 +251,7 @@ steps:
               bool:
                 filter:
                   - term:
-                      workflowId: '{{ consts.WORKFLOW_ID }}'
-                  # - terms:
-                  #     id: '${{ scheduledIds }}'
+                      status: 'completed'
             aggs:
               by_status:
                 terms:
@@ -524,13 +540,6 @@ steps:
               lines.push('');
 
               return lines.join('\n');
-
-      - name: index_report
-        type: elasticsearch.request
-        with:
-          method: POST
-          path: '/{{ consts.REPORT_INDEX }}/_doc'
-          body: '{{ steps.build_report.output }}'
 
   - name: done
     type: console
