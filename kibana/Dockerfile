@@ -3,7 +3,9 @@ FROM ubuntu:22.04
 RUN apt-get update && apt-get install -y curl gettext-base openssh-client python3 python3-yaml && rm -rf /var/lib/apt/lists/*
 
 # Create user before COPY so --chown can reference it
-RUN useradd -m -s /bin/bash kibana
+RUN useradd -m -s /bin/bash kibana \
+    && mkdir -p /opt/kibana/data /opt/kibana/config \
+    && chown -R kibana:kibana /opt/kibana
 
 # --chown sets ownership in one pass (no recursive chown needed after)
 # --link decouples this layer from previous ones so BuildKit can cache it independently
