@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Resolves a GitHub PR / branch / commit URL into KIBANA_FORK, KIBANA_BRANCH,
-# KIBANA_COMMIT, and PROJECT. Can be run standalone (sets SCRIPT_OUTPUT) or
+# KIBANA_COMMIT, and PROJECT. Can be run standalone (writes to $STEP_OUTPUT) or
 # sourced by other scripts (e.g. clone.sh) to get the vars directly.
 
 KIBANA_TARGET="${KIBANA_TARGET:-${1:-https://github.com/elastic/kibana/tree/main}}"
@@ -63,7 +63,8 @@ fi
 
 echo "=== Resolved: PROJECT=$PROJECT FORK=$KIBANA_FORK BRANCH=$KIBANA_BRANCH COMMIT=$KIBANA_COMMIT ==="
 
-# Only set SCRIPT_OUTPUT when run as a standalone script (not sourced)
+# Only write to $STEP_OUTPUT when run as a standalone script (not sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  SCRIPT_OUTPUT=$(printf '{"PROJECT":"%s","KIBANA_COMMIT":"%s"}' "$PROJECT" "$KIBANA_COMMIT")
+  echo "PROJECT=$PROJECT" >> $STEP_OUTPUT
+  echo "KIBANA_COMMIT=$KIBANA_COMMIT" >> $STEP_OUTPUT
 fi
