@@ -137,8 +137,15 @@ steps:
         fi
 
         source "$SCRIPTS_CACHE/kibana/scripts/resolve.sh"
-        echo "PROJECT=$PROJECT" >> $STEP_OUTPUT
-        echo "KIBANA_COMMIT=$KIBANA_COMMIT" >> $STEP_OUTPUT
+        python3 - "$PROJECT" "$KIBANA_COMMIT" > "$STEP_OUTPUT" <<'PY'
+        import json
+        import sys
+
+        json.dump({
+          "PROJECT": sys.argv[1],
+          "KIBANA_COMMIT": sys.argv[2],
+        }, sys.stdout)
+        PY
 
   # ── Step 2: Set up per-deployment dir ────────────────────────────────────
   - name: setup_deployment
@@ -217,8 +224,15 @@ steps:
           echo "=== Assigned ports for $PROJECT: ES=$ES_PORT, Kibana=$KIBANA_PORT ==="
         fi
 
-        echo "ES_PORT=$ES_PORT" >> $STEP_OUTPUT
-        echo "KIBANA_PORT=$KIBANA_PORT" >> $STEP_OUTPUT
+        python3 - "$ES_PORT" "$KIBANA_PORT" > "$STEP_OUTPUT" <<'PY'
+        import json
+        import sys
+
+        json.dump({
+          "ES_PORT": int(sys.argv[1]),
+          "KIBANA_PORT": int(sys.argv[2]),
+        }, sys.stdout)
+        PY
 
   # ── Step 4: Write kibana/.env from resolved values, ports, and env vars ───
   # Output: { CF_SUBDOMAIN, KIBANA_PUBLIC_URL }
@@ -269,8 +283,15 @@ steps:
         } > "$DEPLOY_DIR/kibana/env/.env"
         echo "=== .env written ==="
 
-        echo "CF_SUBDOMAIN=$CF_SUBDOMAIN" >> $STEP_OUTPUT
-        echo "KIBANA_PUBLIC_URL=$KIBANA_PUBLIC_URL" >> $STEP_OUTPUT
+        python3 - "$CF_SUBDOMAIN" "$KIBANA_PUBLIC_URL" > "$STEP_OUTPUT" <<'PY'
+        import json
+        import sys
+
+        json.dump({
+          "CF_SUBDOMAIN": sys.argv[1],
+          "KIBANA_PUBLIC_URL": sys.argv[2],
+        }, sys.stdout)
+        PY
 
   # ── Step 5: Write user Kibana config overrides → KIBANA_CONFIG_OVERRIDES_B64
   - name: write_kibana_config
@@ -495,18 +516,25 @@ steps:
         echo "  Password: $ES_PASSWORD"
         echo "═══════════════════════════════════════════"
 
-        # es_url/kibana_url are localhost-form: correct from inside the dev-vm,
-        # which is where remoteHost.* steps run.
-        echo "project=$PROJECT" >> $STEP_OUTPUT
-        echo "target=$TARGET" >> $STEP_OUTPUT
-        echo "commit=$KIBANA_COMMIT" >> $STEP_OUTPUT
-        echo "es_port=$ES_PORT" >> $STEP_OUTPUT
-        echo "kibana_port=$KIBANA_PORT" >> $STEP_OUTPUT
-        echo "es_url=http://localhost:$ES_PORT" >> $STEP_OUTPUT
-        echo "kibana_url=http://localhost:$KIBANA_PORT" >> $STEP_OUTPUT
-        echo "public_url=$KIBANA_PUBLIC_URL" >> $STEP_OUTPUT
-        echo "es_user=elastic" >> $STEP_OUTPUT
-        echo "es_password=$ES_PASSWORD" >> $STEP_OUTPUT
+        python3 - "$PROJECT" "$TARGET" "$KIBANA_COMMIT" "$ES_PORT" "$KIBANA_PORT" \
+          "$KIBANA_PUBLIC_URL" "$ES_PASSWORD" > "$STEP_OUTPUT" <<'PY'
+        import json
+        import sys
+
+        project, target, commit, es_port, kibana_port, public_url, password = sys.argv[1:]
+        json.dump({
+            "project": project,
+            "target": target,
+            "commit": commit,
+            "es_port": int(es_port),
+            "kibana_port": int(kibana_port),
+            "es_url": f"http://localhost:{es_port}",
+            "kibana_url": f"http://localhost:{kibana_port}",
+            "public_url": public_url,
+            "es_user": "elastic",
+            "es_password": password,
+        }, sys.stdout)
+        PY
 
   - name: output
     type: workflow.output
