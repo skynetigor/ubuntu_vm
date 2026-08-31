@@ -167,6 +167,8 @@ steps:
       code: |
         sudo mkdir -p "$DEPLOY_DIR"
         sudo chown kibana:kibana "$DEPLOY_DIR"
+        sudo mkdir -p /opt/kibana-cache
+        sudo chown kibana:kibana /opt/kibana-cache
 
         if [ -d "$DEPLOY_DIR/.git" ]; then
           echo "=== Updating ubuntu_vm in $DEPLOY_DIR ($UBUNTU_VM_BRANCH) ==="
