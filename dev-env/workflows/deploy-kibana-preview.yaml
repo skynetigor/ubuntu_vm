@@ -435,7 +435,7 @@ steps:
   - name: upload_workflows
     type: remoteHost.runCommand
     connector-id: dev-vm
-    if: '{{ inputs.workflows_group != "none" }}'
+    if: '${{ inputs.workflows_group != "none" }}'
     on-failure:
       continue: true
     with:
