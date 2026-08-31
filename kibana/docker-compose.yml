@@ -1,23 +1,22 @@
 services:
   elasticsearch:
     build:
-      context: .
-      dockerfile: es.Dockerfile
+      context: ../elasticsearch
+      dockerfile: Dockerfile
+      args:
+        ES_TARGET: ${ES_TARGET:-https://github.com/elastic/elasticsearch/tree/main}
     env_file:
       - path: ./env/.env            # deployment-specific vars written by the workflow
         required: false
     environment:
-      # ES_VERSION must match the Kibana branch (read from kibana's package.json: "version")
-      - ES_VERSION=${ES_VERSION:-9.6.0}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
-      - ES_LICENSE=trial
-      - ES_BASE_DIR=/es
+      - ES_LICENSE=${ES_LICENSE:-trial}
     ports:
       - "${ES_PORT:-5002}:9200"
     networks:
       - elastic
     volumes:
-      - es_data:/es   # cache/ and install/<version>/ live here; survives restarts
+      - es_data:/var/lib/elasticsearch
     healthcheck:
       # $$ES_PASSWORD: docker-compose escapes $$ → $, evaluated by container shell
       test:
@@ -26,7 +25,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 120s  # time for download + extract on first run
+      start_period: 60s
     restart: unless-stopped
 
   kibana:

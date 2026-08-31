@@ -24,20 +24,20 @@ services:
 
   elasticsearch:
     build:
-      context: ../kibana
-      dockerfile: es.Dockerfile
+      context: ../elasticsearch
+      dockerfile: Dockerfile
+      args:
+        ES_TARGET: ${ES_TARGET:-https://github.com/elastic/elasticsearch/tree/main}
     env_file:
       - path: ./env/es.env
         required: false
     environment:
-      - ES_VERSION=${ES_VERSION:-9.6.0}
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
-      - ES_LICENSE=trial
-      - ES_BASE_DIR=/es
+      - ES_LICENSE=${ES_LICENSE:-trial}
     ports:
       - "5001:9200"
     volumes:
-      - es_data:/es
+      - es_data:/var/lib/elasticsearch
     healthcheck:
       test:
         - CMD-SHELL
@@ -45,7 +45,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 120s
+      start_period: 60s
     networks:
       - elastic
     restart: unless-stopped

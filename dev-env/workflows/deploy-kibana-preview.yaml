@@ -70,6 +70,13 @@ triggers:
             - benchmark_no_op
             - none
           default: "scheduled"
+        es_target:
+          type: string
+          description: |
+            GitHub URL for the Elasticsearch branch or commit to build. Formats:
+              Branch — https://github.com/<owner>/<repo>/tree/<branch>
+              Commit — https://github.com/<owner>/<repo>/commit/<sha>
+          default: https://github.com/elastic/elasticsearch/tree/main
         ttl_days:
           type: integer
           description: |
@@ -245,6 +252,7 @@ steps:
         DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
         KIBANA_TARGET: '{{ inputs.kibana_target }}'
         KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
+        ES_TARGET: '{{ inputs.es_target }}'
         ES_PORT: '{{ steps.assign_ports.output.ES_PORT }}'
         KIBANA_PORT: '{{ steps.assign_ports.output.KIBANA_PORT }}'
         ES_PASSWORD: '{{ inputs.elastic_password }}'
@@ -267,10 +275,10 @@ steps:
         {
           echo "KIBANA_TARGET=${KIBANA_TARGET}"
           echo "KIBANA_COMMIT=${KIBANA_COMMIT}"
+          echo "ES_TARGET=${ES_TARGET}"
           echo "ES_PORT=${ES_PORT}"
           echo "KIBANA_PORT=${KIBANA_PORT}"
           echo "KIBANA_PUBLIC_URL=${KIBANA_PUBLIC_URL:-}"
-          echo "ES_VERSION=${ES_VERSION:-9.6.0}"
           echo "ES_PASSWORD=$ES_PASSWORD"
           echo "KIBANA_SRC=$DEPLOY_DIR/kibana/src"
           echo "KIBANA_DIST=$DEPLOY_DIR/kibana/dist"

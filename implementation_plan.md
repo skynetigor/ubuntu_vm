@@ -1,450 +1,366 @@
-# Implementation Plan — Workflows UI Webapp
+# Implementation Plan — Build ES from Source (replace snapshot)
 
-## Goal
+## 1. Goal
 
-- Build a **self-contained webapp** (`webapp/`) that acts as a purpose-built UI for the Kibana Workflows system, replacing the need to navigate raw Kibana
-- Expose a **JWT-authenticated Express proxy** that forwards requests to the main Kibana and ES with the operator's credentials, so the browser never holds ES passwords
-- Provide a **workflows page** per workflow: run with auto-generated input form, live execution list with status streaming
-- Provide a **deployments page** showing all preview environments with one-click Kibana access and credentials reveal
-- Provide a **benchmark reports page** with per-report stats and a side-by-side comparison view with overlaid throughput charts
-- Run as a **Docker service** in the existing `dev-env` stack, registered in the Cloudflare tunnel under a fixed subdomain
+- **Remove the ES snapshot** download entirely; Elasticsearch is built from source inside a **multi-stage Docker image**.
+- **Mirror the Kibana pattern** — new `elasticsearch/` directory with `scripts/resolve.sh`, `Dockerfile`, `entrypoint.sh`.
+- **Support any branch/commit** via `ES_TARGET` (branch URL / commit URL), resolved the same way Kibana does it.
+- **Images tagged by commit SHA** (`es-local:<ES_COMMIT>`) are shared across all previews on the dev-vm; Docker's BuildKit cache handles the Gradle build cache between runs.
+- **Data persists across container restarts and rebuilds** — the ES binary lives in the image; only the data directory is a named volume.
 
 ---
 
-## Target Directory Layout
+## 2. Target Directory Layout
 
 ```
-webapp/
-├── Dockerfile                  # multi-stage: ng build → Express serve
-├── entrypoint.sh               # tunnel registration + app start
-├── scripts/
-│   └── register-tunnel.sh      # copied from kibana/scripts (same script)
-├── backend/
-│   ├── package.json
-│   └── src/
-│       ├── index.js            # Express entry, mounts routes, serves Angular dist
-│       ├── middleware/
-│       │   └── auth.js         # JWT verify, extract ES credentials, attach to req
-│       └── routes/
-│           ├── auth.js         # POST /api/auth/login, GET /api/auth/me
-│           ├── workflows.js    # GET /api/workflows, GET /api/workflows/:id
-│           ├── executions.js   # POST /api/workflows/:id/run, GET …/executions, GET /api/executions/:id
-│           ├── deployments.js  # GET /api/deployments, GET /api/deployments/:id/credentials, DELETE /api/deployments/:id
-│           └── benchmarks.js   # GET /api/benchmarks, GET /api/benchmarks/:id
-└── frontend/
-    ├── angular.json
-    ├── package.json
-    └── src/
-        ├── main.ts
-        ├── app/
-        │   ├── app.config.ts
-        │   ├── app.routes.ts
-        │   ├── core/
-        │   │   ├── auth.service.ts       # login, JWT storage, HTTP interceptor
-        │   │   ├── api.service.ts        # typed wrappers around /api/*
-        │   │   └── auth.guard.ts
-        │   ├── pages/
-        │   │   ├── login/
-        │   │   ├── workflows/
-        │   │   │   ├── workflows-layout/    # shell with left-nav
-        │   │   │   ├── workflow-detail/     # run button + execution list
-        │   │   │   └── execution-detail/    # step tree drawer
-        │   │   ├── deployments/
-        │   │   └── benchmarks/
-        │   │       ├── benchmark-list/
-        │   │       ├── benchmark-detail/
-        │   │       └── benchmark-compare/
-        │   └── shared/
-        │       ├── status-badge/
-        │       ├── run-dialog/            # auto-generated input form
-        │       └── duration-pipe.ts
-        └── environments/
-            ├── environment.ts
-            └── environment.prod.ts
-
-dev-env/
-├── docker-compose.yml           # add workflows-ui service  [MODIFY]
-└── env/
-    └── webapp.env               # optional env overrides template  [ADD]
+ubuntu_vm/
+├── elasticsearch/              # NEW — parallel to kibana/
+│   ├── scripts/
+│   │   └── resolve.sh          # parse ES_TARGET → ES_FORK, ES_BRANCH, ES_COMMIT
+│   ├── Dockerfile              # multi-stage: eclipse-temurin:21-jdk builder + ubuntu:22.04 runtime
+│   └── entrypoint.sh           # configure elasticsearch.yml, keystore, start ES, set up users/roles
+├── kibana/
+│   ├── docker-compose.yml      # MODIFY — elasticsearch service: image tag + build args, new volume path
+│   ├── es.Dockerfile           # DELETE
+│   ├── start-es.sh             # DELETE
+│   ├── es-entrypoint.sh        # DELETE
+│   └── ...
+└── dev-env/
+    ├── docker-compose.yml      # MODIFY — elasticsearch service: same changes
+    └── workflows/
+        └── deploy-kibana-preview.yaml  # MODIFY — new es_target input + resolve_es + build_es steps
 ```
 
 ---
 
-## New Environment Variables
+## 3. New Environment Variables
 
 | Var | Default | Meaning |
 |---|---|---|
-| `WEBAPP_PORT` | `5000` | Host port for the webapp container |
-| `JWT_SECRET` | _(required)_ | HS256 signing secret; must be set before the container starts |
-| `ES_HOST` | `http://elasticsearch:9200` | ES base URL reachable from within the Docker network |
-| `KIBANA_HOST` | `http://kibana:5601` | Kibana base URL reachable from within the Docker network |
-| `CF_SUBDOMAIN` | `workflows-ui` | Fixed Cloudflare subdomain for the webapp |
-| `CF_SERVICE_URL` | `http://workflows-ui:5000` | Tunnel ingress target (container-network address) |
+| `ES_TARGET` | `https://github.com/elastic/elasticsearch/tree/main` | GitHub URL (branch / commit) to clone and build |
+| `ES_COMMIT` | _(resolved from `ES_TARGET`)_ | Full commit SHA — used as the Docker image tag |
+| `ES_FORK` | `https://github.com/elastic/elasticsearch.git` | Clone URL, extracted from `ES_TARGET` |
+| `ES_PASSWORD` | `changeme` | Password for the `elastic` user and all reserved users |
+| `ES_LICENSE` | `trial` | License type passed to `xpack.license.self_generated.type` — kept from current setup |
 
-`JWT_SECRET` resolution in `entrypoint.sh`:
-```bash
-: "${JWT_SECRET:?JWT_SECRET must be set}"
-```
-
-All other CF vars (`CF_API_TOKEN`, `CF_ACCOUNT_ID`, etc.) are already present in `dev-env/env/cloudflare.env` and passed through to the container.
+**Dropped** (no longer needed): `ES_VERSION`, `ES_BASE_DIR`, `ES_CACHE_DIR`, `ES_INSTALL_DIR`.
 
 ---
 
-## Scope of Changes
+## 4. Scope of Changes
 
 | File | Change | Summary |
 |---|---|---|
-| `webapp/Dockerfile` | add | Multi-stage: build Angular then copy dist + backend into Node 20 slim |
-| `webapp/entrypoint.sh` | add | Calls register-tunnel.sh, then `node src/index.js` |
-| `webapp/scripts/register-tunnel.sh` | add | Copied verbatim from `kibana/scripts/register-tunnel.sh` |
-| `webapp/backend/package.json` | add | express, jsonwebtoken, http-proxy-middleware, cors |
-| `webapp/backend/src/index.js` | add | Express app: mounts routes, serves Angular dist as SPA fallback |
-| `webapp/backend/src/middleware/auth.js` | add | JWT verify; extracts `{username, password}` and attaches to req |
-| `webapp/backend/src/routes/auth.js` | add | Login: validates creds against ES `/_security/_authenticate`, returns JWT |
-| `webapp/backend/src/routes/workflows.js` | add | Proxies workflow list/detail to Kibana; adds per-execution summary |
-| `webapp/backend/src/routes/executions.js` | add | Proxies run + execution list/detail to Kibana |
-| `webapp/backend/src/routes/deployments.js` | add | Reads `deployed-previews` index; credentials reveal; delete via workflow trigger |
-| `webapp/backend/src/routes/benchmarks.js` | add | Reads `workflow-benchmarks` index; single report; comparison |
-| `webapp/frontend/` _(Angular project)_ | add | Angular 18 CLI project with PrimeNG + PrimeFlex |
-| `dev-env/docker-compose.yml` | modify | Add `workflows-ui` service on port `${WEBAPP_PORT:-5000}:5000` |
-| `dev-env/env/webapp.env` | add | Optional env-override template (commented out with defaults) |
-| `dev-env/workflows/cleanup-preview.yaml` | add | Workflow with `project` input: full teardown of a single preview |
-| `dev-env/workflows/cleanup-expired-previews.yaml` | add | Scheduled workflow (10 min): fetches expired previews, delegates to cleanup-preview |
-| `kibana/scripts/deregister-tunnel.sh` | add | Removes CF tunnel ingress rule + DNS CNAME for a given subdomain |
+| `elasticsearch/scripts/resolve.sh` | add | Parse `ES_TARGET` → `ES_FORK`, `ES_BRANCH`, `ES_COMMIT` |
+| `elasticsearch/Dockerfile` | add | Multi-stage: eclipse-temurin:21-jdk builder + ubuntu:22.04 runtime; no USER directive (root entrypoint) |
+| `elasticsearch/entrypoint.sh` | add | Root entrypoint: chown data volume → exec su to `start-es.sh` (mirrors `es-entrypoint.sh` pattern) |
+| `elasticsearch/start-es.sh` | add | Configure `elasticsearch.yml`, keystore, start with exact `-E` flags, wait, set up users/roles |
+| `kibana/docker-compose.yml` | modify | `elasticsearch` service: `image: es-local:${ES_COMMIT}`, build args, new volume path, keep `ES_LICENSE` |
+| `dev-env/docker-compose.yml` | modify | Same elasticsearch service changes |
+| `dev-env/workflows/deploy-kibana-preview.yaml` | modify | Add `es_target` input; add `resolve_es`, `build_es` steps; update `write_env` with ES vars |
+| `kibana/es.Dockerfile` | delete | Replaced by `elasticsearch/Dockerfile` |
+| `kibana/start-es.sh` | delete | Replaced by `elasticsearch/start-es.sh` |
+| `kibana/es-entrypoint.sh` | delete | Replaced by `elasticsearch/entrypoint.sh` |
 
-**17 files total — 1 modify, 16 add.**
+**10 files total — 3 modify, 4 add, 3 delete.**
 
 ---
 
-## Files to Change
+## 5. Files to Change
 
-### 1. `dev-env/docker-compose.yml`
+### 1. `elasticsearch/scripts/resolve.sh` (new)
 
-Add after the `apm-server` service, before the `cloudflared` service:
+Identical structure to `kibana/scripts/resolve.sh`, operating on `ES_*` variables:
 
-```yaml
-  workflows-ui:
-    build:
-      context: ../webapp
-    container_name: workflows-ui
-    ports:
-      - '${WEBAPP_PORT:-5000}:5000'
-    environment:
-      ES_HOST: http://elasticsearch:9200
-      KIBANA_HOST: http://kibana:5601
-      CF_SUBDOMAIN: workflows-ui
-      CF_SERVICE_URL: http://workflows-ui:5000
-    env_file:
-      - path: ./env/cloudflare.env
-        required: false
-      - path: ./env/webapp.env
-        required: false
-    networks:
-      - elastic
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
+```bash
+ES_TARGET="${ES_TARGET:-https://github.com/elastic/elasticsearch/tree/main}"
+# → sets ES_FORK (clone URL), ES_BRANCH, ES_COMMIT
 ```
 
-`JWT_SECRET` goes in `dev-env/env/webapp.env` (required, not defaulted).
+Copy `kibana/scripts/resolve.sh` and replace all `KIBANA_` prefixes with `ES_` and update the default URL.
+
+`PROJECT` is not needed here (ES has no per-deployment source tree — it's baked into the image).
 
 ---
 
-### 2. `webapp/Dockerfile`
+### 2. `elasticsearch/Dockerfile` (new)
+
+Multi-stage build. Stage 1 clones and builds; stage 2 is the lean runtime image.
 
 ```dockerfile
-# Stage 1 — build Angular
-FROM node:20-slim AS ng-build
-WORKDIR /build/frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build -- --configuration production
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+FROM eclipse-temurin:21-jdk AS builder
 
-# Stage 2 — runtime
-FROM node:20-slim
-WORKDIR /app
-COPY backend/package*.json ./
-RUN npm ci --omit=dev
-COPY backend/src ./src
-COPY --from=ng-build /build/frontend/dist/frontend/browser ./public
-COPY entrypoint.sh scripts/ /app/scripts/
-RUN chmod +x /app/scripts/entrypoint.sh /app/scripts/register-tunnel.sh
-EXPOSE 5000
-ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+ARG ES_FORK=https://github.com/elastic/elasticsearch.git
+ARG ES_COMMIT=main
+
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /es-src
+RUN git init && \
+    git remote add origin "$ES_FORK" && \
+    git fetch --depth 1 origin "$ES_COMMIT" && \
+    git checkout FETCH_HEAD
+
+# BuildKit cache mount keeps ~/.gradle across builds on the same Docker daemon
+RUN --mount=type=cache,target=/root/.gradle \
+    ./gradlew localDistro --no-daemon
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g 1000 elasticsearch && \
+    useradd -u 1000 -g elasticsearch -m -s /bin/bash elasticsearch
+
+# Distro contains a bundled JDK — no separate Java install needed in runtime stage
+COPY --from=builder /es-src/build/distribution/local/elasticsearch-*/ /opt/elasticsearch/
+RUN chown -R elasticsearch:elasticsearch /opt/elasticsearch
+
+COPY entrypoint.sh start-es.sh /
+RUN chmod +x /entrypoint.sh /start-es.sh
+
+VOLUME ["/var/lib/elasticsearch"]
+
+EXPOSE 9200 9300
+
+# No USER directive — entrypoint runs as root, chowns the data volume, then drops to elasticsearch
+ENTRYPOINT ["/entrypoint.sh"]
 ```
+
+**Key points:**
+- `--mount=type=cache,target=/root/.gradle` — Gradle dependency cache preserved between Docker builds on the same daemon; first build ~1–2 GB download, subsequent builds fast.
+- No `USER` directive — mirrors the current `es-entrypoint.sh` pattern (runs as root, `chown`s the volume, `exec su` to elasticsearch). Required because the mounted volume arrives as root-owned.
+- The glob `elasticsearch-*/` in `COPY --from` works because only one directory is present.
 
 ---
 
-### 3. `webapp/entrypoint.sh`
+### 3. `elasticsearch/entrypoint.sh` (new)
+
+Mirrors `kibana/es-entrypoint.sh` exactly, updated for new paths:
 
 ```bash
 #!/bin/bash
-set -euo pipefail
-: "${JWT_SECRET:?JWT_SECRET must be set}"
-bash /app/scripts/register-tunnel.sh || true   # non-fatal; CF creds may be absent
-exec node /app/src/index.js
+set -e
+chown -R elasticsearch:elasticsearch /var/lib/elasticsearch
+exec su -s /bin/bash elasticsearch -c "/start-es.sh"
 ```
 
 ---
 
-### 4. `webapp/scripts/register-tunnel.sh`
+### 4. `elasticsearch/start-es.sh` (new)
 
-Copy verbatim from `kibana/scripts/register-tunnel.sh`. No modifications needed — it reads the same CF env vars and the `CF_SUBDOMAIN` / `CF_SERVICE_URL` overrides set in the compose environment block.
+Replaces `kibana/start-es.sh`. The entire "download, verify, extract" section (lines 1–87) is removed — the binary is already at `/opt/elasticsearch`. Everything from line 89 onward is kept **verbatim**, with two path substitutions and two additions:
 
----
+**Substitutions** (old → new):
 
-### 5. `webapp/backend/package.json`
+| Variable | Old value | New value |
+|---|---|---|
+| `ES_HOME` | `$ES_INSTALL_DIR` (dynamic) | `/opt/elasticsearch` |
+| `ES_TMPDIR` | `"$ES_INSTALL_DIR/ES_TMPDIR"` | `"$ES_HOME/ES_TMPDIR"` |
 
-```json
-{
-  "name": "workflows-ui-backend",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": { "start": "node src/index.js" },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.19.0",
-    "http-proxy-middleware": "^3.0.0",
-    "jsonwebtoken": "^9.0.0"
-  }
-}
-```
-
----
-
-### 6. `webapp/backend/src/index.js`
-
-- Instantiates Express app, mounts:
-  - `POST /api/auth/login` — public (no auth middleware)
-  - `GET /api/auth/me` — protected
-  - `/api/workflows` — protected, `routes/workflows.js`
-  - `/api/executions` — protected, `routes/executions.js`
-  - `/api/deployments` — protected, `routes/deployments.js`
-  - `/api/benchmarks` — protected, `routes/benchmarks.js`
-- Serves `./public` as static files
-- SPA catch-all: any `GET` not matched returns `public/index.html`
-- Listens on port 5000
-
----
-
-### 7. `webapp/backend/src/middleware/auth.js`
-
-```js
-// JWT payload: { sub: username, pwd: base64(password) }
-// Extracts and attaches req.esCredentials = { username, password, authHeader }
-export function requireAuth(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'unauthorized' });
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.esCredentials = {
-      username: payload.sub,
-      password: Buffer.from(payload.pwd, 'base64').toString(),
-      authHeader: `Basic ${Buffer.from(`${payload.sub}:${Buffer.from(payload.pwd, 'base64').toString()}`).toString('base64')}`
-    };
-    next();
-  } catch {
-    res.status(401).json({ error: 'invalid token' });
-  }
-}
-```
-
----
-
-### 8. `webapp/backend/src/routes/auth.js`
-
-- `POST /api/auth/login { username, password }`:
-  1. Calls `GET ${ES_HOST}/_security/_authenticate` with Basic auth
-  2. If 200: signs JWT `{sub: username, pwd: base64(password), exp: +8h}`, returns `{token, user: {username, roles}}`
-  3. If 401: returns 401
-- `GET /api/auth/me`: calls `/_security/_authenticate` with the credentials from the JWT, returns user info
-
----
-
-### 9. `webapp/backend/src/routes/workflows.js`
-
-Proxied Kibana calls — all requests include `Authorization`, `kbn-xsrf: true`, `elastic-api-version: 2023-10-31`:
-
-- `GET /api/workflows` → `GET ${KIBANA_HOST}/api/workflows/workflow` — returns list with `id, name, description, enabled, triggers`
-- `GET /api/workflows/:id` → `GET ${KIBANA_HOST}/api/workflows/workflow/:id`
-
----
-
-### 10. `webapp/backend/src/routes/executions.js`
-
-- `POST /api/workflows/:id/run` body `{inputs}` → `POST ${KIBANA_HOST}/api/workflows/workflow/:id/run`
-- `GET /api/workflows/:id/executions?statuses=&size=&page=` → `GET ${KIBANA_HOST}/api/workflows/workflow/:id/executions` — passes through query params
-- `GET /api/executions/:executionId` → `GET ${KIBANA_HOST}/api/workflows/executions/:executionId`
-
----
-
-### 11. `webapp/backend/src/routes/deployments.js`
-
-- `GET /api/deployments`:
-  - Calls `GET ${ES_HOST}/deployed-previews/_search?size=100&sort=updated_at:desc`
-  - Maps `_source` fields: `{id: _id, target, port, public_url, container_name, deploy_dir_name, es_user, es_password, ttl_days, updated_at}`
-- `GET /api/deployments/:id/credentials`:
-  - Returns `{username, password}` read directly from `es_user` / `es_password` fields stored in the `deployed-previews` document (written by `deploy-kibana-preview` at deploy time)
-- `DELETE /api/deployments/:id`:
-  - Calls `POST ${KIBANA_HOST}/api/workflows/workflow/<cleanup-preview-workflow-id>/run` with `inputs: { project: id }`
-  - Returns 202 immediately; actual teardown runs asynchronously in the Kibana workflow
-
----
-
-### 12. `webapp/backend/src/routes/benchmarks.js`
-
-- `GET /api/benchmarks?size=&page=`:
-  - `GET ${ES_HOST}/workflow-benchmarks/_search` sorted by `@timestamp:desc`
-  - Returns list with `{id: _id, project, target, commit, requested, throughput.completed, throughput.avg_rps, scheduling_lag.p95_s, @timestamp}`
-- `GET /api/benchmarks/:id`:
-  - `GET ${ES_HOST}/workflow-benchmarks/_doc/:id`
-  - Returns full report document
-- `GET /api/benchmarks/compare?a=:idA&b=:idB`:
-  - Fetches both documents, returns `{a: reportA, b: reportB}` — comparison computation happens in the frontend
-
----
-
-### 13. `webapp/frontend/` — Angular 18 project
-
-**Stack:** Angular 18 + PrimeNG (`primeng`) + PrimeFlex (`primeflex`) + PrimeIcons (`primeicons`). PrimeNG's built-in `p-chart` (backed by Chart.js) for benchmark charts — no separate charting library needed.
-
-**`angular.json` `outputPath`:** set explicitly to `dist/frontend` so the Dockerfile `COPY --from=ng-build /build/frontend/dist/frontend/browser ./public` is always stable regardless of project name.
-
-**Routes:**
-```
-/login                          → LoginComponent (public)
-/workflows                      → WorkflowsLayoutComponent (shell)
-  /workflows/:id                → WorkflowDetailComponent
-  /workflows/:id/executions/:eid → ExecutionDetailComponent (drawer)
-/deployments                    → DeploymentsComponent
-/benchmarks                     → BenchmarkListComponent
-  /benchmarks/:id               → BenchmarkDetailComponent
-  /benchmarks/compare           → BenchmarkCompareComponent (query params: ?a=&b=)
-```
-
-**WorkflowsLayoutComponent:**
-- Persistent left sidebar: list of workflows, searchable by name, each row shows name + enabled badge + trigger type chip (manual / scheduled / alert)
-- Selecting a workflow navigates to `/workflows/:id`
-- Sidebar collapses on mobile
-
-**WorkflowDetailComponent:**
-- Header: workflow name, description, enabled toggle (read-only), last-updated time
-- **Run** button → opens `p-dialog` with `RunDialogComponent`
-  - Auto-generates form fields from `triggers[0].inputs.properties` JSON Schema: string → `p-inputtext`, integer → `p-inputnumber`, boolean → `p-toggleswitch`, array → `p-textarea` (JSON), enum → `p-select`
-  - Required fields validated before submit
-  - On submit: `POST /api/workflows/:id/run`, shows `p-toast` with execution ID + link
-- Execution list: `p-table` with columns = Status, ID (truncated), Started, Duration, Type
-  - Status column uses `StatusBadgeComponent` with a `p-tag` colored by severity: running=info, completed=success, failed=danger, cancelled=secondary
-  - Auto-polls `GET /api/workflows/:id/executions?statuses=running,pending` every 5 s while any non-terminal execution exists in the current page
-  - Pagination: 20 per page via Kibana API params
-  - Row click → navigates to `/workflows/:id/executions/:eid`
-
-**ExecutionDetailComponent (drawer):**
-- Opens as `p-drawer` overlay (keeps execution list visible behind it)
-- Shows: execution metadata header, then a collapsible step tree via `p-tree` with `TreeNode[]`
-  - Each node: step name, type icon, status badge (`p-tag`), duration, expand to show `output` JSON in `p-panel`
-
-**DeploymentsComponent:**
-- `p-table` with columns: Project, Target (truncated), Updated, Port, Actions
-- Actions column per row:
-  - **Open Kibana** — external link to `public_url` (or `http://dev-vm:<port>` if no CF configured)
-  - **Credentials** — opens `p-dialog` showing `elastic` / password
-  - **Delete** — `p-confirmdialog` prompt, then `DELETE /api/deployments/:id`
-
-**BenchmarkListComponent:**
-- `p-table` with sortable columns: Timestamp, Project, Completed, Avg RPS, Lag p95
-- Checkbox selection column → **Compare** button activates with exactly 2 rows selected
-- Row click → navigates to `/benchmarks/:id`
-
-**BenchmarkDetailComponent:**
-- Stat cards grid using PrimeFlex: Completed, Failed, Avg RPS, Peak RPS (30 s), Wall Time, Lag p50/p95/p99 (s), E2E p50/p95/p99 (s)
-- `p-chart` (type=line): `over_time` buckets → X = `window_start`, Y = `rps` (completions/30 s)
-- `p-chart` (type=bar): scheduling lag percentile distribution
-- `p-table`: task manager snapshot status → count
-
-**BenchmarkCompareComponent:**
-- Layout: two columns (Report A | Report B) with a third delta column using PrimeFlex grid
-- Each metric row: label | value A | Δ% (PrimeNG `p-tag` severity=success/danger) | value B
-- `p-chart` (type=line): both `over_time` series overlaid, distinct colors per dataset
-- Header shows: project + commit for each, timestamp diff
-
----
-
-### 14. `dev-env/env/webapp.env`
+**Additions at the top** (before the "Start Elasticsearch" block):
 
 ```bash
-# Webapp UI — override defaults here.
-# JWT_SECRET is REQUIRED; container will refuse to start without it.
-JWT_SECRET=change-me-before-production
+ES_HOME=/opt/elasticsearch
+ES_LICENSE="${ES_LICENSE:-trial}"
+ES_DATA_DIR=/var/lib/elasticsearch/data
+ES_LOGS_DIR=/var/lib/elasticsearch/logs
 
-# WEBAPP_PORT=5000
-# ES_HOST=http://elasticsearch:9200
-# KIBANA_HOST=http://kibana:5601
+mkdir -p "$ES_DATA_DIR" "$ES_LOGS_DIR" "$ES_HOME/ES_TMPDIR"
+
+# Append to elasticsearch.yml — same as start-es.sh lines 76-79, plus data/log paths
+cat >> "$ES_HOME/config/elasticsearch.yml" <<EOF
+path.data: ${ES_DATA_DIR}
+path.logs: ${ES_LOGS_DIR}
+xpack.security.enabled: true
+xpack.license.self_generated.type: ${ES_LICENSE}
+EOF
+
+# Keystore bootstrap — identical to start-es.sh lines 83-84
+"$ES_HOME/bin/elasticsearch-keystore" create
+printf '%s' "$ES_PASSWORD" | "$ES_HOME/bin/elasticsearch-keystore" add -xf bootstrap.password
 ```
 
----
-
-## Phases
-
-Each phase ends with a `git commit && git push` on the `feature/webapp` branch.
-
-### Phase 1 — Infrastructure & Docker
-Files: `webapp/Dockerfile`, `webapp/entrypoint.sh`, `webapp/scripts/register-tunnel.sh`, `dev-env/docker-compose.yml`, `dev-env/env/webapp.env`
-
-Goal: container builds and starts (exits cleanly even with no backend code yet). Cloudflare registration runs non-fatally on startup.
-
-Commit: `feat(webapp): add Docker scaffold and compose integration`
+Then the rest — `export JAVA_HOME=""`, `export ES_TMPDIR`, `export ES_JAVA_OPTS`, the `elasticsearch` invocation with all `-E` flags, the wait loops, user/role setup — is **verbatim from `kibana/start-es.sh` lines 92–171**.
 
 ---
 
-### Phase 2 — Backend
-Files: `webapp/backend/package.json`, `webapp/backend/src/index.js`, `webapp/backend/src/middleware/auth.js`, `webapp/backend/src/routes/auth.js`, `webapp/backend/src/routes/workflows.js`, `webapp/backend/src/routes/executions.js`, `webapp/backend/src/routes/deployments.js`, `webapp/backend/src/routes/benchmarks.js`
+### 5. `kibana/docker-compose.yml` (modify)
 
-Goal: all API routes reachable and returning data; auth flow end-to-end (login → JWT → protected endpoints). Express serves a placeholder `index.html` from `./public`.
+```yaml
+# BEFORE
+elasticsearch:
+  build:
+    context: .
+    dockerfile: es.Dockerfile
+  environment:
+    - ES_VERSION=${ES_VERSION:-9.6.0}
+    - ES_PASSWORD=${ES_PASSWORD:-changeme}
+    - ES_LICENSE=trial
+    - ES_BASE_DIR=/es
+  volumes:
+    - es_data:/es
+  start_period: 120s
 
-Auth details:
-- JWT payload `{ sub: username, pwd: base64(password), exp: +8h }` — stateless, no server-side session
-- Login validates against ES `/_security/_authenticate`
+# AFTER
+elasticsearch:
+  image: es-local:${ES_COMMIT:-main}
+  build:
+    context: ../elasticsearch
+    dockerfile: Dockerfile
+    args:
+      ES_FORK: ${ES_FORK:-https://github.com/elastic/elasticsearch.git}
+      ES_COMMIT: ${ES_COMMIT:-main}
+  environment:
+    - ES_PASSWORD=${ES_PASSWORD:-changeme}
+    - ES_LICENSE=${ES_LICENSE:-trial}
+  volumes:
+    - es_data:/var/lib/elasticsearch
+  start_period: 60s   # no download; JVM startup only
+```
 
-Deployments delete: calls `POST ${KIBANA_HOST}/api/workflows/workflow/<cleanup-preview-id>/run` with `inputs: { project }`, returns 202 immediately.
-
-Commit: `feat(webapp): add Express backend with auth and API routes`
-
----
-
-### Phase 3 — Frontend scaffold + auth
-Files: Angular CLI project (`ng new`), `app.config.ts`, `app.routes.ts`, `core/auth.service.ts`, `core/api.service.ts`, `core/auth.guard.ts`, `pages/login/`, `environments/`
-
-Goal: app bootstraps, login page works end-to-end (submits to backend, stores JWT, redirects to `/workflows`). Auth guard redirects unauthenticated users to `/login`. PrimeNG + PrimeFlex installed and themed.
-
-`angular.json` `outputPath` set to `dist/frontend` to match Dockerfile COPY path.
-
-Commit: `feat(webapp): bootstrap Angular app with PrimeNG and auth flow`
-
----
-
-### Phase 4 — Workflows page
-Files: `pages/workflows/workflows-layout/`, `pages/workflows/workflow-detail/`, `pages/workflows/execution-detail/`, `shared/status-badge/`, `shared/run-dialog/`, `shared/duration-pipe.ts`
-
-Goal: left-nav lists all workflows; selecting one shows detail with Run button and execution table. Run dialog auto-generates form from JSON Schema. Execution table polls every 5 s while any non-terminal execution is present; stops on route leave (`ngOnDestroy`). Clicking a row opens `p-drawer` with step tree.
-
-Commit: `feat(webapp): add workflows page with run dialog and live executions`
-
----
-
-### Phase 5 — Deployments page
-Files: `pages/deployments/`
-
-Goal: table lists all previews from `deployed-previews` index with Open Kibana, Credentials (`es_user`/`es_password` from the document), and Delete (triggers `cleanup-preview` workflow, 202 response, row removed optimistically).
-
-Commit: `feat(webapp): add deployments page`
+- Remove: `ES_VERSION`, `ES_BASE_DIR` from `environment`. Keep `ES_LICENSE` (used by `start-es.sh`).
+- `image:` + `build:` together: use the tagged image if it exists (built by the workflow's `build_es` step); otherwise build it. `docker compose up --build` rebuilds but all layers are cached, so it's instant.
 
 ---
 
-### Phase 6 — Benchmarks page
-Files: `pages/benchmarks/benchmark-list/`, `pages/benchmarks/benchmark-detail/`, `pages/benchmarks/benchmark-compare/`
+### 6. `dev-env/docker-compose.yml` (modify)
 
-Goal: list with sortable columns and checkbox compare selection; detail with stat cards + throughput line chart + lag bar chart; compare with two-column delta table and overlaid throughput chart.
+Same changes to the `elasticsearch` service:
 
-Commit: `feat(webapp): add benchmark reports page with compare view`
+```yaml
+# BEFORE
+elasticsearch:
+  build:
+    context: ../kibana
+    dockerfile: es.Dockerfile
+  environment:
+    - ES_VERSION=${ES_VERSION:-9.6.0}
+    - ES_PASSWORD=${ES_PASSWORD:-changeme}
+    - ES_LICENSE=trial
+    - ES_BASE_DIR=/es
+  volumes:
+    - es_data:/es
+
+# AFTER
+elasticsearch:
+  image: es-local:${ES_COMMIT:-main}
+  build:
+    context: ../elasticsearch
+    dockerfile: Dockerfile
+    args:
+      ES_FORK: ${ES_FORK:-https://github.com/elastic/elasticsearch.git}
+      ES_COMMIT: ${ES_COMMIT:-main}
+  environment:
+    - ES_PASSWORD=${ES_PASSWORD:-changeme}
+    - ES_LICENSE=${ES_LICENSE:-trial}
+  volumes:
+    - es_data:/var/lib/elasticsearch
+```
+
+`dev-env/start.sh` — **no change needed**. `docker compose up --build` already triggers the ES image build if the tag doesn't exist.
+
+---
+
+### 7. `dev-env/workflows/deploy-kibana-preview.yaml` (modify)
+
+**a) New input** (under `triggers[0].inputs.properties`):
+
+```yaml
+es_target:
+  type: string
+  description: |
+    GitHub URL for the Elasticsearch branch or commit to build. Formats:
+      Branch — https://github.com/<owner>/<repo>/tree/<branch>
+      Commit — https://github.com/<owner>/<repo>/commit/<sha>
+  default: https://github.com/elastic/elasticsearch/tree/main
+```
+
+**b) New step `resolve_es`** (after `resolve`):
+
+```yaml
+- name: resolve_es
+  type: remoteHost.runCommand
+  connector-id: dev-vm
+  with:
+    env:
+      ES_TARGET: '{{ inputs.es_target }}'
+      SCRIPTS_CACHE: /opt/ubuntu_vm
+    code: |
+      source "$SCRIPTS_CACHE/elasticsearch/scripts/resolve.sh"
+      echo "ES_COMMIT=$ES_COMMIT" >> $STEP_OUTPUT
+      echo "ES_FORK=$ES_FORK" >> $STEP_OUTPUT
+```
+
+**c) Update `write_env` step** — add ES vars to `.env`:
+
+```bash
+echo "ES_TARGET=${ES_TARGET}" >> "$DEPLOY_DIR/kibana/env/.env"
+echo "ES_COMMIT=${ES_COMMIT}" >> "$DEPLOY_DIR/kibana/env/.env"
+echo "ES_FORK=${ES_FORK}" >> "$DEPLOY_DIR/kibana/env/.env"
+# Remove the ES_VERSION line — no longer needed
+```
+
+**d) New step `build_es`** (after `write_kibana_config`, before `clone`):
+
+```yaml
+- name: build_es
+  type: remoteHost.runCommand
+  connector-id: dev-vm
+  with:
+    env:
+      ES_COMMIT: '{{ steps.resolve_es.output.ES_COMMIT }}'
+      ES_FORK: '{{ steps.resolve_es.output.ES_FORK }}'
+      DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+    code: |
+      ES_IMAGE="es-local:${ES_COMMIT}"
+      if docker image inspect "$ES_IMAGE" >/dev/null 2>&1; then
+        echo "=== Cache hit — image $ES_IMAGE already exists ==="
+      else
+        echo "=== Building $ES_IMAGE ==="
+        DOCKER_BUILDKIT=1 docker build \
+          --build-arg ES_FORK="$ES_FORK" \
+          --build-arg ES_COMMIT="$ES_COMMIT" \
+          -t "$ES_IMAGE" \
+          "$DEPLOY_DIR/elasticsearch"
+        echo "=== Build complete ==="
+      fi
+```
+
+**e) `start` step** — no change. `docker compose up --build --wait kibana` uses the existing `es-local:$ES_COMMIT` image (all layers cached); only the Kibana image is effectively rebuilt.
+
+---
+
+### 8–10. Deletions
+
+- `kibana/es.Dockerfile` — delete
+- `kibana/start-es.sh` — delete
+- `kibana/es-entrypoint.sh` — delete
+
+---
+
+## 6. Gaps / Open Questions
+
+All gaps resolved.
+
+### ~~G1~~ — Java on dev-vm
+✅ Resolved: Not needed. The builder stage uses `eclipse-temurin:21-jdk` — Java stays inside the Docker build, never touches the dev-vm host.
+
+### ~~G2~~ — Gradle cache on dev-vm
+✅ Resolved: BuildKit `--mount=type=cache,target=/root/.gradle` persists the Gradle cache across image builds on the same Docker daemon. The dev-vm's Docker storage is on the `dev-vm-docker` named volume, so the cache survives restarts.
+
+### ~~G3~~ — `es_data` volume migration
+✅ Resolved: Data loss on migration is acceptable. Existing `es_data` volumes will be recreated on first deploy.
+
+### ~~G4~~ — ES_TARGET default for previews
+✅ Resolved: Default to `https://github.com/elastic/elasticsearch/tree/main`; user can override to any branch/commit via the `es_target` input.
+
+### ~~G5~~ — Build time / caching across previews
+✅ Resolved: Images tagged `es-local:<ES_COMMIT>` are shared — any preview using the same ES commit reuses the existing image instantly (`docker image inspect` guard in `build_es`). Gradle cache is preserved via BuildKit cache mount.
+
+### ~~G6~~ — dev-env local start script
+✅ Resolved: `dev-env/start.sh` needs no changes. `docker compose up --build` triggers the ES image build automatically if the tag doesn't exist.
