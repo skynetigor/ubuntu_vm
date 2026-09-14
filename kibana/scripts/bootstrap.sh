@@ -30,15 +30,45 @@ cd "$KIBANA_SRC"
 set +u; source "${NVM_DIR:-/home/kibana/.nvm}/nvm.sh"; set -u
 nvm install
 nvm use
-# Ensure yarn is available in this exact node version (the NVM LTS may differ)
-npm ls -g yarn --depth=0 2>/dev/null | grep -q yarn || npm install -g yarn
+
+# ── Package manager detection ──────────────────────────────────────────────────
+# Use pnpm when pnpm-lock.yaml is present; fall back to yarn for older commits.
+if [ -f "$KIBANA_SRC/pnpm-lock.yaml" ]; then
+  USE_PNPM=true
+else
+  USE_PNPM=false
+fi
+
+if [ "$USE_PNPM" = "true" ]; then
+  PNPM_VERSION=$(node -e "
+    try {
+      const e = require('$KIBANA_SRC/package.json').engines;
+      console.log((e && e.pnpm || '').replace(/^[~^>=<]+/, '').split(' ')[0]);
+    } catch(e) {}
+  " 2>/dev/null || echo "")
+  PNPM_INSTALL_SPEC="${PNPM_VERSION:-latest}"
+
+  if ! command -v pnpm &>/dev/null; then
+    echo "=== Installing pnpm@${PNPM_INSTALL_SPEC} ==="
+    npm install -g "pnpm@${PNPM_INSTALL_SPEC}"
+  else
+    echo "=== pnpm $(pnpm --version) already installed ==="
+  fi
+else
+  # Ensure yarn is available in this exact node version (the NVM LTS may differ)
+  npm ls -g yarn --depth=0 2>/dev/null | grep -q yarn || npm install -g yarn
+fi
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
-# When running as root, wrap yarn so all `kbn` subcommands get --allow-root.
+# When running as root, wrap the package manager so kbn subcommands get --allow-root.
 source "$(dirname "$0")/setup-root.sh"
 
 echo "=== Bootstrapping ==="
-KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
+if [ "$USE_PNPM" = "true" ]; then
+  KBN_BOOTSTRAP_NO_PREBUILT=true pnpm kbn bootstrap
+else
+  KBN_BOOTSTRAP_NO_PREBUILT=true yarn kbn bootstrap
+fi
 
 # ── Pre-populate platform node binaries (required by the build tasks) ─────────
 NODE_VERSION=$(cat .nvmrc)
