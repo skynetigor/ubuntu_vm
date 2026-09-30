@@ -78,12 +78,12 @@ else
 fi
 ok "node $(node --version)"
 
-# ── yarn ─────────────────────────────────────────────────────────────────────
-if command -v yarn &>/dev/null; then
-  ok "yarn $(yarn --version)"
+# ── pnpm ─────────────────────────────────────────────────────────────────────
+if command -v pnpm &>/dev/null; then
+  ok "pnpm $(pnpm --version)"
 else
-  info "installing yarn"
-  npm install -g yarn
+  info "installing pnpm"
+  npm install -g pnpm
 fi
 
 # ── Docker ───────────────────────────────────────────────────────────────────

@@ -30,13 +30,13 @@ cd "$KIBANA_SRC"
 set +u; source "${NVM_DIR:-/home/kibana/.nvm}/nvm.sh"; set -u
 nvm install
 nvm use
-npm ls -g yarn --depth=0 2>/dev/null | grep -q yarn || npm install -g yarn
+command -v pnpm &>/dev/null || npm install -g pnpm
 
 NODE_VERSION=$(cat .nvmrc)
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-# When running as root, wrap yarn so all `kbn` subcommands spawned by the build
-# (e.g. yarn kbn build-shared) get --allow-root automatically.
+# When running as root, wrap pnpm so all `kbn` subcommands spawned by the build
+# get --allow-root automatically.
 source "$(dirname "$0")/setup-root.sh"
 
 rm -rf build/

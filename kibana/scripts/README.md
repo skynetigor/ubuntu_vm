@@ -21,7 +21,7 @@ Clones or updates the Kibana source repository.
 Installs Kibana's dependencies.
 
 - Activates the Node version from `.nvmrc` via NVM
-- Runs `yarn kbn bootstrap`
+- Runs `pnpm kbn bootstrap`
 - Pre-populates platform Node binaries required by the build (`darwin-arm64`, `linux-x64`)
 
 ### `compile.sh`
@@ -33,10 +33,10 @@ Builds the Kibana distribution.
 - Copies `.nvmrc` into `kibana/` so the Dockerfile can read the Node version at build time
 
 ### `setup-root.sh`
-Sourced by `bootstrap.sh` and `compile.sh`. When running as root, wraps `yarn` to inject `--allow-root` into all `kbn` subcommands automatically.
+Sourced by `bootstrap.sh` and `compile.sh`. When running as root, wraps `pnpm` to inject `--allow-root` into all `kbn` subcommands automatically.
 
 ### `install.sh`
-Local machine dependency checker and installer. Verifies git, curl, python3, NVM, Node, yarn, and Docker are present; installs any that are missing. Safe to run on macOS and Linux.
+Local machine dependency checker and installer. Verifies git, curl, python3, NVM, Node, pnpm, and Docker are present; installs any that are missing. Safe to run on macOS and Linux.
 
 ### `register-tunnel.sh`
 Registers (or updates) Kibana as a public hostname in a Cloudflare tunnel via the API. Reads credentials from `kibana/.env`. Required variables: `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `CF_TUNNEL_ID`, `CF_HOSTNAME`, `CF_SERVICE_URL`.

@@ -54,7 +54,7 @@ RUN useradd -m -s /bin/bash kibana \
     && mkdir -p /home/kibana/.ssh \
     && chmod 700 /home/kibana/.ssh
 
-# NVM + Node LTS + Yarn + Claude (in kibana's home — never in a named volume)
+# NVM + Node LTS + pnpm + Claude (in kibana's home — never in a named volume)
 ENV NVM_DIR=/home/kibana/.nvm
 RUN mkdir -p "$NVM_DIR" \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh \
@@ -62,13 +62,13 @@ RUN mkdir -p "$NVM_DIR" \
     && . "$NVM_DIR/nvm.sh" \
     && nvm install --lts \
     && nvm alias default node \
-    && npm install -g yarn @anthropic-ai/claude-code \
+    && npm install -g pnpm @anthropic-ai/claude-code \
     # Symlink into /usr/local/bin so all shells find them without sourcing nvm
     && NODE_BIN="$(dirname "$(nvm which default)")" \
     && ln -sf "$NODE_BIN/node"   /usr/local/bin/node \
     && ln -sf "$NODE_BIN/npm"    /usr/local/bin/npm \
     && ln -sf "$NODE_BIN/npx"    /usr/local/bin/npx \
-    && ln -sf "$NODE_BIN/yarn"   /usr/local/bin/yarn \
+    && ln -sf "$NODE_BIN/pnpm"   /usr/local/bin/pnpm \
     && ln -sf "$NODE_BIN/claude" /usr/local/bin/claude \
     && claude --version \
     # Give kibana full ownership of its home (covers NVM and .ssh)
