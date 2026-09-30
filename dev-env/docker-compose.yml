@@ -6,6 +6,8 @@ services:
         required: false
       - path: ./env/cloudflare.env
         required: false
+      - path: ./env/claude.env
+        required: false
     container_name: elastic-dev-vm
     privileged: true
     ports:

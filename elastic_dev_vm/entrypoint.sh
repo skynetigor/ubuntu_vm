@@ -9,9 +9,16 @@ if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   chown -R kibana:kibana /home/kibana/.ssh
 fi
 
-# Expose Cloudflare vars to SSH sessions via PAM /etc/environment
-if [ -f /etc/dev-env/cloudflare.env ]; then
-  grep -v '^#' /etc/dev-env/cloudflare.env | grep -v '^$' > /etc/environment
+# Expose Cloudflare and Claude Code vars to SSH sessions via PAM /etc/environment
+if [ -f /etc/dev-env/cloudflare.env ] || [ -f /etc/dev-env/claude.env ]; then
+  {
+    for env_file in /etc/dev-env/cloudflare.env /etc/dev-env/claude.env; do
+      if [ -f "$env_file" ]; then
+        grep -v '^#' "$env_file" | grep -v '^$' || true
+      fi
+    done
+  } > /etc/environment
+  chmod 600 /etc/environment
 fi
 
 # Required for Elasticsearch

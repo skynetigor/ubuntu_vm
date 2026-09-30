@@ -70,6 +70,7 @@ RUN mkdir -p "$NVM_DIR" \
     && ln -sf "$NODE_BIN/npx"    /usr/local/bin/npx \
     && ln -sf "$NODE_BIN/yarn"   /usr/local/bin/yarn \
     && ln -sf "$NODE_BIN/claude" /usr/local/bin/claude \
+    && claude --version \
     # Give kibana full ownership of its home (covers NVM and .ssh)
     && chown -R kibana:kibana /home/kibana
 
