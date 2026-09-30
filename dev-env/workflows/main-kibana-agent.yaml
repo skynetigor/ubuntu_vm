@@ -1,0 +1,85 @@
+version: '1'
+name: Main Kibana Agent
+description: >-
+  Reusable entry point for calling Claude Code on dev-vm over SSH. Pass the
+  returned session_id on later calls to continue the same Claude session.
+enabled: true
+tags:
+  - kibana
+  - claude
+
+triggers:
+  - type: manual
+    inputs:
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+          description: Message or instruction to send to Claude Code.
+        session_id:
+          type: string
+          description: Claude session ID to resume; omit to start a new session.
+
+steps:
+  - name: claude
+    type: remoteHost.python
+    connector-id: dev-vm
+    with:
+      env:
+        CLAUDE_PROMPT: '{{ inputs.prompt }}'
+        CLAUDE_SESSION_ID: '{{ inputs.session_id | default: "" }}'
+      code: |
+        import json
+        import os
+        import subprocess
+
+        prompt = os.environ["CLAUDE_PROMPT"]
+        session_id = os.environ.get("CLAUDE_SESSION_ID", "").strip()
+        command = ["claude", "--print", "--verbose", "--output-format", "stream-json"]
+        if session_id:
+            command.extend(["--resume", session_id])
+        command.append(prompt)
+
+        print("Claude: processing request", flush=True)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        result = None
+
+        for line in process.stdout:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                print(line.rstrip(), flush=True)
+                continue
+
+            if event.get("type") == "assistant":
+                message = event.get("message", {})
+                for block in message.get("content", []):
+                    if block.get("type") == "tool_use":
+                        print("Claude: using tool " + block.get("name", "unknown"), flush=True)
+            elif event.get("type") == "result":
+                result = event
+
+        exit_code = process.wait()
+        if exit_code != 0:
+            raise RuntimeError("Claude CLI exited with status " + str(exit_code))
+        if result is None:
+            raise RuntimeError("Claude CLI did not return a result event")
+
+        print("Claude: response complete", flush=True)
+        return {
+            "response": result["result"],
+            "session_id": result["session_id"],
+        }
+
+  - name: output
+    type: workflow.output
+    with:
+      response: '{{ steps.claude.output.response }}'
+      session_id: '{{ steps.claude.output.session_id }}'
