@@ -54,7 +54,7 @@ RUN useradd -m -s /bin/bash kibana \
     && mkdir -p /home/kibana/.ssh \
     && chmod 700 /home/kibana/.ssh
 
-# NVM + Node LTS + pnpm + Claude (in kibana's home — never in a named volume)
+# NVM + Node LTS + pnpm + Claude + agent-browser (in kibana's home)
 ENV NVM_DIR=/home/kibana/.nvm
 RUN mkdir -p "$NVM_DIR" \
     && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh \
@@ -62,7 +62,7 @@ RUN mkdir -p "$NVM_DIR" \
     && . "$NVM_DIR/nvm.sh" \
     && nvm install --lts \
     && nvm alias default node \
-    && npm install -g pnpm @anthropic-ai/claude-code \
+    && npm install -g pnpm @anthropic-ai/claude-code agent-browser \
     # Symlink into /usr/local/bin so all shells find them without sourcing nvm
     && NODE_BIN="$(dirname "$(nvm which default)")" \
     && ln -sf "$NODE_BIN/node"   /usr/local/bin/node \
@@ -70,7 +70,13 @@ RUN mkdir -p "$NVM_DIR" \
     && ln -sf "$NODE_BIN/npx"    /usr/local/bin/npx \
     && ln -sf "$NODE_BIN/pnpm"   /usr/local/bin/pnpm \
     && ln -sf "$NODE_BIN/claude" /usr/local/bin/claude \
+     && ln -sf "$NODE_BIN/agent-browser" /usr/local/bin/agent-browser \
     && claude --version \
+     && agent-browser --version \
+     && HOME=/home/kibana agent-browser install --with-deps \
+     && HOME=/home/kibana npx --yes skills add vercel-labs/agent-browser \
+         --skill agent-browser --global --agent claude-code --copy --yes \
+     && test -f /home/kibana/.claude/skills/agent-browser/SKILL.md \
     # Give kibana full ownership of its home (covers NVM and .ssh)
     && chown -R kibana:kibana /home/kibana
 
