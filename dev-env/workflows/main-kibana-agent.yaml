@@ -36,7 +36,15 @@ steps:
 
         prompt = os.environ["CLAUDE_PROMPT"]
         session_id = os.environ.get("CLAUDE_SESSION_ID", "").strip()
-        command = ["claude", "--print", "--verbose", "--output-format", "stream-json"]
+        command = [
+          "claude",
+          "--print",
+          "--verbose",
+          "--output-format",
+          "stream-json",
+          "--permission-mode",
+          "auto",
+        ]
         if session_id:
             command.extend(["--resume", session_id])
         command.append(prompt)
