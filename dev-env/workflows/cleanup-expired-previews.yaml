@@ -57,12 +57,12 @@ steps:
             project: '{{ foreach.item }}'
 
   - name: docker_prune
-    type: remoteHost.runCommand
+    type: ssh.run
     connector-id: dev-vm
     on-failure:
       continue: true
     with:
-      code: |
+      command: |
         docker system prune -f
         echo "=== docker system prune complete ==="
 

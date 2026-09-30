@@ -135,7 +135,7 @@ steps:
             yaml: ${{consts.BENCHMARK_WORKFLOW}}
 
       - name: schedule_executions
-        type: remoteHost.javascript
+        type: ssh.node
         connector-id: dev-vm
         with:
           code: |

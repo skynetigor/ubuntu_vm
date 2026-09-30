@@ -23,7 +23,7 @@ triggers:
 
 steps:
   - name: claude
-    type: remoteHost.python
+    type: ssh.python
     connector-id: dev-vm
     with:
       env:

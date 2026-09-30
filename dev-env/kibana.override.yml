@@ -5,5 +5,5 @@
 # with every preview deployment (kibana/docker-compose.yml mounts it too).
 #
 # Required to author/run workflows that use experimental step types such as
-# remoteHost.javascript — without it the workflow editor rejects them.
+# ssh.node — without it the workflow editor rejects them.
 workflowsExtensions.experimentalSteps: true

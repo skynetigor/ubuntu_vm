@@ -284,13 +284,13 @@ es_target:
 
 ```yaml
 - name: resolve_es
-  type: remoteHost.runCommand
+  type: ssh.run
   connector-id: dev-vm
   with:
     env:
       ES_TARGET: '{{ inputs.es_target }}'
       SCRIPTS_CACHE: /opt/ubuntu_vm
-    code: |
+    command: |
       source "$SCRIPTS_CACHE/elasticsearch/scripts/resolve.sh"
       echo "ES_COMMIT=$ES_COMMIT" >> $STEP_OUTPUT
       echo "ES_FORK=$ES_FORK" >> $STEP_OUTPUT
@@ -309,14 +309,14 @@ echo "ES_FORK=${ES_FORK}" >> "$DEPLOY_DIR/kibana/env/.env"
 
 ```yaml
 - name: build_es
-  type: remoteHost.runCommand
+  type: ssh.run
   connector-id: dev-vm
   with:
     env:
       ES_COMMIT: '{{ steps.resolve_es.output.ES_COMMIT }}'
       ES_FORK: '{{ steps.resolve_es.output.ES_FORK }}'
       DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
-    code: |
+    command: |
       ES_IMAGE="es-local:${ES_COMMIT}"
       if docker image inspect "$ES_IMAGE" >/dev/null 2>&1; then
         echo "=== Cache hit — image $ES_IMAGE already exists ==="

@@ -42,12 +42,12 @@ steps:
 
   # ── Step 2: Stop containers, remove volumes and built images ─────────────
   - name: stop_stack
-    type: remoteHost.runCommand
+    type: ssh.run
     connector-id: dev-vm
     on-failure:
       continue: true
     with:
-      code: |
+      command: |
         PROJECT="{{ steps.fetch_deployment.output._source.container_name }}"
         DEPLOY_DIR="{{ steps.fetch_deployment.output._source.deploy_dir }}"
         COMPOSE_FILE="$DEPLOY_DIR/kibana/docker-compose.yml"
@@ -69,12 +69,12 @@ steps:
 
   # ── Step 3: Deregister from Cloudflare tunnel ────────────────────────────
   - name: deregister_tunnel
-    type: remoteHost.runCommand
+    type: ssh.run
     connector-id: dev-vm
     on-failure:
       continue: true
     with:
-      code: |
+      command: |
         PROJECT="{{ steps.fetch_deployment.output._source.container_name }}"
         SCRIPTS_CACHE="/opt/ubuntu_vm"
 
@@ -96,12 +96,12 @@ steps:
 
   # ── Step 4: Remove the deploy directory ──────────────────────────────────
   - name: remove_deploy_dir
-    type: remoteHost.runCommand
+    type: ssh.run
     connector-id: dev-vm
     on-failure:
       continue: true
     with:
-      code: |
+      command: |
         DEPLOY_DIR="{{ steps.fetch_deployment.output._source.deploy_dir }}"
         if [ -d "$DEPLOY_DIR" ]; then
           rm -rf "$DEPLOY_DIR"

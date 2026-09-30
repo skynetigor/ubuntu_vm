@@ -1,0 +1,9 @@
+- id: dev-vm
+  connector_type_id: .ssh
+  name: dev-vm
+  config:
+    host: "dev-vm"
+    authType: privateKey
+  secrets:
+    sshPrivateKey: "$(echo $KIBANA_SSH_PRIVATE_KEY_BASE64 | base64 -d)"
+    username: "kibana"
