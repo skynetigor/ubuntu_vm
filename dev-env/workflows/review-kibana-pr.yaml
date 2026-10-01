@@ -219,7 +219,7 @@ steps:
 
   - name: process_pr_comments
     type: if
-    condition: 'steps.detect_target.output.is_pr == true'
+    condition: "${{ steps.detect_target.output.is_pr == true }}"
     steps:
       - name: fetch_pr_context
         type: ssh.python
@@ -313,7 +313,7 @@ steps:
 
   - name: repair_lint_failures
     type: if
-    condition: 'variables.has_lint_failures == "true"'
+    condition: "${{ variables.has_lint_failures == 'true' }}"
     steps:
       - name: fix_lint
         type: workflow.execute
@@ -355,7 +355,7 @@ steps:
 
   - name: repair_test_failures
     type: if
-    condition: 'variables.has_test_failures == "true"'
+    condition: "${{ variables.has_test_failures == 'true' }}"
     steps:
       - name: fix_tests
         type: workflow.execute
@@ -396,7 +396,7 @@ steps:
 
   - name: calculate_validation_gate
     type: if
-    condition: 'variables.has_lint_failures == "false" and variables.has_test_failures == "false"'
+    condition: "${{ variables.has_lint_failures == 'false' and variables.has_test_failures == 'false' }}"
     steps:
       - name: mark_checks_passed
         type: data.set
@@ -410,11 +410,11 @@ steps:
 
   - name: publish_pr_fixes
     type: if
-    condition: 'steps.detect_target.output.is_pr == true'
+    condition: "${{ steps.detect_target.output.is_pr == true }}"
     steps:
       - name: publish_when_enabled
         type: if
-        condition: 'inputs.dry_run == false'
+        condition: "${{ inputs.dry_run == false }}"
         else:
           - name: mark_dry_run
             type: data.set
@@ -423,7 +423,7 @@ steps:
         steps:
           - name: publish_when_lint_passes
             type: if
-            condition: 'variables.has_lint_failures == "false"'
+            condition: "${{ variables.has_lint_failures == 'false' }}"
             else:
               - name: mark_lint_blocked
                 type: data.set
@@ -432,7 +432,7 @@ steps:
             steps:
               - name: publish_when_tests_pass
                 type: if
-                condition: 'variables.has_test_failures == "false"'
+                condition: "${{ variables.has_test_failures == 'false' }}"
                 else:
                   - name: mark_tests_blocked
                     type: data.set
@@ -465,7 +465,7 @@ steps:
 
   - name: resolve_fixed_pr_comments
     type: if
-    condition: 'steps.detect_target.output.is_pr == true'
+    condition: "${{ steps.detect_target.output.is_pr == true }}"
     else:
       - name: mark_no_pr_comment_writes
         type: data.set
@@ -474,7 +474,7 @@ steps:
     steps:
       - name: resolve_when_enabled
         type: if
-        condition: 'inputs.dry_run == false'
+        condition: "${{ inputs.dry_run == false }}"
         else:
           - name: mark_comment_dry_run
             type: data.set
@@ -483,7 +483,7 @@ steps:
         steps:
           - name: resolve_when_published
             type: if
-            condition: 'variables.pr_write_status == "published"'
+            condition: "${{ variables.pr_write_status == 'published' }}"
             else:
               - name: mark_comments_not_published
                 type: data.set
