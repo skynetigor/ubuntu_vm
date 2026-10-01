@@ -53,12 +53,7 @@ def summarize_review(environment=None):
     for failure in test_failures:
         failed_tests.append({
             'project': failure.get('project'),
-            'failures': [{
-                'command': failure.get('command'),
-                'exit_code': failure.get('exit_code'),
-                'diagnostic': failure.get('diagnostic'),
-                'log_path': failure.get('log_path'),
-            }],
+            'failures': [{key: value for key, value in failure.items() if key != 'project'}],
         })
 
     return {

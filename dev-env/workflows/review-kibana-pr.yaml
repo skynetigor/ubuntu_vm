@@ -240,13 +240,11 @@ steps:
   - name: run_project_tests
     type: workflow.execute
     with:
-      workflow-id: check-kibana-workflow-projects
+      workflow-id: run-kibana-unit-tests
       inputs:
         source_dir: '{{ steps.checkout_project.output.source_dir }}'
-        projects: ${{ consts.WORKFLOW_PROJECTS }}
-        changed_files: ${{ steps.prepare_review.output.changed_files }}
-        check_mode: tests
-        max_diagnostic_chars: '{{ consts.MAX_AGENT_DIAGNOSTIC_CHARS }}'
+        projects: ${{ steps.prepare_review.output.changed_projects }}
+        diagnostic_chars: ${{ consts.MAX_AGENT_DIAGNOSTIC_CHARS }}
 
   - name: summarize_review
     type: ssh.python
@@ -257,7 +255,7 @@ steps:
         CODE_FINDINGS_JSON: '{{ variables.code_findings | json }}'
         PR_COMMENTS_JSON: '{{ variables.pr_comments | json }}'
         PR_ANALYSIS_JSON: '{{ variables.pr_comment_analysis | json }}'
-        TEST_FAILURES_JSON: '{{ steps.run_project_tests.output.test_failures | json }}'
+        TEST_FAILURES_JSON: '{{ steps.run_project_tests.output.failed | json }}'
       code: |
         import sys
         sys.path.insert(0, '/etc/dev-env-scripts')
@@ -288,6 +286,7 @@ steps:
       pr_comments_to_fix: ${{ steps.summarize_review.output.pr_comments_to_fix }}
       other_pr_comments: ${{ steps.summarize_review.output.other_pr_comments }}
       failed_tests: ${{ steps.summarize_review.output.failed_tests }}
+      test_results: ${{ steps.run_project_tests.output.results }}
       needs_work: ${{ steps.summarize_review.output.needs_work }}
       session_id: '{{ variables.agent_session_id }}'
       run_summary: '{{ variables.run_summary }}'

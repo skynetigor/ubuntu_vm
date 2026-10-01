@@ -10,6 +10,9 @@ services:
         required: false
     container_name: elastic-dev-vm
     privileged: true
+    # Keep workflow load (Jest, Claude, preview builds) from starving Kibana/ES on the shared host.
+    mem_limit: ${DEV_VM_MEM_LIMIT:-16g}
+    memswap_limit: ${DEV_VM_MEM_LIMIT:-16g}
     ports:
       - "2222:22"
       - "5003-5999:5003-5999"
@@ -78,6 +81,7 @@ services:
       - DASHBOARDS_DIR=/opt/kibana/setup/dashboards
     ports:
       - "5002:5601"
+    mem_reservation: 4g
     volumes:
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
       # Main-Kibana-only config. Do NOT also set KIBANA_CONFIG_OVERRIDES_B64 for

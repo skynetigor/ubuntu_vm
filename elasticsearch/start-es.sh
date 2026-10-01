@@ -11,6 +11,9 @@ mkdir -p "$ES_DATA_DIR" "$ES_LOGS_DIR" "$ES_HOME/ES_TMPDIR"
 
 # ── Configure elasticsearch.yml ───────────────────────────────────────────────
 # Mirrors install_archive.ts lines 81-83 from kbn-es, plus persistent data/log paths
+# Container restarts rerun this script; ES rejects duplicate keys.
+sed -i -E '/^(path\.data|path\.logs|xpack\.security\.enabled|xpack\.license\.self_generated\.type):/d' \
+  "$ES_HOME/config/elasticsearch.yml"
 cat >> "$ES_HOME/config/elasticsearch.yml" <<EOF
 path.data: ${ES_DATA_DIR}
 path.logs: ${ES_LOGS_DIR}
@@ -21,7 +24,7 @@ EOF
 # ── Bootstrap keystore ────────────────────────────────────────────────────────
 # install_archive.ts lines 84-87: bootstrap keystore password
 # -xf: read from stdin (-x), force overwrite if key exists (-f)
-"$ES_HOME/bin/elasticsearch-keystore" create
+[ -f "$ES_HOME/config/elasticsearch.keystore" ] || "$ES_HOME/bin/elasticsearch-keystore" create
 printf '%s' "$ES_PASSWORD" | "$ES_HOME/bin/elasticsearch-keystore" add -xf bootstrap.password
 
 # ── Start Elasticsearch ───────────────────────────────────────────────────────

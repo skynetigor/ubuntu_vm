@@ -37,6 +37,18 @@ def publish_pr_fixes(environment=None):
         origin = run(['git', 'remote', 'get-url', 'origin']).stdout.strip()
         if not origin.rstrip('/').removesuffix('.git').endswith(head_repo):
             raise RuntimeError('Git origin does not match the PR head repository')
+        run(['gh', 'auth', 'setup-git'])
+        remote_head = run(
+            ['git', 'ls-remote', '--heads', 'origin', f'refs/heads/{head_ref}'],
+            timeout=120,
+        ).stdout.split()
+        if not remote_head or remote_head[0] != expected_sha:
+            raise RuntimeError('PR head branch advanced before publishing the fix branch')
+        suffix = re.sub(r'[^A-Za-z0-9._-]+', '-', environment['FIX_BRANCH_SUFFIX']).strip('-')
+        if not suffix:
+            raise RuntimeError('FIX_BRANCH_SUFFIX did not produce a valid branch suffix')
+        fix_branch = f'workflow-review-fixes/pr-{pr["number"]}-{suffix[:32]}'
+        run(['git', 'check-ref-format', '--branch', fix_branch])
 
         projects = json.loads(environment['WORKFLOW_PROJECTS'])
         production_files = set(json.loads(environment['PRODUCTION_FILES_JSON']))
@@ -69,7 +81,6 @@ def publish_pr_fixes(environment=None):
         if not allowed:
             return {'status': 'no_changes', 'published': False, 'changed_files': []}
 
-        run(['gh', 'auth', 'setup-git'])
         user_data = json.loads(run(['gh', 'api', 'user']).stdout)
         login = user_data['login']
         user_id = user_data['id']
@@ -82,19 +93,22 @@ def publish_pr_fixes(environment=None):
         ])
         commit_sha = run(['git', 'rev-parse', 'HEAD']).stdout.strip()
         pushed = run(
-            ['git', 'push', 'origin', f'HEAD:refs/heads/{head_ref}'],
+            ['git', 'push', 'origin', f'HEAD:refs/heads/{fix_branch}'],
             check=False, timeout=300,
         )
         if pushed.returncode:
             return {
                 'status': 'push_failed', 'published': False,
                 'commit_sha': commit_sha, 'changed_files': allowed,
+                'fix_branch': fix_branch, 'base_branch': head_ref,
                 'error': pushed.stderr[-3000:],
             }
         return {
             'status': 'published', 'published': True,
             'commit_sha': commit_sha, 'changed_files': allowed,
-            'head_ref': head_ref,
+            'fork_repository': head_repo,
+            'fix_branch': fix_branch,
+            'base_branch': head_ref,
         }
     except Exception as error:
         return {'status': 'failed', 'published': False, 'error': str(error)}

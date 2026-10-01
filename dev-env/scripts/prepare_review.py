@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 
 
 def prepare_review(environment=None, cwd=None):
@@ -45,11 +46,26 @@ def prepare_review(environment=None, cwd=None):
         ).splitlines()
         if path
     ]
+    # Keep PR files in scope even after a fix reverts them to the base version.
+    changed += [
+        path for path in git(
+            'diff', '--name-only', '--diff-filter=ACMRD', merge_base, head_commit,
+        ).splitlines()
+        if path
+    ]
     untracked = [
         path for path in git('ls-files', '--others', '--exclude-standard').splitlines()
         if path
     ]
-    changed = sorted(set(changed + untracked))
+    ignored_changed_parts = {
+        'node_modules', 'target', 'dist', 'build', 'generated', '.pnpm-store',
+    }
+    ignored_changed_files = {'.bootstrapcommit', '.clonecommit', '.compilecommit'}
+    changed = sorted({
+        path for path in changed + untracked
+        if path not in ignored_changed_files
+        and not any(part in ignored_changed_parts for part in path.split('/'))
+    })
 
     projects = json.loads(environment['WORKFLOW_PROJECTS'])
     include_globs = json.loads(environment['INCLUDE_GLOBS'])
@@ -107,12 +123,20 @@ def prepare_review(environment=None, cwd=None):
             f'of {max_diff_chars}; reduce the review scope or raise the limit.'
         )
 
+    changed_files_artifact = tempfile.NamedTemporaryFile(
+        mode='w', prefix='kbn-review-changed-files-', suffix='.json',
+        delete=False, encoding='utf-8',
+    )
+    with changed_files_artifact:
+        json.dump(changed, changed_files_artifact)
+
     return {
         'project': environment['PROJECT'],
         'base_commit': base_commit,
         'head_commit': head_commit,
         'merge_base': merge_base,
         'changed_files': changed,
+        'changed_files_path': changed_files_artifact.name,
         'changed_projects': changed_projects,
         'production_files': production_files,
         'diff_stat': diff_stat,

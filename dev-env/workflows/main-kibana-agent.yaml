@@ -56,6 +56,7 @@ steps:
     with:
       response: '{{ steps.claude.output.response }}'
       run_summary: '{{ steps.claude.output.run_summary }}'
-      findings: '{{ steps.claude.output.findings }}'
-      changes: '{{ steps.claude.output.changes }}'
+      findings: ${{ steps.claude.output.findings }}
+      changes: ${{ steps.claude.output.changes }}
+      pull_request: ${{ steps.claude.output.pull_request }}
       session_id: '{{ steps.claude.output.session_id }}'

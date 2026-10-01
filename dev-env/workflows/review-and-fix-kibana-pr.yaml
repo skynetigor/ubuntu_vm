@@ -26,16 +26,6 @@ triggers:
           type: boolean
           default: true
           description: Do not push changes or write PR replies/resolutions.
-        max_fix_rounds:
-          type: integer
-          default: 5
-          minimum: 1
-          maximum: 10
-
-consts:
-  MAX_COMMENT_FIXES_PER_ROUND: 50
-  MAX_TEST_FIXES_PER_ROUND: 11
-
 steps:
   - name: initialize_state
     type: data.set
@@ -62,6 +52,9 @@ steps:
       is_pr: false
       publish_status: blocked_unresolved
       publish_result: {}
+      fix_pr_status: not_created
+      fix_pr_result: {}
+      fix_pr_url: ''
       comment_resolution_status: not_pr
       comment_resolution_result: {}
 
@@ -69,7 +62,7 @@ steps:
     type: while
     condition: "${{ variables.needs_work == true }}"
     max-iterations:
-      limit: ${{ inputs.max_fix_rounds }}
+      limit: 5
       on-limit: continue
     steps:
       - name: review_current_state
@@ -118,7 +111,7 @@ steps:
         type: foreach
         foreach: '${{ steps.review_current_state.output.agent_comments_to_fix }}'
         max-iterations:
-          limit: '{{ consts.MAX_COMMENT_FIXES_PER_ROUND }}'
+          limit: 50
           on-limit: fail
         steps:
           - name: fix_one_agent_comment
@@ -147,7 +140,7 @@ steps:
         type: foreach
         foreach: '${{ steps.review_current_state.output.pr_comments_to_fix }}'
         max-iterations:
-          limit: '{{ consts.MAX_COMMENT_FIXES_PER_ROUND }}'
+          limit: 50
           on-limit: fail
         steps:
           - name: fix_one_pr_comment
@@ -177,7 +170,7 @@ steps:
         type: foreach
         foreach: '${{ steps.review_current_state.output.failed_tests }}'
         max-iterations:
-          limit: '{{ consts.MAX_TEST_FIXES_PER_ROUND }}'
+          limit: 11
           on-limit: fail
         steps:
           - name: fix_one_test_project
@@ -297,6 +290,7 @@ steps:
                 PR_CONTEXT_JSON: '{{ variables.initial_pr_context | json }}'
                 PRODUCTION_FILES_JSON: '{{ variables.current_production_files | json }}'
                 WORKFLOW_PROJECTS: '{{ variables.current_workflow_projects | json }}'
+                FIX_BRANCH_SUFFIX: '{{ execution.id }}'
               code: |
                 import sys
                 sys.path.insert(0, '/etc/dev-env-scripts')
@@ -309,18 +303,70 @@ steps:
               publish_status: '{{ steps.commit_and_push_pr_fixes.output.status }}'
               publish_result: ${{ steps.commit_and_push_pr_fixes.output }}
 
+  - name: create_fix_pull_request
+    type: if
+    condition: "${{ variables.publish_status == 'published' }}"
+    steps:
+      - name: agent_draft_fix_pull_request
+        type: workflow.execute
+        with:
+          workflow-id: main-kibana-agent
+          inputs:
+            cwd: '/opt/{{ variables.current_project }}/kibana/src'
+            disallow_shell: true
+            session_id: '{{ variables.agent_session_id }}'
+            run_summary: '{{ variables.run_summary }}'
+            prompt: >-
+              Draft the follow-up pull request for the validated automated fixes.
+              The PR will be opened in {{ variables.publish_result.fork_repository }}
+              from branch {{ variables.publish_result.fix_branch }} into the
+              original branch {{ variables.publish_result.base_branch }}.
+              Summarize only fixes actually represented by these resolved agent
+              comments, PR comments, and tests. Do not use tools, edit files, or
+              call GitHub. Return the normal structured response plus
+              pull_request with a concise title and Markdown body.
+              Fixed agent comments: {{ steps.summarize_fixed_items.output.fixed_agent_comments | json }}.
+              Fixed PR comments: {{ steps.summarize_fixed_items.output.fixed_pr_comments | json }}.
+              Fixed tests: {{ steps.summarize_fixed_items.output.fixed_tests | json }}.
+
+      - name: save_fix_pr_draft_session
+        type: data.set
+        with:
+          agent_session_id: '{{ steps.agent_draft_fix_pull_request.output.session_id }}'
+          run_summary: '{{ steps.agent_draft_fix_pull_request.output.run_summary }}'
+
+      - name: create_agent_fix_pull_request
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          env:
+            PUBLISH_RESULT_JSON: '{{ variables.publish_result | json }}'
+            PR_DRAFT_JSON: '{{ steps.agent_draft_fix_pull_request.output.pull_request | json }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from create_fix_pull_request import create_fix_pull_request
+            return create_fix_pull_request()
+
+      - name: save_fix_pull_request
+        type: data.set
+        with:
+          fix_pr_status: '{{ steps.create_agent_fix_pull_request.output.status }}'
+          fix_pr_result: ${{ steps.create_agent_fix_pull_request.output }}
+          fix_pr_url: '{{ steps.create_agent_fix_pull_request.output.url }}'
+
   - name: resolve_fixed_pr_comments
     type: if
     condition: "${{ variables.is_pr == true }}"
     steps:
       - name: resolve_when_published
         type: if
-        condition: "${{ variables.publish_status == 'published' }}"
+        condition: "${{ variables.fix_pr_url != '' }}"
         else:
           - name: save_skipped_resolution_status
             type: data.set
             with:
-              comment_resolution_status: '{{ variables.publish_status }}'
+              comment_resolution_status: '{{ variables.fix_pr_status }}'
         steps:
           - name: write_fixed_comment_replies
             type: ssh.python
@@ -332,7 +378,8 @@ steps:
                 COMMENT_ANALYSIS_JSON: '{{ variables.initial_pr_comment_analysis | json }}'
                 COMMENT_FIXES_JSON: '{{ steps.build_pr_comment_actions.output.fixes | json }}'
                 FIXABLE_SEVERITIES: '["high", "medium"]'
-                COMMIT_SHA: '{{ steps.commit_and_push_pr_fixes.output.commit_sha }}'
+                COMMIT_SHA: '{{ variables.publish_result.commit_sha }}'
+                FIX_PR_URL: '{{ variables.fix_pr_url }}'
               code: |
                 import sys
                 sys.path.insert(0, '/etc/dev-env-scripts')
@@ -347,12 +394,12 @@ steps:
 
       - name: mark_comment_writes_skipped
         type: if
-        condition: "${{ variables.publish_status != 'published' }}"
+        condition: "${{ variables.fix_pr_url == '' }}"
         steps:
           - name: set_skipped_resolution_state
             type: data.set
             with:
-              comment_resolution_status: '{{ variables.publish_status }}'
+              comment_resolution_status: '{{ variables.fix_pr_status }}'
 
   - name: output
     type: workflow.output
@@ -369,6 +416,9 @@ steps:
       rounds: ${{ variables.round_count }}
       publish_status: '{{ variables.publish_status }}'
       publish_result: ${{ variables.publish_result }}
+      fix_pr_status: '{{ variables.fix_pr_status }}'
+      fix_pr_result: ${{ variables.fix_pr_result }}
+      fix_pr_url: '{{ variables.fix_pr_url }}'
       comment_resolution_status: '{{ variables.comment_resolution_status }}'
       comment_resolution_result: ${{ variables.comment_resolution_result }}
       project: '{{ variables.current_project }}'

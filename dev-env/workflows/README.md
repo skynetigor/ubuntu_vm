@@ -26,7 +26,10 @@ metadata in both normal and already-deployed outputs.
 
 `review-kibana-pr.yaml` performs review and tests without edits or GitHub writes.
 `review-and-fix-kibana-pr.yaml` repeatedly fixes its actionable outputs and
-re-reviews until clean or the configured round limit is reached.
+re-reviews until clean or the configured round limit is reached. With dry-run
+disabled, it pushes validated fixes to a separate branch on the PR fork, asks
+the agent to draft the follow-up PR title/body, creates that PR against the
+original branch, and returns its URL.
 
 ## Sync Kibana Forks
 

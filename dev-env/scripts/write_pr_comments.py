@@ -15,6 +15,7 @@ def write_pr_comments(environment=None):
     eligible = set(json.loads(environment['FIXABLE_SEVERITIES']))
     owner, repo, number = pr['owner'], pr['repo'], pr['number']
     commit_sha = environment['COMMIT_SHA']
+    fix_pr_url = environment.get('FIX_PR_URL', '').strip()
 
     def gh_api(*args):
         try:
@@ -80,6 +81,8 @@ def write_pr_comments(environment=None):
         )
         if not existing_reply:
             body = (fix.get('reply') or ('Fixed in commit ' + commit_sha + '.')).strip()
+            if fix_pr_url:
+                body += '\n\nFollow-up PR: ' + fix_pr_url
             body += '\n\n' + marker
             gh_api(
                 '--method', 'POST', f'repos/{owner}/{repo}/pulls/{number}/comments',

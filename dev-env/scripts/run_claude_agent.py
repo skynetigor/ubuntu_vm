@@ -7,6 +7,28 @@ import threading
 import time
 
 
+OUTPUT_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'response': {'type': 'string'},
+        'run_summary': {'type': 'string'},
+        'findings': {'type': 'array'},
+        'changes': {'type': 'array'},
+        'pull_request': {
+            'type': 'object',
+            'properties': {
+                'title': {'type': 'string'},
+                'body': {'type': 'string'},
+            },
+            'required': ['title', 'body'],
+            'additionalProperties': False,
+        },
+    },
+    'required': ['response', 'run_summary', 'findings', 'changes'],
+    'additionalProperties': False,
+}
+
+
 def run_claude_agent(environment=None):
     environment = os.environ if environment is None else environment
     prompt = environment['CLAUDE_PROMPT']
@@ -15,7 +37,7 @@ def run_claude_agent(environment=None):
     if run_summary:
         prompt = 'Previous workflow phase summary:\n' + run_summary + '\n\n' + prompt
     prompt += (
-        '\n\nReturn only a JSON object with keys `response` and `run_summary`. '
+        '\n\nReturn the requested structured result. '
         '`run_summary` must be a concise durable handoff: decisions, findings, '
         'files changed, unresolved items, and next actions. Do not include secrets.'
     )
@@ -36,6 +58,8 @@ def run_claude_agent(environment=None):
         '--verbose',
         '--output-format',
         'stream-json',
+        '--json-schema',
+        json.dumps(OUTPUT_SCHEMA),
         '--permission-mode',
         'auto',
     ]
@@ -121,12 +145,15 @@ def run_claude_agent(environment=None):
     if result is None:
         raise RuntimeError('Claude CLI did not return a result event')
 
-    try:
-        phase_result = json.loads(result['result'])
-    except (KeyError, json.JSONDecodeError) as error:
-        raise RuntimeError('Claude response was not the required JSON object') from error
-    if not isinstance(phase_result, dict) or not isinstance(phase_result.get('run_summary'), str):
-        raise RuntimeError('Claude response is missing the required run_summary')
+    phase_result = result.get('structured_output')
+    if not isinstance(phase_result, dict):
+        raise RuntimeError('Claude CLI did not return structured output')
+    if not isinstance(phase_result.get('run_summary'), str):
+        raise RuntimeError('Claude structured output is missing run_summary')
+    if not isinstance(phase_result.get('findings'), list):
+        raise RuntimeError('Claude structured output is missing findings')
+    if not isinstance(phase_result.get('changes'), list):
+        raise RuntimeError('Claude structured output is missing changes')
 
     print('Claude: response complete', flush=True)
     return {
@@ -134,5 +161,6 @@ def run_claude_agent(environment=None):
         'run_summary': phase_result['run_summary'],
         'findings': phase_result.get('findings', []),
         'changes': phase_result.get('changes', []),
+        'pull_request': phase_result.get('pull_request', {}),
         'session_id': result['session_id'],
     }
