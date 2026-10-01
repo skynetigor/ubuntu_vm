@@ -50,7 +50,9 @@ def write_pr_comments(environment=None):
     for fix in fixes:
         comment_id = str(fix.get('comment_id', ''))
         decision = analysis_by_id.get(comment_id, {})
-        if (not comment_id or decision.get('already_fixed') is not False
+        status = decision.get('status') or ('fixed_in_pr' if decision.get('already_fixed') is True else 'open')
+        # Comments already fixed by the PR author were not fixed by this run.
+        if (not comment_id or status not in {'open', 'fixed_locally'}
                 or decision.get('severity') not in eligible
                 or fix.get('fixed') is not True):
             continue
@@ -82,7 +84,7 @@ def write_pr_comments(environment=None):
         if not existing_reply:
             body = (fix.get('reply') or ('Fixed in commit ' + commit_sha + '.')).strip()
             if fix_pr_url:
-                body += '\n\nFollow-up PR: ' + fix_pr_url
+                body += '\n\nMerged in follow-up PR: ' + fix_pr_url
             body += '\n\n' + marker
             gh_api(
                 '--method', 'POST', f'repos/{owner}/{repo}/pulls/{number}/comments',
