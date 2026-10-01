@@ -70,6 +70,16 @@ def prepare_review(environment=None, cwd=None):
     projects = json.loads(environment['WORKFLOW_PROJECTS'])
     include_globs = json.loads(environment['INCLUDE_GLOBS'])
     exclude_globs = json.loads(environment['EXCLUDE_GLOBS'])
+    lint_extensions = ('.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx')
+
+    # Mirrors publish_pr_fixes test-file allowance so lint fixes stay publishable.
+    def is_test_path(path):
+        parts = path.split('/')
+        return (
+            any(part in {'test', 'tests', '__tests__'} for part in parts)
+            or any(re.search(r'\.(test|spec)\.[^.]+$', part) for part in parts)
+        )
+
     production_files = []
     changed_projects = []
     for project in projects:
@@ -77,13 +87,23 @@ def prepare_review(environment=None, cwd=None):
         project_files = [path for path in changed if path.startswith(root)]
         if not project_files:
             continue
-        changed_projects.append(project)
+        project_production_files = set()
         for path in project_files:
             if not any(fnmatch.fnmatchcase(path, pattern) for pattern in include_globs):
                 continue
             if any(fnmatch.fnmatchcase(path, pattern) for pattern in exclude_globs):
                 continue
-            production_files.append(path)
+            project_production_files.add(path)
+        production_files.extend(project_production_files)
+        changed_projects.append({
+            **project,
+            'files': sorted(
+                path for path in project_files
+                if path.endswith(lint_extensions)
+                and os.path.isfile(os.path.join(cwd, path))
+                and (path in project_production_files or is_test_path(path))
+            ),
+        })
 
     production_files = sorted(set(production_files))
     max_files = int(environment['MAX_FILES'])

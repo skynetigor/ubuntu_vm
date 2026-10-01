@@ -1,8 +1,9 @@
 version: '1'
 name: Review and Fix Kibana PR
 description: >-
-  Repeatedly reviews a Kibana target, fixes actionable comments and failing
-  workflow-project tests, then publishes validated fixes and resolves PR threads.
+  Repeatedly reviews a Kibana target, fixes actionable comments, failing
+  workflow-project tests, and lint errors, then publishes validated fixes and
+  resolves PR threads.
 enabled: true
 tags:
   - kibana
@@ -42,6 +43,8 @@ steps:
       current_pr_comments_to_fix: []
       current_other_pr_comments: []
       current_failed_tests: []
+      current_lint_failures: []
+      lint_fixed_files: []
       current_pr_context: {}
       current_pr_comment_analysis: []
       initial_pr_context: {}
@@ -195,6 +198,52 @@ steps:
               agent_session_id: '{{ steps.fix_one_test_project.output.session_id }}'
               run_summary: '{{ steps.fix_one_test_project.output.run_summary }}'
 
+      - name: lint_changed_files
+        type: workflow.execute
+        with:
+          workflow-id: run-kibana-eslint
+          inputs:
+            source_dir: '/opt/{{ variables.current_project }}/kibana/src'
+            projects: ${{ steps.review_current_state.output.changed_projects }}
+
+      # Autofixes or remaining errors change the code after review, so another round must re-review and re-test.
+      - name: save_lint_state
+        type: data.set
+        with:
+          needs_work: ${{ variables.needs_work or steps.lint_changed_files.output.all_passed == false or steps.lint_changed_files.output.fixed_files.size > 0 }}
+          current_lint_failures: ${{ steps.lint_changed_files.output.failed }}
+          lint_fixed_files: "${{ variables.lint_fixed_files | concat: steps.lint_changed_files.output.fixed_files | uniq }}"
+
+      - name: fix_lint_errors
+        type: foreach
+        foreach: '${{ steps.lint_changed_files.output.failed }}'
+        max-iterations:
+          limit: 11
+          on-limit: fail
+        steps:
+          - name: fix_one_lint_project
+            type: workflow.execute
+            with:
+              workflow-id: main-kibana-agent
+              inputs:
+                cwd: '/opt/{{ variables.current_project }}/kibana/src'
+                disallow_shell: true
+                session_id: '{{ variables.agent_session_id }}'
+                run_summary: '{{ variables.run_summary }}'
+                prompt: >-
+                  ESLint --fix already ran; fix the remaining lint errors in
+                  files_with_errors for this workflow project only. Do not add
+                  eslint-disable comments unless a rule is genuinely wrong for
+                  the line, do not commit or push, and avoid unrelated changes.
+                  Return JSON with response, run_summary, findings, and changes.
+                  Lint result: {{ foreach.item | json }}
+
+          - name: save_lint_fix_session
+            type: data.set
+            with:
+              agent_session_id: '{{ steps.fix_one_lint_project.output.session_id }}'
+              run_summary: '{{ steps.fix_one_lint_project.output.run_summary }}'
+
   - name: verify_after_iteration_limit
     type: if
     condition: "${{ variables.needs_work == true }}"
@@ -226,6 +275,21 @@ steps:
           current_workflow_projects: ${{ steps.final_review.output.workflow_projects }}
           current_project: '{{ steps.final_review.output.project }}'
           is_pr: ${{ steps.final_review.output.is_pr }}
+
+      - name: final_lint
+        type: workflow.execute
+        with:
+          workflow-id: run-kibana-eslint
+          inputs:
+            source_dir: '/opt/{{ variables.current_project }}/kibana/src'
+            projects: ${{ steps.final_review.output.changed_projects }}
+
+      - name: save_final_lint_state
+        type: data.set
+        with:
+          needs_work: ${{ variables.needs_work or steps.final_lint.output.all_passed == false or steps.final_lint.output.fixed_files.size > 0 }}
+          current_lint_failures: ${{ steps.final_lint.output.failed }}
+          lint_fixed_files: "${{ variables.lint_fixed_files | concat: steps.final_lint.output.fixed_files | uniq }}"
 
   - name: summarize_fixed_items
     type: ssh.python
@@ -328,6 +392,7 @@ steps:
               Fixed agent comments: {{ steps.summarize_fixed_items.output.fixed_agent_comments | json }}.
               Fixed PR comments: {{ steps.summarize_fixed_items.output.fixed_pr_comments | json }}.
               Fixed tests: {{ steps.summarize_fixed_items.output.fixed_tests | json }}.
+              Files changed by ESLint autofix: {{ variables.lint_fixed_files | json }}.
 
       - name: save_fix_pr_draft_session
         type: data.set
@@ -412,6 +477,8 @@ steps:
       remaining_pr_comments: ${{ variables.current_pr_comments_to_fix }}
       other_pr_comments: ${{ variables.current_other_pr_comments }}
       remaining_tests: ${{ variables.current_failed_tests }}
+      lint_fixed_files: ${{ variables.lint_fixed_files }}
+      remaining_lint_failures: ${{ variables.current_lint_failures }}
       needs_work: ${{ variables.needs_work }}
       rounds: ${{ variables.round_count }}
       publish_status: '{{ variables.publish_status }}'

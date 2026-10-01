@@ -277,6 +277,7 @@ steps:
       base_commit: '{{ steps.prepare_review.output.base_commit }}'
       production_files: ${{ steps.prepare_review.output.production_files }}
       changed_files: ${{ steps.prepare_review.output.changed_files }}
+      changed_projects: ${{ steps.prepare_review.output.changed_projects }}
       workflow_projects: ${{ consts.WORKFLOW_PROJECTS }}
       is_pr: ${{ steps.detect_target.output.is_pr }}
       pr_context: ${{ variables.pr_context }}

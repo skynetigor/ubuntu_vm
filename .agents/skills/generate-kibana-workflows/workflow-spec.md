@@ -736,7 +736,7 @@ git diff --check
 - While + foreach + GitHub write gating: `dev-env/workflows/review-and-fix-kibana-pr.yaml`
 - Scheduled cleanup and child foreach: `dev-env/workflows/cleanup-expired-previews.yaml`
 - HTTP/JavaScript/metrics processing: `dev-env/workflows/collect_metrics.yaml`
-- Native-step child workflow with foreach result accumulation: `dev-env/workflows/run-kibana-unit-tests.yaml`
+- Native-step child workflow with foreach result accumulation: `dev-env/workflows/run-kibana-unit-tests.yaml`, `dev-env/workflows/run-kibana-eslint.yaml`
 
 ## Common Failure Modes
 
