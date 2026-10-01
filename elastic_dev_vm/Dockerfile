@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     ca-certificates \
+    acl \
     gnupg \
     lsb-release \
     && rm -rf /var/lib/apt/lists/*
@@ -54,6 +55,10 @@ RUN useradd -m -s /bin/bash kibana \
     && mkdir -p /home/kibana/.ssh \
     && chmod 700 /home/kibana/.ssh
 
+# Unit tests run as an unprivileged account without Docker, sudo, or API tokens.
+RUN useradd -m -s /bin/bash workflow-runner \
+    && chmod 700 /home/workflow-runner
+
 # NVM + Node LTS + pnpm + Claude + agent-browser (in kibana's home)
 ENV NVM_DIR=/home/kibana/.nvm
 RUN mkdir -p "$NVM_DIR" \
@@ -78,7 +83,8 @@ RUN mkdir -p "$NVM_DIR" \
          --skill agent-browser --global --agent claude-code --copy --yes \
      && test -f /home/kibana/.claude/skills/agent-browser/SKILL.md \
     # Give kibana full ownership of its home (covers NVM and .ssh)
-    && chown -R kibana:kibana /home/kibana
+    && chown -R kibana:kibana /home/kibana \
+    && chmod 711 /home/kibana
 
 # Make NVM available in all shell types:
 #   /etc/profile.d  — login shells (ssh -l, su -, interactive login)

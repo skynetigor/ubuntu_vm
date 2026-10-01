@@ -20,15 +20,29 @@ triggers:
         session_id:
           type: string
           description: Claude session ID to resume; omit to start a new session.
+        cwd:
+          type: string
+          description: Remote working directory for Claude Code.
+          default: /opt/ubuntu_vm
+        run_summary:
+          type: string
+          description: Compact summary from the previous phase in this workflow run.
+        disallow_shell:
+          type: boolean
+          default: false
+          description: Disable Claude's Bash tool for restricted automation calls.
 
 steps:
   - name: claude
     type: ssh.python
     connector-id: dev-vm
     with:
+      cwd: '{{ inputs.cwd | default: "/opt/ubuntu_vm" }}'
       env:
         CLAUDE_PROMPT: '{{ inputs.prompt }}'
         CLAUDE_SESSION_ID: '{{ inputs.session_id | default: "" }}'
+        CLAUDE_RUN_SUMMARY: '{{ inputs.run_summary | default: "" }}'
+        CLAUDE_DISALLOW_SHELL: '{{ inputs.disallow_shell | default: false }}'
       code: |
         import json
         import os
@@ -36,8 +50,27 @@ steps:
 
         prompt = os.environ["CLAUDE_PROMPT"]
         session_id = os.environ.get("CLAUDE_SESSION_ID", "").strip()
+        run_summary = os.environ.get("CLAUDE_RUN_SUMMARY", "").strip()
+        if run_summary:
+          prompt = "Previous workflow phase summary:\n" + run_summary + "\n\n" + prompt
+        prompt += (
+          "\n\nReturn only a JSON object with keys `response` and `run_summary`. "
+          "`run_summary` must be a concise durable handoff: decisions, findings, "
+          "files changed, unresolved items, and next actions. Do not include secrets."
+        )
+        disallowed_tools = [
+            "Bash(sudo *)",
+            "Bash(docker *)",
+            "Bash(gh *)",
+            "Bash(git commit *)",
+            "Bash(git push *)",
+        ]
+        if os.environ.get("CLAUDE_DISALLOW_SHELL", "").lower() in {"true", "1"}:
+            disallowed_tools.insert(0, "Bash")
         command = [
           "claude",
+          "--disallowedTools",
+          *disallowed_tools,
           "--print",
           "--verbose",
           "--output-format",
@@ -48,6 +81,9 @@ steps:
         if session_id:
             command.extend(["--resume", session_id])
         command.append(prompt)
+        agent_env = os.environ.copy()
+        for secret_name in ("GH_TOKEN", "GITHUB_TOKEN", "BUILD_KITE_API_TOKEN"):
+          agent_env.pop(secret_name, None)
 
         print("Claude: processing request", flush=True)
         process = subprocess.Popen(
@@ -56,6 +92,7 @@ steps:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=agent_env,
         )
         result = None
 
@@ -80,9 +117,19 @@ steps:
         if result is None:
             raise RuntimeError("Claude CLI did not return a result event")
 
+        try:
+          phase_result = json.loads(result["result"])
+        except (KeyError, json.JSONDecodeError) as error:
+          raise RuntimeError("Claude response was not the required JSON object") from error
+        if not isinstance(phase_result, dict) or not isinstance(phase_result.get("run_summary"), str):
+          raise RuntimeError("Claude response is missing the required run_summary")
+
         print("Claude: response complete", flush=True)
         return {
-            "response": result["result"],
+          "response": phase_result.get("response", ""),
+          "run_summary": phase_result["run_summary"],
+          "findings": phase_result.get("findings", []),
+          "changes": phase_result.get("changes", []),
             "session_id": result["session_id"],
         }
 
@@ -90,4 +137,7 @@ steps:
     type: workflow.output
     with:
       response: '{{ steps.claude.output.response }}'
+      run_summary: '{{ steps.claude.output.run_summary }}'
+      findings: '{{ steps.claude.output.findings }}'
+      changes: '{{ steps.claude.output.changes }}'
       session_id: '{{ steps.claude.output.session_id }}'
