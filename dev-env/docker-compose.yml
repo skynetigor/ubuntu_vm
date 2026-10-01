@@ -62,6 +62,8 @@ services:
         required: false
       - path: ./env/cloudflare.env
         required: false
+      - path: ./env/claude.env
+        required: false
     environment:
       - KIBANA_PUBLIC_URL=https://${CF_SUBDOMAIN:-}.${CF_DOMAIN:-}
       - ES_HOST=http://elasticsearch:9200
