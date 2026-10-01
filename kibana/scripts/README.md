@@ -20,9 +20,12 @@ Clones or updates the Kibana source repository.
 ### `bootstrap.sh`
 Installs Kibana's dependencies.
 
+- Skips when `.bootstrapcommit` already matches `HEAD`
 - Activates the Node version from `.nvmrc` via NVM
 - Runs `pnpm kbn bootstrap`
 - Pre-populates platform Node binaries required by the build (`darwin-arm64`, `linux-x64`)
+- Optional `BOOTSTRAP_CACHE_ROOT`: symlinks `<root>/<commit>/node_modules` on a cache hit (only when there is no real `node_modules` directory) and caches `node_modules` after a fresh bootstrap
+- When `STEP_OUTPUT` is set (workflow `ssh.run` steps), writes `{"status": "skipped" | "cache_linked" | "bootstrapped", "commit": ...}` to it
 
 ### `compile.sh`
 Builds the Kibana distribution.

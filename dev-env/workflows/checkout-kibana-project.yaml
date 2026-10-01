@@ -1,8 +1,10 @@
 version: '1'
 name: Checkout Kibana Project
 description: >-
-  Resolves a Kibana GitHub target, prepares its project checkout, and fetches
-  additional branches into explicit refs. Skips target checkout when HEAD matches.
+  Resolves a Kibana GitHub target, prepares its project checkout, fetches
+  additional branches into explicit refs, and bootstraps dependencies for the
+  checked-out commit. Skips target checkout when HEAD matches and skips bootstrap
+  when already bootstrapped at HEAD.
 enabled: true
 tags:
   - kibana
@@ -44,12 +46,28 @@ triggers:
               depth:
                 type: integer
                 minimum: 1
+        bootstrap:
+          type: boolean
+          default: true
+          description: Install dependencies for the checked-out commit.
 
 consts:
   UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
   UBUNTU_VM_BRANCH: main
+  BOOTSTRAP_CACHE_ROOT: /opt/kibana-cache
+
+# Same literal key as run-kibana-unit-tests and run-kibana-eslint: one heavy Node job at a time on dev-vm.
+settings:
+  concurrency:
+    key: dev-vm-node-heavy
+    strategy: queue
+    max: 1
 
 steps:
+  - name: initialize_state
+    type: data.set
+    with:
+      bootstrap_status: not_requested
   - name: checkout
     type: ssh.python
     connector-id: dev-vm
@@ -66,6 +84,26 @@ steps:
         from checkout_kibana_project import checkout_kibana_project
         return checkout_kibana_project()
 
+  - name: bootstrap_when_requested
+    type: if
+    condition: "${{ inputs.bootstrap == true }}"
+    steps:
+      - name: bootstrap
+        type: ssh.run
+        connector-id: dev-vm
+        with:
+          env:
+            DEPLOY_DIR: '{{ steps.checkout.output.deploy_dir }}'
+            KIBANA_SRC: '{{ steps.checkout.output.source_dir }}'
+            BOOTSTRAP_CACHE_ROOT: '{{ consts.BOOTSTRAP_CACHE_ROOT }}'
+          command: |
+            bash "$DEPLOY_DIR/kibana/scripts/bootstrap.sh"
+
+      - name: save_bootstrap_status
+        type: data.set
+        with:
+          bootstrap_status: '{{ steps.bootstrap.output.status }}'
+
   - name: output
     type: workflow.output
     with:
@@ -79,3 +117,4 @@ steps:
       checkout_changed: '{{ steps.checkout.output.checkout_changed }}'
       clone_skipped: '{{ steps.checkout.output.clone_skipped }}'
       fetched_branches: '{{ steps.checkout.output.fetched_branches | json }}'
+      bootstrap_status: '{{ variables.bootstrap_status }}'

@@ -147,7 +147,7 @@ steps:
             es_port:
               type: integer
 
-  # ── Step 1: Resolve target and prepare source checkout ───────────────────
+  # ── Step 1: Resolve target, prepare source checkout, and bootstrap ───────
   - name: checkout_project
     type: workflow.execute
     with:
@@ -363,26 +363,6 @@ steps:
         } else {
           console.log("=== kibana.user.yml: no overrides ===");
         }
-
-  # ── Step 6: Bootstrap dependencies ───────────────────────────────────────
-  - name: bootstrap
-    type: ssh.run
-    connector-id: dev-vm
-    with:
-      env:
-        DEPLOY_DIR: '{{ steps.checkout_project.output.deploy_dir }}'
-        KIBANA_SRC: '{{ steps.checkout_project.output.source_dir }}'
-        KIBANA_COMMIT: '{{ steps.checkout_project.output.commit }}'
-      command: |
-        CACHE_DIR="/opt/kibana-cache/$KIBANA_COMMIT"
-        if [ -d "$CACHE_DIR/node_modules" ]; then
-          echo "=== Cache hit — symlinking node_modules ($KIBANA_COMMIT) ==="
-          ln -sfn "$CACHE_DIR/node_modules" "$KIBANA_SRC/node_modules"
-        else
-          bash "$DEPLOY_DIR/kibana/scripts/bootstrap.sh"
-          mkdir -p "$CACHE_DIR"
-          cp -al "$KIBANA_SRC/node_modules" "$CACHE_DIR/node_modules"
-        fi
 
   # ── Step 8: Compile / build distribution ─────────────────────────────────
   - name: compile

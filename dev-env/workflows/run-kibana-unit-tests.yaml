@@ -45,9 +45,12 @@ triggers:
           default: 12000
           minimum: 500
 
-consts:
-  # Shared across all executions on dev-vm so concurrent runs cannot multiply Jest workers.
-  JEST_LOCK_PATH: /tmp/kbn-workflow-jest.lock
+# Same literal key as checkout-kibana-project and run-kibana-eslint: one heavy Node job at a time on dev-vm.
+settings:
+  concurrency:
+    key: dev-vm-node-heavy
+    strategy: queue
+    max: 1
 
 steps:
   - name: initialize_results
@@ -107,7 +110,6 @@ steps:
             PROJECT_ID: '{{ foreach.item.id }}'
             SOURCE_ROOT: '{{ foreach.item.source_root }}'
             LOG_DIR: '{{ steps.prepare_runner.output.log_dir }}'
-            LOCK_PATH: '{{ consts.JEST_LOCK_PATH }}'
             MAX_WORKERS: '{{ inputs.max_workers }}'
             TIMEOUT_SECONDS: '{{ inputs.timeout_seconds }}'
             DIAGNOSTIC_CHARS: '{{ inputs.diagnostic_chars }}'
@@ -122,14 +124,12 @@ steps:
             started=$(date +%s)
 
             if [ -f "$config" ]; then
-              echo "[$PROJECT_ID] waiting for Jest lock"
               # timeout runs as workflow-runner so it can kill the whole Jest worker group.
-              flock "$LOCK_PATH" \
-                sudo -n -u workflow-runner env -i \
-                  HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
-                  NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
-                  CI=true DISABLE_SWC_REGISTER_CACHE=1 \
-                  timeout -k 30 "$TIMEOUT_SECONDS" node "${jest_args[@]}" > "$log" 2>&1
+              sudo -n -u workflow-runner env -i \
+                HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
+                NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
+                CI=true DISABLE_SWC_REGISTER_CACHE=1 \
+                timeout -k 30 "$TIMEOUT_SECONDS" node "${jest_args[@]}" > "$log" 2>&1
               exit_code=$?
             else
               echo "Missing $config" > "$log"

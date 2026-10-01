@@ -48,9 +48,12 @@ triggers:
           default: 12000
           minimum: 500
 
-consts:
-  # Shared with run-kibana-unit-tests so Jest and ESLint never run concurrently on dev-vm.
-  CHECK_LOCK_PATH: /tmp/kbn-workflow-jest.lock
+# Same literal key as checkout-kibana-project and run-kibana-unit-tests: one heavy Node job at a time on dev-vm.
+settings:
+  concurrency:
+    key: dev-vm-node-heavy
+    strategy: queue
+    max: 1
 
 steps:
   - name: initialize_results
@@ -107,7 +110,6 @@ steps:
             LINT_SCOPE: '{% if foreach.item.files == nil %}project{% else %}files{% endif %}'
             FILES: '{{ foreach.item.files | join: " " }}'
             LOG_DIR: '{{ steps.prepare_runner.output.log_dir }}'
-            LOCK_PATH: '{{ consts.CHECK_LOCK_PATH }}'
             TIMEOUT_SECONDS: '{{ inputs.timeout_seconds }}'
             DIAGNOSTIC_CHARS: '{{ inputs.diagnostic_chars }}'
           command: |
@@ -146,14 +148,12 @@ steps:
               : > "$base.fixed"
             elif [ -d "$root" ]; then
               snapshot > "$base.before"
-              echo "[$PROJECT_ID] waiting for check lock"
               # timeout runs as workflow-runner so it can kill the whole ESLint process group.
-              flock "$LOCK_PATH" \
-                sudo -n -u workflow-runner env -i \
-                  HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
-                  NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
-                  CI=true DISABLE_SWC_REGISTER_CACHE=1 \
-                  timeout -k 30 "$TIMEOUT_SECONDS" node "${eslint_args[@]}" > "$log" 2>&1
+              sudo -n -u workflow-runner env -i \
+                HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
+                NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
+                CI=true DISABLE_SWC_REGISTER_CACHE=1 \
+                timeout -k 30 "$TIMEOUT_SECONDS" node "${eslint_args[@]}" > "$log" 2>&1
               exit_code=$?
               snapshot > "$base.after"
               comm -13 "$base.before" "$base.after" | cut -c35- > "$base.fixed"

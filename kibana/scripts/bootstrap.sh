@@ -17,12 +17,31 @@ fi
 
 CURRENT_COMMIT=$(git -C "$KIBANA_SRC" rev-parse HEAD)
 STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
+
+# Workflow steps read the result from $STEP_OUTPUT; plain shell runs ignore it.
+report_status() {
+  if [ -n "${STEP_OUTPUT:-}" ]; then
+    printf '{"status":"%s","commit":"%s"}' "$1" "$CURRENT_COMMIT" > "$STEP_OUTPUT"
+  fi
+}
+
 if [ "$CURRENT_COMMIT" = "$STORED_COMMIT" ]; then
   echo "=== Skipping bootstrap — already at $CURRENT_COMMIT ==="
+  report_status skipped
   exit 0
 fi
 
 cd "$KIBANA_SRC"
+
+# Optional per-commit node_modules cache (BOOTSTRAP_CACHE_ROOT, e.g. /opt/kibana-cache).
+CACHE_DIR="${BOOTSTRAP_CACHE_ROOT:+$BOOTSTRAP_CACHE_ROOT/$CURRENT_COMMIT}"
+# A real node_modules directory cannot be replaced by a symlink without deleting it first.
+if [ -n "$CACHE_DIR" ] && [ -d "$CACHE_DIR/node_modules" ] && { [ ! -e node_modules ] || [ -L node_modules ]; }; then
+  echo "=== Cache hit — symlinking node_modules ($CURRENT_COMMIT) ==="
+  ln -sfn "$CACHE_DIR/node_modules" node_modules
+  report_status cache_linked
+  exit 0
+fi
 
 # ── Node version ──────────────────────────────────────────────────────────────
 # set +u: nvm.sh uses unbound variables internally
@@ -98,4 +117,10 @@ else
 fi
 
 echo "$CURRENT_COMMIT" > "$COMMIT_FILE"
+if [ -n "$CACHE_DIR" ] && [ ! -d "$CACHE_DIR/node_modules" ] && [ -d node_modules ] && [ ! -L node_modules ]; then
+  mkdir -p "$CACHE_DIR"
+  cp -al node_modules "$CACHE_DIR/node_modules"
+  echo "=== Cached node_modules for $CURRENT_COMMIT ==="
+fi
+report_status bootstrapped
 echo "=== Bootstrap done at $CURRENT_COMMIT ==="

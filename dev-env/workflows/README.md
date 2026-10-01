@@ -12,13 +12,21 @@ exact SHA and prepares `/opt/<project>/kibana/src`.
 - `additional_branches` accepts multiple `{repository, branch, ref, depth}`
   objects. Each `ref` must be under `refs/remotes/`.
 - Additional branches are fetched even when target checkout is skipped.
+- Dependencies are bootstrapped for the checked-out commit (`bootstrap`, default
+  `true`) by running `kibana/scripts/bootstrap.sh` with the dev-vm cache
+  (`/opt/kibana-cache`).
+- Shares the `dev-vm-node-heavy` concurrency queue (`max: 1`) with
+  `run-kibana-unit-tests` and `run-kibana-eslint`, so bootstrap, Jest, and
+  ESLint never run at the same time on dev-vm.
 - Output always includes project, target, commit, repository, source branch,
-  deploy/source paths, checkout/skip flags, and fetched branch metadata.
+  deploy/source paths, checkout/skip flags, fetched branch metadata, and
+  `bootstrap_status` (`skipped`, `cache_linked`, `bootstrapped`, or
+  `not_requested`).
 
 ## Deploy Kibana Preview
 
-`deploy-kibana-preview.yaml` delegates project resolution and source checkout to
-`checkout-kibana-project`, then bootstraps, compiles, and starts the preview.
+`deploy-kibana-preview.yaml` delegates project resolution, source checkout, and
+bootstrap to `checkout-kibana-project`, then compiles and starts the preview.
 It accepts the checkout depth and additional branch list and returns checkout
 metadata in both normal and already-deployed outputs.
 
