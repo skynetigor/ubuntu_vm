@@ -1,6 +1,10 @@
 import json
 import os
+import queue
+import signal
 import subprocess
+import threading
+import time
 
 
 def run_claude_agent(environment=None):
@@ -41,6 +45,7 @@ def run_claude_agent(environment=None):
     agent_env = environment.copy()
     for secret_name in ('GH_TOKEN', 'GITHUB_TOKEN', 'BUILD_KITE_API_TOKEN'):
         agent_env.pop(secret_name, None)
+    timeout_seconds = int(environment.get('CLAUDE_TIMEOUT_SECONDS', '3600'))
 
     print('Claude: processing request', flush=True)
     process = subprocess.Popen(
@@ -50,10 +55,48 @@ def run_claude_agent(environment=None):
         text=True,
         bufsize=1,
         env=agent_env,
+        start_new_session=True,
     )
-    result = None
+    output_lines = queue.Queue()
 
-    for line in process.stdout:
+    def read_output():
+        for output_line in process.stdout:
+            output_lines.put(output_line)
+        output_lines.put(None)
+
+    threading.Thread(target=read_output, daemon=True).start()
+    result = None
+    deadline = time.monotonic() + timeout_seconds
+
+    def terminate_process_group():
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if process.poll() is None:
+            process.wait()
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            terminate_process_group()
+            raise RuntimeError(f'Claude CLI timed out after {timeout_seconds} seconds')
+        try:
+            line = output_lines.get(timeout=min(remaining, 1))
+        except queue.Empty:
+            if process.poll() is not None:
+                continue
+            continue
+        if line is None:
+            break
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -68,7 +111,11 @@ def run_claude_agent(environment=None):
         elif event.get('type') == 'result':
             result = event
 
-    exit_code = process.wait()
+    try:
+        exit_code = process.wait(timeout=max(0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired as error:
+        terminate_process_group()
+        raise RuntimeError(f'Claude CLI timed out after {timeout_seconds} seconds') from error
     if exit_code != 0:
         raise RuntimeError('Claude CLI exited with status ' + str(exit_code))
     if result is None:

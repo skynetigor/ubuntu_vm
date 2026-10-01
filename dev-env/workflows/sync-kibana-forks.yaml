@@ -1,0 +1,51 @@
+version: '1'
+name: Sync Kibana Forks
+description: Synchronizes configured Kibana fork branches with their upstream parent.
+enabled: true
+tags:
+  - kibana
+  - github
+  - scheduled
+  - maintenance
+
+settings:
+  concurrency:
+    key: '{{ workflow.id }}'
+    strategy: queue
+
+consts:
+  UPSTREAM_REPOSITORY: elastic/kibana
+  FORKS:
+    - owner: skynetigor
+      repository: kibana
+      branch: main
+
+triggers:
+  - type: scheduled
+    with:
+      every: 10m
+  - type: manual
+
+steps:
+  - name: sync_forks
+    type: foreach
+    foreach: '${{ consts.FORKS }}'
+    steps:
+      - name: sync_fork
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          env:
+            FORK_JSON: '{{ foreach.item | json }}'
+            EXPECTED_PARENT: '{{ consts.UPSTREAM_REPOSITORY }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from sync_github_fork import sync_github_fork
+            return sync_github_fork()
+
+  - name: output
+    type: workflow.output
+    with:
+      configured_forks: '{{ consts.FORKS | json }}'
+      status: completed

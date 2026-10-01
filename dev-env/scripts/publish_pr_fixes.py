@@ -7,8 +7,16 @@ import subprocess
 def publish_pr_fixes(environment=None):
     environment = os.environ if environment is None else environment
 
-    def run(command, check=True):
-        result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    def run(command, check=True, timeout=120):
+        try:
+            result = subprocess.run(
+                command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(
+                f'Command timed out after {timeout} seconds: {command[0]}'
+            ) from error
         if check and result.returncode:
             raise RuntimeError(result.stderr[-3000:] or 'command failed')
         return result
@@ -73,7 +81,10 @@ def publish_pr_fixes(environment=None):
             'commit', '-m', 'fix: address automated Kibana workflow review',
         ])
         commit_sha = run(['git', 'rev-parse', 'HEAD']).stdout.strip()
-        pushed = run(['git', 'push', 'origin', f'HEAD:refs/heads/{head_ref}'], check=False)
+        pushed = run(
+            ['git', 'push', 'origin', f'HEAD:refs/heads/{head_ref}'],
+            check=False, timeout=300,
+        )
         if pushed.returncode:
             return {
                 'status': 'push_failed', 'published': False,

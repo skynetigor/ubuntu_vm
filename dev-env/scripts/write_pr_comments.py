@@ -17,10 +17,14 @@ def write_pr_comments(environment=None):
     commit_sha = environment['COMMIT_SHA']
 
     def gh_api(*args):
-        result = subprocess.run(
-            ['gh', 'api', *args], text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
+        try:
+            result = subprocess.run(
+                ['gh', 'api', *args], text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=90,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError('GitHub API request timed out after 90 seconds') from error
         if result.returncode:
             raise RuntimeError('GitHub API request failed: ' + result.stderr[-2500:])
         return json.loads(result.stdout) if result.stdout.strip() else {}

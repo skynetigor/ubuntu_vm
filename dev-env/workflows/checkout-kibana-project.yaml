@@ -1,0 +1,81 @@
+version: '1'
+name: Checkout Kibana Project
+description: >-
+  Resolves a Kibana GitHub target, prepares its project checkout, and fetches
+  additional branches into explicit refs. Skips target checkout when HEAD matches.
+enabled: true
+tags:
+  - kibana
+  - checkout
+  - git
+
+triggers:
+  - type: manual
+    inputs:
+      additionalProperties: false
+      required:
+        - kibana_target
+      properties:
+        kibana_target:
+          type: string
+          description: GitHub PR, branch, or commit URL.
+        target_depth:
+          type: integer
+          default: 256
+          minimum: 1
+        additional_branches:
+          type: array
+          default: []
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - repository
+              - branch
+              - ref
+            properties:
+              repository:
+                type: string
+              branch:
+                type: string
+              ref:
+                type: string
+                description: Full local ref, for example refs/remotes/workflow-review/main.
+              depth:
+                type: integer
+                minimum: 1
+
+consts:
+  UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
+  UBUNTU_VM_BRANCH: main
+
+steps:
+  - name: checkout
+    type: ssh.python
+    connector-id: dev-vm
+    with:
+      env:
+        KIBANA_TARGET: '{{ inputs.kibana_target }}'
+        TARGET_DEPTH: '{{ inputs.target_depth }}'
+        ADDITIONAL_BRANCHES_JSON: '{{ inputs.additional_branches | json }}'
+        UBUNTU_VM_REPO: '{{ consts.UBUNTU_VM_REPO }}'
+        UBUNTU_VM_BRANCH: '{{ consts.UBUNTU_VM_BRANCH }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from checkout_kibana_project import checkout_kibana_project
+        return checkout_kibana_project()
+
+  - name: output
+    type: workflow.output
+    with:
+      project: '{{ steps.checkout.output.project }}'
+      target: '{{ steps.checkout.output.target }}'
+      commit: '{{ steps.checkout.output.commit }}'
+      source_repository: '{{ steps.checkout.output.source_repository }}'
+      source_branch: '{{ steps.checkout.output.source_branch }}'
+      deploy_dir: '{{ steps.checkout.output.deploy_dir }}'
+      source_dir: '{{ steps.checkout.output.source_dir }}'
+      checkout_changed: '{{ steps.checkout.output.checkout_changed }}'
+      clone_skipped: '{{ steps.checkout.output.clone_skipped }}'
+      fetched_branches: '{{ steps.checkout.output.fetched_branches | json }}'

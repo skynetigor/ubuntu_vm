@@ -10,10 +10,16 @@ def prepare_review(environment=None, cwd=None):
     cwd = os.getcwd() if cwd is None else cwd
 
     def git(*args):
-        completed = subprocess.run(
-            ['git', *args], cwd=cwd, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
+        command = ['git', *args]
+        try:
+            completed = subprocess.run(
+                command, cwd=cwd, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=300,
+                env={**os.environ, **environment, 'GIT_TERMINAL_PROMPT': '0'},
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f'Git command timed out after 300 seconds: {args[0]}') from error
         if completed.returncode:
             raise RuntimeError(completed.stderr[-4000:] or 'git command failed')
         return completed.stdout.strip()
@@ -22,21 +28,28 @@ def prepare_review(environment=None, cwd=None):
     if not re.fullmatch(r'[A-Za-z0-9._/-]+', base_branch) or '..' in base_branch:
         raise ValueError('Invalid base_branch')
 
-    base_ref = 'refs/remotes/workflow-review/' + base_branch
-    git(
-        'fetch', '--no-tags', environment['UPSTREAM_REPO'],
-        f'+refs/heads/{base_branch}:{base_ref}',
-    )
+    base_ref = environment.get('BASE_REF', 'refs/remotes/workflow-review/' + base_branch)
+    try:
+        git('rev-parse', '--verify', base_ref)
+    except RuntimeError:
+        git(
+            'fetch', '--no-tags', '--depth', environment.get('BASE_DEPTH', '256'),
+            environment['UPSTREAM_REPO'], f'+refs/heads/{base_branch}:{base_ref}',
+        )
     base_commit = git('rev-parse', base_ref)
     head_commit = git('rev-parse', 'HEAD')
     merge_base = git('merge-base', base_commit, head_commit)
     changed = [
         path for path in git(
-            'diff', '--name-only', '--diff-filter=ACMR',
-            f'{merge_base}...{head_commit}',
+            'diff', '--name-only', '--diff-filter=ACMRD', merge_base,
         ).splitlines()
         if path
     ]
+    untracked = [
+        path for path in git('ls-files', '--others', '--exclude-standard').splitlines()
+        if path
+    ]
+    changed = sorted(set(changed + untracked))
 
     projects = json.loads(environment['WORKFLOW_PROJECTS'])
     include_globs = json.loads(environment['INCLUDE_GLOBS'])
@@ -64,17 +77,29 @@ def prepare_review(environment=None, cwd=None):
             f'of {max_files}; reduce the review scope or raise the limit.'
         )
 
+    tracked_production_files = sorted(set(production_files) - set(untracked))
     diff_stat = (
-        git('diff', '--stat', f'{merge_base}...{head_commit}', '--', *production_files)
-        if production_files else ''
+        git('diff', '--stat', merge_base, '--', *tracked_production_files)
+        if tracked_production_files else ''
     )
     diff_text = (
         git(
             'diff', '--no-ext-diff', '--unified=60',
-            f'{merge_base}...{head_commit}', '--', *production_files,
+            merge_base, '--', *tracked_production_files,
         )
-        if production_files else ''
+        if tracked_production_files else ''
     )
+    untracked_diffs = []
+    for path in sorted(set(production_files) & set(untracked)):
+        completed = subprocess.run(
+            ['git', 'diff', '--no-index', '--no-ext-diff', '--unified=60', '--', '/dev/null', path],
+            cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=300,
+        )
+        if completed.returncode not in {0, 1}:
+            raise RuntimeError(completed.stderr[-4000:] or f'Unable to diff untracked file: {path}')
+        untracked_diffs.append(completed.stdout)
+    diff_text += ''.join(untracked_diffs)
     max_diff_chars = int(environment['MAX_DIFF_CHARS'])
     if len(diff_text) > max_diff_chars:
         raise RuntimeError(

@@ -1,8 +1,8 @@
 version: '1'
 name: Deploy Kibana Preview
 description: |
-  Resolves a GitHub PR / branch / commit URL, then runs
-  clone → bootstrap → compile → docker compose up inside the dev-vm.
+  Checks out a GitHub PR / branch / commit target, then runs
+  bootstrap → compile → docker compose up inside the dev-vm.
   Ports are auto-assigned from 5003-5999 and reused on re-deploy.
   The Kibana container handles post-start setup: waits for readiness,
   runs kibana-init, then uploads connectors and workflows.
@@ -18,8 +18,6 @@ settings:
     strategy: queue
 
 consts:
-  UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
-  UBUNTU_VM_BRANCH: main
   # Preview Kibanas run in DinD inside the dev-vm, so they cannot resolve the
   # `apm-server` compose service name. Reach it via the host LAN IP where
   # port 8200 is published.
@@ -84,6 +82,31 @@ triggers:
             preview. The clock resets on every redeploy (updated_at is refreshed).
           default: 3
           minimum: 1
+        checkout_depth:
+          type: integer
+          default: 256
+          minimum: 1
+        additional_branches:
+          type: array
+          default: []
+          description: Additional Git branches to fetch into explicit local refs.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - repository
+              - branch
+              - ref
+            properties:
+              repository:
+                type: string
+              branch:
+                type: string
+              ref:
+                type: string
+              depth:
+                type: integer
+                minimum: 1
 
 steps:
   - name: ensure_deployments_index
@@ -102,6 +125,8 @@ steps:
             updated_at:
               type: date
             target:
+              type: keyword
+            commit:
               type: keyword
             port:
               type: integer
@@ -122,81 +147,77 @@ steps:
             es_port:
               type: integer
 
-  # ── Step 1: Resolve target URL → commit / project name ───────────────────
-  # Output: { PROJECT, KIBANA_COMMIT }
-  - name: resolve
-    type: ssh.run
-    connector-id: dev-vm
+  # ── Step 1: Resolve target and prepare source checkout ───────────────────
+  - name: checkout_project
+    type: workflow.execute
     with:
-      env:
-        KIBANA_TARGET: '{{ inputs.kibana_target }}'
-        UBUNTU_VM_REPO: '{{ consts.UBUNTU_VM_REPO }}'
-        UBUNTU_VM_BRANCH: '{{ consts.UBUNTU_VM_BRANCH }}'
-      command: |
-        SCRIPTS_CACHE="/opt/ubuntu_vm"
+      workflow-id: checkout-kibana-project
+      inputs:
+        kibana_target: '{{ inputs.kibana_target }}'
+        target_depth: ${{ inputs.checkout_depth }}
+        additional_branches: ${{ inputs.additional_branches }}
 
-        if [ -d "$SCRIPTS_CACHE/.git" ]; then
-          git -C "$SCRIPTS_CACHE" fetch --depth 1 origin "$UBUNTU_VM_BRANCH"
-          git -C "$SCRIPTS_CACHE" reset --hard FETCH_HEAD
-        else
-          sudo mkdir -p "$SCRIPTS_CACHE" && sudo chown kibana:kibana "$SCRIPTS_CACHE"
-          git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$SCRIPTS_CACHE"
-        fi
-
-        source "$SCRIPTS_CACHE/kibana/scripts/resolve.sh"
-        python3 - "$PROJECT" "$KIBANA_COMMIT" > "$STEP_OUTPUT" <<'PY'
-        import json
-        import sys
-
-        json.dump({
-          "PROJECT": sys.argv[1],
-          "KIBANA_COMMIT": sys.argv[2],
-        }, sys.stdout)
-        PY
-
-  # ── Step 2: Set up per-deployment dir ────────────────────────────────────
-  - name: setup_deployment
-    type: ssh.run
-    connector-id: dev-vm
-    with:
-      env:
-        PROJECT: '{{ steps.resolve.output.PROJECT }}'
-        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
-        UBUNTU_VM_REPO: '{{ consts.UBUNTU_VM_REPO }}'
-        UBUNTU_VM_BRANCH: '{{ consts.UBUNTU_VM_BRANCH }}'
-      command: |
-        sudo mkdir -p "$DEPLOY_DIR"
-        sudo chown kibana:kibana "$DEPLOY_DIR"
-        sudo mkdir -p /opt/kibana-cache
-        sudo chown kibana:kibana /opt/kibana-cache
-
-        if [ -d "$DEPLOY_DIR/.git" ]; then
-          echo "=== Updating ubuntu_vm in $DEPLOY_DIR ($UBUNTU_VM_BRANCH) ==="
-          git -C "$DEPLOY_DIR" fetch --depth 1 origin "$UBUNTU_VM_BRANCH"
-          git -C "$DEPLOY_DIR" reset --hard FETCH_HEAD
-        else
-          echo "=== Cloning ubuntu_vm into $DEPLOY_DIR ($UBUNTU_VM_BRANCH) ==="
-          git clone --depth 1 --branch "$UBUNTU_VM_BRANCH" "$UBUNTU_VM_REPO" "$DEPLOY_DIR"
-        fi
-        echo "=== ubuntu_vm at $(git -C "$DEPLOY_DIR" rev-parse HEAD) ==="
-
-  # ── Step 3: Look up existing ports from deployment index ─────────────────
+  # ── Step 2: Look up any existing deployment before setup/build ───────────
   - name: fetch_deployment
     type: elasticsearch.request
     on-failure:
       continue: true
     with:
       method: GET
-      path: /deployed-previews/_doc/{{ steps.resolve.output.PROJECT }}
+      path: /deployed-previews/_doc/{{ steps.checkout_project.output.project }}
 
-  # ── Step 4: Assign ports for this project ────────────────────────────────
+  - name: check_preview_running
+    type: ssh.run
+    connector-id: dev-vm
+    with:
+      env:
+        PROJECT: '{{ steps.checkout_project.output.project }}'
+      command: |
+        CONTAINER_ID=$(docker ps \
+          --filter "label=com.docker.compose.project=$PROJECT" \
+          --filter "label=com.docker.compose.service=kibana" \
+          --filter "status=running" -q | head -n1)
+        if [ -n "$CONTAINER_ID" ]; then
+          RUNNING=true
+        else
+          RUNNING=false
+        fi
+        python3 - "$RUNNING" > "$STEP_OUTPUT" <<'PY'
+        import json
+        import sys
+
+        json.dump({"running": sys.argv[1] == "true"}, sys.stdout)
+        PY
+
+  - name: return_existing_preview
+    type: if
+    condition: "${{ steps.fetch_deployment.output._source.commit == steps.checkout_project.output.commit and steps.check_preview_running.output.running == true }}"
+    steps:
+      - name: output_existing_preview
+        type: workflow.output
+        with:
+          kibana_internal_url: 'http://{{ consts.INTERNAL_PREVIEWS_HOST }}:{{ steps.fetch_deployment.output._source.port }}'
+          es_internal_url: 'http://{{ consts.INTERNAL_PREVIEWS_HOST }}:{{ steps.fetch_deployment.output._source.es_port }}'
+          es_user: '{{ steps.fetch_deployment.output._source.es_user }}'
+          es_password: '{{ steps.fetch_deployment.output._source.es_password }}'
+          project: '{{ steps.checkout_project.output.project }}'
+          target: '{{ steps.fetch_deployment.output._source.target }}'
+          commit: '{{ steps.checkout_project.output.commit }}'
+          public_url: '{{ steps.fetch_deployment.output._source.public_url }}'
+          status: already_deployed
+          message: 'The requested commit is already running; no build was started.'
+          checkout_changed: '{{ steps.checkout_project.output.checkout_changed }}'
+          clone_skipped: '{{ steps.checkout_project.output.clone_skipped }}'
+          fetched_branches: '{{ steps.checkout_project.output.fetched_branches | json }}'
+
+  # ── Step 3: Assign ports for this project ────────────────────────────────
   # Output: { ES_PORT, KIBANA_PORT }
   - name: assign_ports
     type: ssh.run
     connector-id: dev-vm
     with:
       env:
-        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+        PROJECT: '{{ steps.checkout_project.output.project }}'
         EXISTING_ES_PORT: '{{ steps.fetch_deployment.output._source.es_port | default: "" }}'
         EXISTING_KIBANA_PORT: '{{ steps.fetch_deployment.output._source.port | default: "" }}'
       command: |
@@ -250,10 +271,10 @@ steps:
     connector-id: dev-vm
     with:
       env:
-        PROJECT: '{{ steps.resolve.output.PROJECT }}'
-        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+        PROJECT: '{{ steps.checkout_project.output.project }}'
+        DEPLOY_DIR: '{{ steps.checkout_project.output.deploy_dir }}'
         KIBANA_TARGET: '{{ inputs.kibana_target }}'
-        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
+        KIBANA_COMMIT: '{{ steps.checkout_project.output.commit }}'
         ES_TARGET: '{{ inputs.es_target }}'
         ES_PORT: '{{ steps.assign_ports.output.ES_PORT }}'
         KIBANA_PORT: '{{ steps.assign_ports.output.KIBANA_PORT }}'
@@ -309,7 +330,7 @@ steps:
     connector-id: dev-vm
     with:
       env:
-        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
+        DEPLOY_DIR: '{{ steps.checkout_project.output.deploy_dir }}'
       code: |
         const fs = require("fs");
         const cfg = {{ inputs.kibana_config | json }} || {};
@@ -343,28 +364,15 @@ steps:
           console.log("=== kibana.user.yml: no overrides ===");
         }
 
-  # ── Step 6: Clone Kibana source ──────────────────────────────────────────
-  - name: clone
-    type: ssh.run
-    connector-id: dev-vm
-    with:
-      env:
-        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
-        KIBANA_SRC: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/src'
-        KIBANA_TARGET: '{{ inputs.kibana_target }}'
-        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
-      command: |
-        bash "$DEPLOY_DIR/kibana/scripts/clone.sh"
-
-  # ── Step 7: Bootstrap dependencies ───────────────────────────────────────
+  # ── Step 6: Bootstrap dependencies ───────────────────────────────────────
   - name: bootstrap
     type: ssh.run
     connector-id: dev-vm
     with:
       env:
-        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
-        KIBANA_SRC: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/src'
-        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
+        DEPLOY_DIR: '{{ steps.checkout_project.output.deploy_dir }}'
+        KIBANA_SRC: '{{ steps.checkout_project.output.source_dir }}'
+        KIBANA_COMMIT: '{{ steps.checkout_project.output.commit }}'
       command: |
         CACHE_DIR="/opt/kibana-cache/$KIBANA_COMMIT"
         if [ -d "$CACHE_DIR/node_modules" ]; then
@@ -382,9 +390,9 @@ steps:
     connector-id: dev-vm
     with:
       env:
-        DEPLOY_DIR: '/opt/{{ steps.resolve.output.PROJECT }}'
-        KIBANA_SRC: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/src'
-        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
+        DEPLOY_DIR: '{{ steps.checkout_project.output.deploy_dir }}'
+        KIBANA_SRC: '{{ steps.checkout_project.output.source_dir }}'
+        KIBANA_COMMIT: '{{ steps.checkout_project.output.commit }}'
       command: |
         CACHE_DIR="/opt/kibana-cache/$KIBANA_COMMIT"
         if [ -d "$CACHE_DIR/dist" ]; then
@@ -404,8 +412,8 @@ steps:
     connector-id: dev-vm
     with:
       env:
-        PROJECT: '{{ steps.resolve.output.PROJECT }}'
-      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana'
+        PROJECT: '{{ steps.checkout_project.output.project }}'
+      cwd: '{{ steps.checkout_project.output.deploy_dir }}/kibana'
       command: |
         docker compose --env-file env/.env -p "$PROJECT" up --build --wait kibana
         echo "=== Stack started (project: $PROJECT) ==="
@@ -416,16 +424,17 @@ steps:
     type: elasticsearch.request
     with:
       method: PUT
-      path: /deployed-previews/_doc/{{ steps.resolve.output.PROJECT }}
+      path: /deployed-previews/_doc/{{ steps.checkout_project.output.project }}
       body:
         '@timestamp': '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
         updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
         target: '{{ inputs.kibana_target }}'
+        commit: '{{ steps.checkout_project.output.commit }}'
         port: '{{ steps.assign_ports.output.KIBANA_PORT }}'
         es_port: '{{ steps.assign_ports.output.ES_PORT }}'
         public_url: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
-        container_name: '{{ steps.resolve.output.PROJECT }}'
-        deploy_dir: '/opt/{{ steps.resolve.output.PROJECT }}'
+        container_name: '{{ steps.checkout_project.output.project }}'
+        deploy_dir: '{{ steps.checkout_project.output.deploy_dir }}'
         es_internal_url: http://{{ consts.INTERNAL_PREVIEWS_HOST }}:{{ steps.assign_ports.output.ES_PORT }}
         es_user: elastic
         es_password: '{{ inputs.elastic_password }}'
@@ -440,11 +449,11 @@ steps:
       continue: true
     with:
       env:
-        WORKFLOWS_DIR: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/workflows/{{ inputs.workflows_group }}'
+        WORKFLOWS_DIR: '{{ steps.checkout_project.output.deploy_dir }}/kibana/workflows/{{ inputs.workflows_group }}'
         KIBANA_URL: 'http://localhost:{{ steps.assign_ports.output.KIBANA_PORT }}'
         KIBANA_USERNAME: elastic
         ES_PASSWORD: '{{ inputs.elastic_password }}'
-      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/scripts'
+      cwd: '{{ steps.checkout_project.output.deploy_dir }}/kibana/scripts'
       command: |
         npm install --omit=dev --silent
         node upload_workflows.js
@@ -459,7 +468,7 @@ steps:
       env:
         CF_SUBDOMAIN: '{{ steps.write_env.output.CF_SUBDOMAIN }}'
         CF_SERVICE_URL: 'http://dev-vm:{{ steps.assign_ports.output.KIBANA_PORT }}'
-      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana/scripts'
+      cwd: '{{ steps.checkout_project.output.deploy_dir }}/kibana/scripts'
       command: |
         bash register-tunnel.sh
 
@@ -469,8 +478,8 @@ steps:
     connector-id: dev-vm
     with:
       env:
-        PROJECT: '{{ steps.resolve.output.PROJECT }}'
-      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana'
+        PROJECT: '{{ steps.checkout_project.output.project }}'
+      cwd: '{{ steps.checkout_project.output.deploy_dir }}/kibana'
       command: |
         echo "=== Kibana container logs ==="
         docker compose -p "$PROJECT" logs --no-log-prefix kibana
@@ -481,8 +490,8 @@ steps:
     connector-id: dev-vm
     with:
       env:
-        PROJECT: '{{ steps.resolve.output.PROJECT }}'
-      cwd: '/opt/{{ steps.resolve.output.PROJECT }}/kibana'
+        PROJECT: '{{ steps.checkout_project.output.project }}'
+      cwd: '{{ steps.checkout_project.output.deploy_dir }}/kibana'
       command: |
         CONTAINER=$(docker compose -p "$PROJECT" ps -q kibana)
         SETUP_DIR="/opt/kibana/setup"
@@ -504,9 +513,9 @@ steps:
     connector-id: dev-vm
     with:
       env:
-        PROJECT: '{{ steps.resolve.output.PROJECT }}'
+        PROJECT: '{{ steps.checkout_project.output.project }}'
         TARGET: '{{ inputs.kibana_target }}'
-        KIBANA_COMMIT: '{{ steps.resolve.output.KIBANA_COMMIT }}'
+        KIBANA_COMMIT: '{{ steps.checkout_project.output.commit }}'
         ES_PORT: '{{ steps.assign_ports.output.ES_PORT }}'
         KIBANA_PORT: '{{ steps.assign_ports.output.KIBANA_PORT }}'
         KIBANA_PUBLIC_URL: '{{ steps.write_env.output.KIBANA_PUBLIC_URL }}'
@@ -557,3 +566,8 @@ steps:
       target: '{{ steps.summary.output.target }}'
       commit: '{{ steps.summary.output.commit }}'
       public_url: '{{ steps.summary.output.public_url }}'
+      status: deployed
+      message: 'Kibana preview deployed.'
+      checkout_changed: '{{ steps.checkout_project.output.checkout_changed }}'
+      clone_skipped: '{{ steps.checkout_project.output.clone_skipped }}'
+      fetched_branches: '{{ steps.checkout_project.output.fetched_branches | json }}'

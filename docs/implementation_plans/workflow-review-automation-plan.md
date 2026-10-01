@@ -2,16 +2,18 @@
 
 ## Goal
 
-Create a parent Kibana workflow that deploys the requested Kibana target, reviews only changed production code against a base branch, applies qualified fixes, handles existing PR review comments when the target is a PR, and runs workflow-project lint and unit tests. The workflow returns a structured summary of review findings, fixes, GitHub comment actions, and validation results.
+Provide two Kibana workflows: `review-kibana-pr` checks out and reviews a repository without deploying a preview, returning actionable comments, other comments, and failed workflow-project tests; `review-and-fix-kibana-pr` calls it, fixes those items, and repeats review until clean or its retry limit is reached.
 
 ## Existing Interfaces
 
 - `deploy-kibana-preview` accepts `kibana_target`, `elastic_password`, `workflows_group`, and related deployment settings. Its output includes the preview `project`, `target`, `commit`, ports, and URLs.
+- `checkout-kibana-project` resolves the target to an exact SHA, prepares `/opt/<project>`, and returns a stable project/target/commit/repository/branch/path result whether checkout changed or was skipped. It skips target reset when `HEAD` already matches, while still fetching any `additional_branches` into caller-supplied `refs/remotes/*` refs at bounded depth. `deploy-kibana-preview` delegates all project resolution and source checkout to this workflow.
 - `main-kibana-agent` accepts `prompt`, `session_id`, `cwd`, `run_summary`, and `disallow_shell`; it returns `response`, `run_summary`, `findings`, `changes`, and the next `session_id`.
 - The review parent sets `disallow_shell: true` on every Claude child call so agents can use file read/edit tools but cannot invoke privileged or GitHub-write shell commands.
 - The Claude workflow runs remotely on `dev-vm` through `ssh.python` in the supplied working directory and uses `--permission-mode auto`.
 - Remote Python workflow steps import their implementation modules from `dev-env/scripts/`, mounted read-only in `dev-vm` at `/etc/dev-env-scripts`; each workflow step passes inputs through its environment and returns the module function's structured result.
 - `check-kibana-workflow-projects` is the reusable deterministic child workflow for targeted ESLint autofix and Moon Jest runs.
+- `summarize_review.py` partitions agent findings into `agent_comments_to_fix` / `other_agent_comments`, PR findings into `pr_comments_to_fix` / `other_pr_comments`, and maps failed tests to `{project, failures}`. `summarize_fixes.py` compares each source's first and final outputs independently.
 - Project checks run as the `workflow-runner` account with a clean environment and no Docker/sudo groups or API tokens. The checker grants temporary ACL access only to node_modules and selected project source roots, and configures Git safe.directory only for the exact checkout.
 - Kibana workflow-owned packages and plugins use Moon project IDs. The shared Moon `jest` task runs Jest with `--passWithNoTests`.
 - `dev-vm` receives `GH_TOKEN` from its ignored, owner-only environment file. Deterministic SSH Python GitHub steps use it; the Claude subprocess strips GitHub/Buildkite token variables and has shell access disabled for this workflow. Never print or return the token.
@@ -28,9 +30,9 @@ Create a parent Kibana workflow that deploys the requested Kibana target, review
 - Require every agent phase to return a compact structured `run_summary` containing decisions, findings, files changed, unresolved items, and next actions. Store it in parent workflow state and include it in each subsequent prompt along with the latest session ID.
 - Allow Claude Code's native context compaction within the resumed session. At phase boundaries, request a concise checkpoint summary and continue with the same ID and stored `run_summary`; never create a second summarizer session.
 
-## Proposed Parent Workflow
+## Current Workflow Split
 
-Add `dev-env/workflows/review-kibana-pr.yaml`, upload it to main Kibana, and invoke child workflows synchronously so each step can consume the prior step's outputs.
+Upload both `dev-env/workflows/review-kibana-pr.yaml` and `dev-env/workflows/review-and-fix-kibana-pr.yaml` to main Kibana. The review workflow is read-only with respect to source and GitHub; the parent owns edits and writes. The parent defaults to dry-run, serializes fixes through `foreach`, and caps re-review at five rounds by default (configurable up to ten).
 
 ### Workflow Constants
 
@@ -71,32 +73,12 @@ The `SEVERITY_RUBRIC` constant is the normative definition; `FIXABLE_SEVERITIES`
 
 ### Ordered Steps
 
-1. **Initialize preview**: call `deploy-kibana-preview` with the requested target and the chosen deployment options. Capture the returned `project`, `commit`, and preview URLs. Derive the source checkout path from the returned `project`; expected path is `/opt/<project>/kibana/src`.
-2. **Prepare review diff**: on `dev-vm`, fetch the selected base branch and compute the merge-base diff from base to deployed commit. Filter changed paths with `PRODUCTION_FILE_INCLUDE_GLOBS` and `PRODUCTION_FILE_EXCLUDE_GLOBS`; emit selected production-file paths, diff/stat, and the actual bounded diff as structured output. The current implementation stops with an actionable error above 100 production files or 160,000 diff characters; it does not yet chunk large reviews.
-3. **Review production changes**: make the first `main-kibana-agent` call with the source checkout as its working directory, the deterministic diff payload, production-file list, `{{ consts.PRODUCTION_FILE_POLICY }}`, and `{{ consts.SEVERITY_RUBRIC }}`. Claude has shell access disabled, so do not ask it to run git commands to obtain the diff. Require a structured response with severity, finding, evidence, and file/line; do not modify files in this review call. Save its returned `session_id` as the current ID.
-4. **Fix the workflow's review findings**: call `main-kibana-agent` with the current ID, the review response, and `{{ consts.FIXABLE_SEVERITIES | json }}`; replace the current ID with the returned ID immediately. Ask it to fix only findings whose severity is in that constant. Return changed files and a concise fix report. Do not let this step create commits or push branches.
-5. **Detect target kind**: parse the input and emit `is_pr`, repository owner/name, and PR number when applicable. Branch and commit targets emit `is_pr: false`; unsupported URL forms fail clearly rather than being guessed.
-6. **Conditionally process PR comments**: place PR-only read and agent work inside an `if` container. For example:
-
-
-   ```yaml
-   - name: handle_pr_comments
-     type: if
-     condition: 'steps.detect_target.output.is_pr == true'
-     steps:
-       - name: fetch_pr_comments
-         # gh api reads comments and review-thread state
-       - name: analyze_pr_comments
-         # Claude receives the current session_id and returns the next one
-       - name: fix_pr_comments
-         # Claude fixes only comments whose severity is in FIXABLE_SEVERITIES
-   ```
-
-	 The real workflow must use valid step definitions rather than the abbreviated comments above. Fetch paginated inline comments and review-thread metadata via `gh api`; analyze each against current production source using `{{ consts.PRODUCTION_FILE_POLICY }}` and `{{ consts.SEVERITY_RUBRIC }}`; check whether each is already fixed; and only fix comments whose severity is in `{{ consts.FIXABLE_SEVERITIES | json }}`. Branch/commit targets do not execute this container.
-7. **Validate changed workflow projects**: consider only the 11 projects in the fixed matrix below, and run checks only for listed project source roots intersecting any changed source files (including tests). Do not add integration projects or dependency consumers. Invoke the `check-kibana-workflow-projects` child, which runs ESLint autofix on changed lintable source/test files and Moon Jest for each selected project. Preserve complete stdout/stderr as dev-vm artifacts and return exit code plus a bounded diagnostic summary as step output. If lint fails, call `main-kibana-agent` with the current ID and the lint summary; if tests fail, call it with the latest ID and the test summary. Replace the ID and `run_summary` after each call. Re-run only the affected check after an agent fix, with a bounded retry count. Project loops and their agent repairs must execute sequentially.
-8. **Publish validated PR fixes**: for a PR target only, and only when `dry_run` is false and every executed lint/test check passes, stage only working-tree changes in the reviewed production-file list plus test/spec files under the fixed 11 project roots. Reject other non-generated changes, create a commit on the checked-out PR head branch, and push normally (never force-push). Verify the expected head SHA before publishing; if the remote branch advanced, stop and report a non-fast-forward conflict without overwriting it. In dry-run mode or for non-PR targets, do not commit or push.
-9. **Conditionally reply and resolve PR threads**: only after validated fixes have been published (or in dry-run mode, after validation), use a second `if` container with the same PR condition to reply to comments fixed under `{{ consts.FIXABLE_SEVERITIES | json }}` and resolve their review threads when `dry_run` is false. With the default `dry_run: true`, report proposed replies/resolutions without invoking GitHub write APIs. Low/nit/opinionated and already-fixed comments are reported but left open; threads that are already resolved at write time are skipped. Non-PR targets skip this container.
-10. **Return workflow output**: include preview details, base and target commits, review findings, changes made, resulting PR head SHA when published, PR-comment classification/fix/resolution summary (empty/skipped for non-PR targets), per-project lint/test outcomes, skipped projects, retry count, any failed/gated actions, and the final Claude `session_id`. Never include credentials.
+1. **Prepare repository checkout**: call `checkout-kibana-project` directly with the requested target and selected base branch as an additional branch (`elastic/kibana`, `refs/remotes/workflow-review/<base>`, depth 256). Resolve the exact target SHA and skip target checkout when the existing `HEAD` already matches. Capture the returned project, commit, source path, and fetched refs. Review workflows do not deploy or start a Kibana preview.
+2. **Prepare the current review diff**: fetch the selected base branch and diff from its merge base to the checked-out working tree, including staged/unstaged edits and untracked files. This is necessary because each loop review runs after previous fixes without resetting the preview. Restrict review files to the production include/exclude policy and the fixed project matrix. Stop above 100 files or 160,000 diff characters.
+3. **Return review-only results**: `review-kibana-pr` runs the code review, conditionally classifies existing PR comments, and runs tests for changed projects. It makes no source edits, commits, pushes, replies, or resolutions. Its output contains separate agent sections (`agent_comments_to_fix`, `other_agent_comments`), separate PR sections (`pr_comments_to_fix`, `other_pr_comments`), and `failed_tests` (`{project, failures}`), along with repository/PR context and the latest agent session/summary.
+4. **Fix and repeat**: `review-and-fix-kibana-pr` calls the review workflow inside a `while` loop, serially fixes agent comments, PR comments, and failed test projects in separate loops, carries the same Claude session and `run_summary`, and repeats the review against the updated working tree. Only PR comment state is eligible for GitHub replies/resolution. The loop defaults to five rounds and has a configurable maximum of ten; it performs a final verification review if the limit is reached.
+5. **Publish and resolve**: only for a PR, only after the final review has no actionable comments or failing tests, and only when `dry_run` is false, stage the reviewed production files plus test/spec changes within the 11 project roots, commit, and push normally after verifying the original PR head SHA. Then post idempotent replies and resolve only PR threads that were initially fixable and are absent from the final actionable-comment set. Dry-run and unresolved-limit outcomes do not write to GitHub.
+6. **Return results**: include separate `fixed_agent_comments` and `fixed_pr_comments`, separate remaining/other sections for each source, `fixed_tests` (`{project, failures}`), remaining tests, whether work remains after the retry limit, round count, publish status/result, comment-resolution status/result, and the final Claude session/summary. Never include credentials.
 
 ## Workflow Project Matrix
 
@@ -134,7 +116,7 @@ The complete fixed project set is the following 11 workflow-owned projects. Do n
 
 ## Safety, Failure Handling, and Cleanup
 
-- Keep all shell/API work on `dev-vm` using `ssh.run` / `ssh.python` and the `.ssh` connector.
+- Keep all shell/API work on `dev-vm` using `ssh.run` / `ssh.python` and the `.ssh` connector. Bound external Git, GitHub CLI, lint, test, and Claude subprocess durations so a blocked network request or child process cannot leave a Python step waiting indefinitely; return a clear timeout diagnostic and preserve partial check logs.
 - Limit Claude's initial review context to the production diff and allow reading adjacent production files only when necessary. Require line-based evidence; filter low-confidence and duplicate findings.
 - Enforce the [Agent Session Contract](#agent-session-contract) across every agent call. Keep full deterministic logs on dev-vm and send bounded summaries to Claude; the current implementation stops on oversized review diffs rather than chunking them. Strip `GH_TOKEN`, `GITHUB_TOKEN`, and Buildkite credentials from the Claude subprocess environment; disallow Claude's `sudo`, Docker, GitHub CLI, commit, and push commands. Keep the mounted Claude env file owner-only so GitHub writes remain confined to explicit workflow API/publish steps.
 - Only publish to an existing PR head when `dry_run` is false and all executed checks pass. Never force-push, create a PR, or push a branch/commit target. Do not resolve comments before validated fixes are published.

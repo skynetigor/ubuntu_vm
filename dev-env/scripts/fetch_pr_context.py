@@ -13,10 +13,14 @@ def fetch_pr_context(environment=None):
     number = environment['PR_NUMBER']
 
     def gh_api(*args):
-        result = subprocess.run(
-            ['gh', 'api', *args], text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
+        try:
+            result = subprocess.run(
+                ['gh', 'api', *args], text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=90,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError('GitHub API request timed out after 90 seconds') from error
         if result.returncode:
             raise RuntimeError('GitHub API request failed: ' + result.stderr[-3000:])
         return json.loads(result.stdout)
@@ -81,13 +85,18 @@ def fetch_pr_context(environment=None):
 
     normalized_comments = []
     for comment in comments:
+        comment_url = comment.get('html_url') or (
+            f'https://github.com/{owner}/{repo}/pull/{number}'
+            f'#discussion_r{comment["id"]}'
+        )
         normalized_comments.append({
             'id': comment['id'],
             'in_reply_to_id': comment.get('in_reply_to_id'),
             'body': comment.get('body', ''),
             'path': comment.get('path'),
             'line': comment.get('line') or comment.get('original_line'),
-            'url': comment.get('html_url'),
+            'url': comment_url,
+            'comment_url': comment_url,
             'author': comment.get('user', {}).get('login'),
             **comment_to_thread.get(comment['id'], {}),
         })

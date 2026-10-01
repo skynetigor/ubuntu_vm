@@ -18,10 +18,12 @@ def check_workflow_projects(environment=None, cwd=None):
     current_changes = subprocess.run(
         ['git', 'diff', '--name-only', '--diff-filter=ACMR'], cwd=root,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+        timeout=30,
     ).stdout.splitlines()
     untracked_changes = subprocess.run(
         ['git', 'ls-files', '--others', '--exclude-standard'], cwd=root,
         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+        timeout=30,
     ).stdout.splitlines()
     changed_files = sorted(set(changed_files + current_changes + untracked_changes))
     check_mode = environment.get('CHECK_MODE', 'all')
@@ -32,13 +34,15 @@ def check_workflow_projects(environment=None, cwd=None):
         subprocess.run(
             ['setfacl', '-R', '-m', 'u:workflow-runner:rwx', str(path)],
             cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=120,
         )
         subprocess.run(
             ['setfacl', '-R', '-d', '-m', 'u:workflow-runner:rwx', str(path)],
             cwd=root, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=120,
         )
 
-    def execute(command, log_path):
+    def execute(command, log_path, timeout):
         subprocess.run(
             [
                 'sudo', '-u', 'workflow-runner', 'env', '-i',
@@ -56,26 +60,44 @@ def check_workflow_projects(environment=None, cwd=None):
             'CI=true',
             *command,
         ]
-        completed = subprocess.run(
-            isolated_command,
-            cwd=root,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        timed_out = False
+        try:
+            completed = subprocess.run(
+                isolated_command,
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+            )
+            stdout = completed.stdout
+            stderr = completed.stderr
+            exit_code = completed.returncode
+        except subprocess.TimeoutExpired as error:
+            timed_out = True
+            stdout = error.stdout or ''
+            stderr = error.stderr or ''
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode(errors='replace')
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode(errors='replace')
+            stderr += f'\nTimed out after {timeout} seconds.'
+            exit_code = 124
         full_output = (
             'COMMAND: ' + ' '.join(command) + '\n'
-            + 'EXIT_CODE: ' + str(completed.returncode) + '\n'
-            + '--- STDOUT ---\n' + completed.stdout + '\n'
-            + '--- STDERR ---\n' + completed.stderr
+            + 'EXIT_CODE: ' + str(exit_code) + '\n'
+            + '--- STDOUT ---\n' + stdout + '\n'
+            + '--- STDERR ---\n' + stderr
         )
         log_path.write_text(full_output, encoding='utf-8')
-        diagnostics = (completed.stdout + '\n' + completed.stderr).strip()
+        diagnostics = (stdout + '\n' + stderr).strip()
         return {
             'command': ' '.join(command),
-            'exit_code': completed.returncode,
+            'exit_code': exit_code,
             'log_path': str(log_path),
             'diagnostic': diagnostics[-max_chars:],
+            'timed_out': timed_out,
+            'state': 'failed' if exit_code != 0 else 'passed',
         }
 
     results = []
@@ -110,6 +132,7 @@ def check_workflow_projects(environment=None, cwd=None):
             execute(
                 ['node', 'scripts/eslint.js', '--fix', *project_files],
                 log_dir / (safe_id + '-lint.log'),
+                timeout=900,
             )
             if project_files and check_mode in {'all', 'lint'}
             else {'command': 'not_run', 'exit_code': 0, 'log_path': '', 'diagnostic': '', 'state': 'not_run'}
@@ -118,6 +141,7 @@ def check_workflow_projects(environment=None, cwd=None):
             test = execute(
                 ['node_modules/.bin/moon', 'run', project['id'] + ':jest'],
                 log_dir / (safe_id + '-jest.log'),
+                timeout=7200,
             )
         else:
             test = {'command': 'not_run', 'exit_code': 0, 'log_path': '', 'diagnostic': '', 'state': 'not_run'}
