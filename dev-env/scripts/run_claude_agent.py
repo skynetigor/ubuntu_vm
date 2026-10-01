@@ -10,15 +10,24 @@ import time
 OUTPUT_SCHEMA = {
     'type': 'object',
     'properties': {
-        'response': {'type': 'string'},
-        'run_summary': {'type': 'string'},
+        'response': {
+            'type': 'string',
+            'description': 'Answer for the user, formatted as GitHub-flavored Markdown.',
+        },
+        'run_summary': {
+            'type': 'string',
+            'description': 'Handoff summary for the next phase, formatted as GitHub-flavored Markdown.',
+        },
         'findings': {'type': 'array'},
         'changes': {'type': 'array'},
         'pull_request': {
             'type': 'object',
             'properties': {
                 'title': {'type': 'string'},
-                'body': {'type': 'string'},
+                'body': {
+                    'type': 'string',
+                    'description': 'Pull request description, formatted as GitHub-flavored Markdown.',
+                },
             },
             'required': ['title', 'body'],
             'additionalProperties': False,
@@ -38,8 +47,13 @@ def run_claude_agent(environment=None):
         prompt = 'Previous workflow phase summary:\n' + run_summary + '\n\n' + prompt
     prompt += (
         '\n\nReturn the requested structured result. '
-        '`run_summary` must be a concise durable handoff: decisions, findings, '
-        'files changed, unresolved items, and next actions. Do not include secrets.'
+        'Format `response`, `run_summary`, and any `pull_request.body` as '
+        'GitHub-flavored Markdown: use headings, bullet lists, and inline code '
+        'for paths and identifiers; never return a single unstructured paragraph. '
+        '`run_summary` must be a concise durable handoff with `### Decisions`, '
+        '`### Findings`, `### Files changed`, `### Unresolved`, and '
+        '`### Next actions` sections (write "None" for empty ones). '
+        'Do not include secrets.'
     )
     disallowed_tools = [
         'Bash(sudo *)',

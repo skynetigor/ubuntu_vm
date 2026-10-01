@@ -3,6 +3,7 @@ name: Main Kibana Agent
 description: >-
   Reusable entry point for calling Claude Code on dev-vm over SSH. Pass the
   returned session_id on later calls to continue the same Claude session.
+  response, run_summary, and pull_request.body are GitHub-flavored Markdown.
 enabled: true
 tags:
   - kibana
@@ -26,7 +27,7 @@ triggers:
           default: /opt/ubuntu_vm
         run_summary:
           type: string
-          description: Compact summary from the previous phase in this workflow run.
+          description: Markdown summary from the previous phase in this workflow run.
         disallow_shell:
           type: boolean
           default: false

@@ -27,7 +27,7 @@ Provide two Kibana workflows: `review-kibana-pr` checks out and reviews a reposi
 - Keep all agent calls sequential, including calls inside project loops; parallel calls could race on or fork the same Claude session.
 - If any agent step fails or returns an empty session ID, stop the workflow and report the failure. Do not silently retry without the ID.
 - Include the final session ID in the parent workflow output so a later workflow execution may explicitly continue it if desired; otherwise a new parent execution starts a new session.
-- Require every agent phase to return a compact structured `run_summary` containing decisions, findings, files changed, unresolved items, and next actions. Store it in parent workflow state and include it in each subsequent prompt along with the latest session ID.
+- Require every agent phase to return a compact Markdown `run_summary` with `### Decisions`, `### Findings`, `### Files changed`, `### Unresolved`, and `### Next actions` sections. `response` and any `pull_request.body` are also GitHub-flavored Markdown; `run_claude_agent.py` enforces this through its structured-output schema descriptions and the instruction appended to every prompt. Store the summary in parent workflow state and include it in each subsequent prompt along with the latest session ID.
 - Allow Claude Code's native context compaction within the resumed session. At phase boundaries, request a concise checkpoint summary and continue with the same ID and stored `run_summary`; never create a second summarizer session.
 
 ## Current Workflow Split
