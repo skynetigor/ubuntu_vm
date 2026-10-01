@@ -10,6 +10,7 @@ Create a parent Kibana workflow that deploys the requested Kibana target, review
 - `main-kibana-agent` accepts `prompt`, `session_id`, `cwd`, `run_summary`, and `disallow_shell`; it returns `response`, `run_summary`, `findings`, `changes`, and the next `session_id`.
 - The review parent sets `disallow_shell: true` on every Claude child call so agents can use file read/edit tools but cannot invoke privileged or GitHub-write shell commands.
 - The Claude workflow runs remotely on `dev-vm` through `ssh.python` in the supplied working directory and uses `--permission-mode auto`.
+- Remote Python workflow steps import their implementation modules from `dev-env/scripts/`, mounted read-only in `dev-vm` at `/etc/dev-env-scripts`; each workflow step passes inputs through its environment and returns the module function's structured result.
 - `check-kibana-workflow-projects` is the reusable deterministic child workflow for targeted ESLint autofix and Moon Jest runs.
 - Project checks run as the `workflow-runner` account with a clean environment and no Docker/sudo groups or API tokens. The checker grants temporary ACL access only to node_modules and selected project source roots, and configures Git safe.directory only for the exact checkout.
 - Kibana workflow-owned packages and plugins use Moon project IDs. The shared Moon `jest` task runs Jest with `--passWithNoTests`.

@@ -20,6 +20,7 @@ services:
       - dev-vm-docker:/var/lib/docker
       - dev-vm-opt:/opt
       - ./env:/etc/dev-env:ro
+      - ./scripts:/etc/dev-env-scripts:ro
     networks:
       - elastic
     restart: unless-stopped
