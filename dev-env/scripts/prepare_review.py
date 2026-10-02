@@ -67,7 +67,6 @@ def prepare_review(environment=None, cwd=None):
         and not any(part in ignored_changed_parts for part in path.split('/'))
     })
 
-    projects = json.loads(environment['WORKFLOW_PROJECTS'])
     include_globs = json.loads(environment['INCLUDE_GLOBS'])
     exclude_globs = json.loads(environment['EXCLUDE_GLOBS'])
     lint_extensions = ('.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx')
@@ -80,23 +79,48 @@ def prepare_review(environment=None, cwd=None):
             or any(re.search(r'\.(test|spec)\.[^.]+$', part) for part in parts)
         )
 
-    production_files = []
+    def is_production_path(path):
+        return (
+            any(fnmatch.fnmatchcase(path, pattern) for pattern in include_globs)
+            and not any(fnmatch.fnmatchcase(path, pattern) for pattern in exclude_globs)
+        )
+
+    # Every Kibana package and plugin root has a kibana.jsonc manifest.
+    project_by_dir = {}
+
+    def find_project_root(path):
+        directory = os.path.dirname(path)
+        while directory:
+            if directory not in project_by_dir:
+                manifest = os.path.join(cwd, directory, 'kibana.jsonc')
+                project_by_dir[directory] = os.path.isfile(manifest)
+            if project_by_dir[directory]:
+                return directory
+            directory = os.path.dirname(directory)
+        return None
+
+    def read_project_id(root):
+        with open(os.path.join(cwd, root, 'kibana.jsonc'), encoding='utf-8') as manifest:
+            match = re.search(r'"id"\s*:\s*"([^"]+)"', manifest.read())
+        return match.group(1) if match else root
+
+    files_by_root = {}
+    unscoped_files = []
+    for path in changed:
+        root = find_project_root(path)
+        if root is None:
+            unscoped_files.append(path)
+        else:
+            files_by_root.setdefault(root, []).append(path)
+
+    production_files = [path for path in unscoped_files if is_production_path(path)]
     changed_projects = []
-    for project in projects:
-        root = project['source_root'].rstrip('/') + '/'
-        project_files = [path for path in changed if path.startswith(root)]
-        if not project_files:
-            continue
-        project_production_files = set()
-        for path in project_files:
-            if not any(fnmatch.fnmatchcase(path, pattern) for pattern in include_globs):
-                continue
-            if any(fnmatch.fnmatchcase(path, pattern) for pattern in exclude_globs):
-                continue
-            project_production_files.add(path)
+    for root, project_files in sorted(files_by_root.items()):
+        project_production_files = {path for path in project_files if is_production_path(path)}
         production_files.extend(project_production_files)
         changed_projects.append({
-            **project,
+            'id': read_project_id(root),
+            'source_root': root,
             'files': sorted(
                 path for path in project_files
                 if path.endswith(lint_extensions)

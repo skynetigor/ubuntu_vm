@@ -50,7 +50,7 @@ def publish_pr_fixes(environment=None):
         fix_branch = f'workflow-review-fixes/pr-{pr["number"]}-{suffix[:32]}'
         run(['git', 'check-ref-format', '--branch', fix_branch])
 
-        projects = json.loads(environment['WORKFLOW_PROJECTS'])
+        projects = json.loads(environment['CHANGED_PROJECTS'])
         production_files = set(json.loads(environment['PRODUCTION_FILES_JSON']))
         roots = [project['source_root'].rstrip('/') + '/' for project in projects]
         tracked = run(['git', 'diff', '--name-only', '-z']).stdout.split('\0')

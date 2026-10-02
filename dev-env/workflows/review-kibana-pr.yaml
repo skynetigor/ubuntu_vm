@@ -79,29 +79,6 @@ consts:
     materially harmful reliability/performance issue with meaningful user
     impact. low: minor/narrow impact. nit: style/readability preference.
     opinionated: subjective alternative without a demonstrated defect.
-  WORKFLOW_PROJECTS:
-    - id: '@kbn/workflows'
-      source_root: src/platform/packages/shared/kbn-workflows
-    - id: '@kbn/workflows-library'
-      source_root: src/platform/packages/shared/kbn-workflows-library
-    - id: '@kbn/workflows-yaml'
-      source_root: src/platform/packages/shared/kbn-workflows-yaml
-    - id: '@kbn/workflows-ui'
-      source_root: src/platform/packages/shared/kbn-workflows-ui
-    - id: '@kbn/deeplinks-workflows'
-      source_root: src/platform/packages/shared/deeplinks/workflows
-    - id: '@kbn/workflows-execution-engine'
-      source_root: src/platform/plugins/shared/workflows_execution_engine
-    - id: '@kbn/workflows-extensions'
-      source_root: src/platform/plugins/shared/workflows_extensions
-    - id: '@kbn/workflows-management-plugin'
-      source_root: src/platform/plugins/shared/workflows_management
-    - id: '@kbn/workflow-step-schema-cli'
-      source_root: src/platform/packages/private/kbn-workflow-step-schema-cli
-    - id: '@kbn/workflow-yaml-validate-cli'
-      source_root: src/platform/packages/private/kbn-workflow-yaml-validate-cli
-    - id: '@kbn/workflow-graph-screenshot-cli'
-      source_root: src/platform/packages/private/kbn-workflow-graph-screenshot-cli
 
 steps:
   - name: checkout_project
@@ -140,7 +117,6 @@ steps:
         BASE_DEPTH: '256'
         PROJECT: '{{ steps.checkout_project.output.project }}'
         UPSTREAM_REPO: '{{ consts.UPSTREAM_KIBANA_REPO }}'
-        WORKFLOW_PROJECTS: '{{ consts.WORKFLOW_PROJECTS | json }}'
         INCLUDE_GLOBS: '{{ consts.PRODUCTION_FILE_INCLUDE_GLOBS | json }}'
         EXCLUDE_GLOBS: '{{ consts.PRODUCTION_FILE_EXCLUDE_GLOBS | json }}'
         MAX_FILES: '{{ consts.MAX_PRODUCTION_FILES }}'
@@ -257,7 +233,6 @@ steps:
       production_files: ${{ steps.prepare_review.output.production_files }}
       changed_files: ${{ steps.prepare_review.output.changed_files }}
       changed_projects: ${{ steps.prepare_review.output.changed_projects }}
-      workflow_projects: ${{ consts.WORKFLOW_PROJECTS }}
       is_pr: ${{ steps.detect_target.output.is_pr }}
       pr_target: ${{ steps.detect_target.output }}
       pr_context: ${{ variables.pr_context }}

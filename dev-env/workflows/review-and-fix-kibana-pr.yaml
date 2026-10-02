@@ -51,7 +51,7 @@ steps:
       pr_comments_fixed_locally: []
       pr_fix_results: []
       current_production_files: []
-      current_workflow_projects: []
+      current_changed_projects: []
       current_project: ''
       is_pr: false
       publish_status: blocked_unresolved
@@ -96,7 +96,7 @@ steps:
           current_other_agent_comments: ${{ steps.review_current_state.output.other_agent_comments }}
           current_failed_tests: ${{ steps.review_current_state.output.failed_tests }}
           current_production_files: ${{ steps.review_current_state.output.production_files }}
-          current_workflow_projects: ${{ steps.review_current_state.output.workflow_projects }}
+          current_changed_projects: ${{ steps.review_current_state.output.changed_projects }}
           current_project: '{{ steps.review_current_state.output.project }}'
           is_pr: ${{ steps.review_current_state.output.is_pr }}
           pr_target: ${{ steps.review_current_state.output.pr_target }}
@@ -144,7 +144,7 @@ steps:
         type: foreach
         foreach: '${{ steps.review_current_state.output.failed_tests }}'
         max-iterations:
-          limit: 11
+          limit: 50
           on-limit: fail
         steps:
           - name: fix_one_test_project
@@ -157,7 +157,7 @@ steps:
                 session_id: '{{ variables.agent_session_id }}'
                 run_summary: '{{ variables.run_summary }}'
                 prompt: >-
-                  Fix the failing tests for this workflow project only. Do not
+                  Fix the failing tests for this project only. Do not
                   weaken assertions merely to pass, do not commit or push, and
                   avoid unrelated changes. Return JSON with response,
                   run_summary, findings, and changes.
@@ -189,7 +189,7 @@ steps:
         type: foreach
         foreach: '${{ steps.lint_changed_files.output.failed }}'
         max-iterations:
-          limit: 11
+          limit: 50
           on-limit: fail
         steps:
           - name: fix_one_lint_project
@@ -203,7 +203,7 @@ steps:
                 run_summary: '{{ variables.run_summary }}'
                 prompt: >-
                   ESLint --fix already ran; fix the remaining lint errors in
-                  files_with_errors for this workflow project only. Do not add
+                  files_with_errors for this project only. Do not add
                   eslint-disable comments unless a rule is genuinely wrong for
                   the line, do not commit or push, and avoid unrelated changes.
                   Return JSON with response, run_summary, findings, and changes.
@@ -306,7 +306,7 @@ steps:
           current_other_agent_comments: ${{ steps.final_review.output.other_agent_comments }}
           current_failed_tests: ${{ steps.final_review.output.failed_tests }}
           current_production_files: ${{ steps.final_review.output.production_files }}
-          current_workflow_projects: ${{ steps.final_review.output.workflow_projects }}
+          current_changed_projects: ${{ steps.final_review.output.changed_projects }}
           current_project: '{{ steps.final_review.output.project }}'
           is_pr: ${{ steps.final_review.output.is_pr }}
 
@@ -385,7 +385,7 @@ steps:
               env:
                 PR_CONTEXT_JSON: '{{ variables.initial_pr_context | json }}'
                 PRODUCTION_FILES_JSON: '{{ variables.current_production_files | json }}'
-                WORKFLOW_PROJECTS: '{{ variables.current_workflow_projects | json }}'
+                CHANGED_PROJECTS: '{{ variables.current_changed_projects | json }}'
                 FIX_BRANCH_SUFFIX: '{{ execution.id }}'
               code: |
                 import sys

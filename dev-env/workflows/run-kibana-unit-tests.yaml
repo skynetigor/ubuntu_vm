@@ -21,7 +21,7 @@ triggers:
           description: Kibana source root on dev-vm, e.g. /opt/<project>/kibana/src.
         projects:
           type: array
-          description: Projects to test; each source_root must contain jest.config.js.
+          description: Projects to test; a source_root without jest.config.js is reported as no_tests.
           items:
             type: object
             required:
@@ -132,14 +132,16 @@ steps:
                 timeout -k 30 "$TIMEOUT_SECONDS" node "${jest_args[@]}" > "$log" 2>&1
               exit_code=$?
             else
-              echo "Missing $config" > "$log"
-              exit_code=127
+              echo "No $config" > "$log"
+              exit_code=0
             fi
 
             clean="$log.clean"
             sed 's/\x1b\[[0-9;]*m//g' "$log" > "$clean"
-            if [ ! -f "$config" ]; then
-              status=failed; reason=missing_config
+            if [ ! -d "$SOURCE_ROOT" ]; then
+              status=failed; reason=missing_project
+            elif [ ! -f "$config" ]; then
+              status=no_tests; reason=no_jest_config
             elif [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; then
               status=failed; reason=timeout
             elif [ "$exit_code" -ne 0 ] && grep -q 'terminated by another process: signal=SIGKILL' "$clean"; then
