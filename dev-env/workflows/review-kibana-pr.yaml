@@ -32,6 +32,33 @@ triggers:
           type: boolean
           default: true
           description: Classify existing PR review comments; review-and-fix disables this per round.
+        existing_checkout:
+          type: object
+          default: {}
+          additionalProperties: false
+          properties:
+            project:
+              type: string
+            target:
+              type: string
+            commit:
+              type: string
+            source_repository:
+              type: string
+            source_branch:
+              type: string
+            deploy_dir:
+              type: string
+            source_dir:
+              type: string
+            checkout_changed:
+              type: string
+            clone_skipped:
+              type: string
+            fetched_branches:
+              type: string
+            bootstrap_status:
+              type: string
 
 consts:
   UPSTREAM_KIBANA_REPO: https://github.com/elastic/kibana.git
@@ -81,18 +108,32 @@ consts:
     opinionated: subjective alternative without a demonstrated defect.
 
 steps:
-  - name: checkout_project
-    type: workflow.execute
+  - name: initialize_checkout_state
+    type: data.set
     with:
-      workflow-id: checkout-kibana-project
-      inputs:
-        kibana_target: '{{ inputs.kibana_target }}'
-        target_depth: 256
-        additional_branches:
-          - repository: '{{ consts.UPSTREAM_KIBANA_REPO }}'
-            branch: '{{ inputs.base_branch }}'
-            ref: 'refs/remotes/workflow-review/{{ inputs.base_branch }}'
-            depth: 256
+      checkout: ${{ inputs.existing_checkout }}
+
+  - name: checkout_when_not_provided
+    type: if
+    condition: "${{ inputs.existing_checkout.project == nil }}"
+    steps:
+      - name: checkout_project
+        type: workflow.execute
+        with:
+          workflow-id: checkout-kibana-project
+          inputs:
+            kibana_target: '{{ inputs.kibana_target }}'
+            target_depth: 256
+            additional_branches:
+              - repository: '{{ consts.UPSTREAM_KIBANA_REPO }}'
+                branch: '{{ inputs.base_branch }}'
+                ref: 'refs/remotes/workflow-review/{{ inputs.base_branch }}'
+                depth: 256
+
+      - name: save_checkout_state
+        type: data.set
+        with:
+          checkout: ${{ steps.checkout_project.output }}
 
   - name: detect_target
     type: ssh.python
@@ -110,12 +151,15 @@ steps:
     type: ssh.python
     connector-id: dev-vm
     with:
-      cwd: '{{ steps.checkout_project.output.source_dir }}'
+      cwd: '{{ variables.checkout.source_dir }}'
       env:
         BASE_BRANCH: '{{ inputs.base_branch }}'
         BASE_REF: 'refs/remotes/workflow-review/{{ inputs.base_branch }}'
         BASE_DEPTH: '256'
-        PROJECT: '{{ steps.checkout_project.output.project }}'
+        MAX_HISTORY_DEPTH: '4096'
+        PROJECT: '{{ variables.checkout.project }}'
+        SOURCE_REPOSITORY: '{{ variables.checkout.source_repository }}'
+        SOURCE_BRANCH: '{{ variables.checkout.source_branch }}'
         UPSTREAM_REPO: '{{ consts.UPSTREAM_KIBANA_REPO }}'
         INCLUDE_GLOBS: '{{ consts.PRODUCTION_FILE_INCLUDE_GLOBS | json }}'
         EXCLUDE_GLOBS: '{{ consts.PRODUCTION_FILE_EXCLUDE_GLOBS | json }}'
@@ -142,7 +186,7 @@ steps:
     with:
       workflow-id: main-kibana-agent
       inputs:
-        cwd: '{{ steps.checkout_project.output.source_dir }}'
+        cwd: '{{ variables.checkout.source_dir }}'
         disallow_shell: true
         session_id: '{{ variables.agent_session_id }}'
         run_summary: '{{ variables.run_summary }}'
@@ -152,7 +196,9 @@ steps:
           {{ steps.prepare_review.output.head_commit }}. Follow this policy:
           {{ consts.PRODUCTION_FILE_POLICY }} The production files are
           {{ steps.prepare_review.output.production_files | json }}. Review only
-          this diff: {{ steps.prepare_review.output.production_diff }}.
+          the production diff stored at
+          `{{ steps.prepare_review.output.production_diff_path }}` ({{ steps.prepare_review.output.production_diff_chars }} characters).
+          Read that patch file with your file-reading tool; do not use shell.
           Apply this rubric: {{ consts.SEVERITY_RUBRIC }}. Report findings at
           every severity, not only fixable severities. Do not edit files. Return
           JSON with response, run_summary, findings, and changes. Each finding
@@ -176,7 +222,7 @@ steps:
         with:
           workflow-id: analyze-kibana-pr-comments
           inputs:
-            source_dir: '{{ steps.checkout_project.output.source_dir }}'
+            source_dir: '{{ variables.checkout.source_dir }}'
             owner: '{{ steps.detect_target.output.owner }}'
             repo: '{{ steps.detect_target.output.repo }}'
             number: ${{ steps.detect_target.output.number }}
@@ -197,7 +243,7 @@ steps:
     with:
       workflow-id: run-kibana-unit-tests
       inputs:
-        source_dir: '{{ steps.checkout_project.output.source_dir }}'
+        source_dir: '{{ variables.checkout.source_dir }}'
         projects: ${{ steps.prepare_review.output.changed_projects }}
         diagnostic_chars: ${{ consts.MAX_AGENT_DIAGNOSTIC_CHARS }}
 
@@ -220,15 +266,15 @@ steps:
   - name: output
     type: workflow.output
     with:
-      project: '{{ steps.checkout_project.output.project }}'
-      target: '{{ steps.checkout_project.output.target }}'
-      commit: '{{ steps.checkout_project.output.commit }}'
-      source_repository: '{{ steps.checkout_project.output.source_repository }}'
-      source_branch: '{{ steps.checkout_project.output.source_branch }}'
-      source_dir: '{{ steps.checkout_project.output.source_dir }}'
-      checkout_changed: ${{ steps.checkout_project.output.checkout_changed }}
-      clone_skipped: ${{ steps.checkout_project.output.clone_skipped }}
-      fetched_branches: ${{ steps.checkout_project.output.fetched_branches }}
+      project: '{{ variables.checkout.project }}'
+      target: '{{ variables.checkout.target }}'
+      commit: '{{ variables.checkout.commit }}'
+      source_repository: '{{ variables.checkout.source_repository }}'
+      source_branch: '{{ variables.checkout.source_branch }}'
+      source_dir: '{{ variables.checkout.source_dir }}'
+      checkout_changed: '{{ variables.checkout.checkout_changed }}'
+      clone_skipped: '{{ variables.checkout.clone_skipped }}'
+      fetched_branches: '{{ variables.checkout.fetched_branches }}'
       base_commit: '{{ steps.prepare_review.output.base_commit }}'
       production_files: ${{ steps.prepare_review.output.production_files }}
       changed_files: ${{ steps.prepare_review.output.changed_files }}

@@ -45,6 +45,11 @@ triggers:
           default: 12000
           minimum: 500
 
+consts:
+  PROJECT_CONFIGS:
+    '@kbn/stack-connectors-plugin':
+      max_workers: 1
+
 # Same literal key as checkout-kibana-project and run-kibana-eslint: one heavy Node job at a time on dev-vm.
 settings:
   concurrency:
@@ -110,7 +115,7 @@ steps:
             PROJECT_ID: '{{ foreach.item.id }}'
             SOURCE_ROOT: '{{ foreach.item.source_root }}'
             LOG_DIR: '{{ steps.prepare_runner.output.log_dir }}'
-            MAX_WORKERS: '{{ inputs.max_workers }}'
+            MAX_WORKERS: '{{ consts.PROJECT_CONFIGS[foreach.item.id].max_workers | default: inputs.max_workers }}'
             TIMEOUT_SECONDS: '{{ inputs.timeout_seconds }}'
             DIAGNOSTIC_CHARS: '{{ inputs.diagnostic_chars }}'
           command: |
@@ -169,6 +174,7 @@ steps:
                 "status": e["STATUS"],
                 "reason": e["REASON"],
                 "exit_code": int(e["EXIT_CODE"]),
+                "max_workers": int(e["MAX_WORKERS"]),
                 "command": e["COMMAND"],
                 "failed_suites": sorted(set(re.findall(r"^FAIL\s+(\S+)", text, re.M))),
                 "diagnostic": text[-int(e["DIAGNOSTIC_CHARS"]):],

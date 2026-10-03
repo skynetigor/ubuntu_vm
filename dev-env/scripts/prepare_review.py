@@ -10,7 +10,7 @@ def prepare_review(environment=None, cwd=None):
     environment = os.environ if environment is None else environment
     cwd = os.getcwd() if cwd is None else cwd
 
-    def git(*args):
+    def git(*args, check=True):
         command = ['git', *args]
         try:
             completed = subprocess.run(
@@ -21,9 +21,9 @@ def prepare_review(environment=None, cwd=None):
             )
         except subprocess.TimeoutExpired as error:
             raise RuntimeError(f'Git command timed out after 300 seconds: {args[0]}') from error
-        if completed.returncode:
+        if check and completed.returncode:
             raise RuntimeError(completed.stderr[-4000:] or 'git command failed')
-        return completed.stdout.strip()
+        return completed.stdout.strip() if check else completed
 
     base_branch = environment['BASE_BRANCH']
     if not re.fullmatch(r'[A-Za-z0-9._/-]+', base_branch) or '..' in base_branch:
@@ -39,7 +39,43 @@ def prepare_review(environment=None, cwd=None):
         )
     base_commit = git('rev-parse', base_ref)
     head_commit = git('rev-parse', 'HEAD')
-    merge_base = git('merge-base', base_commit, head_commit)
+    merge_base_result = git('merge-base', base_commit, head_commit, check=False)
+    if merge_base_result.returncode not in {0, 1}:
+        raise RuntimeError(merge_base_result.stderr[-4000:] or 'git merge-base failed')
+
+    if merge_base_result.returncode == 1:
+        source_repository = environment['SOURCE_REPOSITORY']
+        source_branch = environment.get('SOURCE_BRANCH', '').strip()
+        source_ref = source_branch or head_commit
+        if not re.fullmatch(r'[A-Za-z0-9._/-]+', source_ref) or '..' in source_ref:
+            raise ValueError('Invalid source branch or commit for history deepening')
+
+        max_history_depth = int(environment.get('MAX_HISTORY_DEPTH', '4096'))
+        current_depth = int(environment.get('BASE_DEPTH', '256'))
+        if max_history_depth < current_depth:
+            raise ValueError('MAX_HISTORY_DEPTH must be at least BASE_DEPTH')
+
+        while merge_base_result.returncode == 1 and current_depth < max_history_depth:
+            deepen_by = min(current_depth, max_history_depth - current_depth)
+            git('fetch', '--no-tags', '--deepen', str(deepen_by), source_repository, source_ref)
+            git(
+                'fetch', '--no-tags', '--deepen', str(deepen_by),
+                environment['UPSTREAM_REPO'],
+                f'+refs/heads/{base_branch}:{base_ref}',
+            )
+            current_depth += deepen_by
+            merge_base_result = git('merge-base', base_commit, head_commit, check=False)
+            if merge_base_result.returncode not in {0, 1}:
+                raise RuntimeError(merge_base_result.stderr[-4000:] or 'git merge-base failed')
+
+        if merge_base_result.returncode == 1:
+            raise RuntimeError(
+                f'No merge base found between target {head_commit} and base {base_commit} '
+                f'after deepening both histories to {max_history_depth} commits; '
+                'the histories may be unrelated or MAX_HISTORY_DEPTH may need to be increased.'
+            )
+
+    merge_base = merge_base_result.stdout.strip()
     changed = [
         path for path in git(
             'diff', '--name-only', '--diff-filter=ACMRD', merge_base,
@@ -167,6 +203,13 @@ def prepare_review(environment=None, cwd=None):
             f'of {max_diff_chars}; reduce the review scope or raise the limit.'
         )
 
+    production_diff_artifact = tempfile.NamedTemporaryFile(
+        mode='w', prefix='kbn-review-production-diff-', suffix='.patch',
+        delete=False, encoding='utf-8',
+    )
+    with production_diff_artifact:
+        production_diff_artifact.write(diff_text)
+
     changed_files_artifact = tempfile.NamedTemporaryFile(
         mode='w', prefix='kbn-review-changed-files-', suffix='.json',
         delete=False, encoding='utf-8',
@@ -181,8 +224,9 @@ def prepare_review(environment=None, cwd=None):
         'merge_base': merge_base,
         'changed_files': changed,
         'changed_files_path': changed_files_artifact.name,
+        'production_diff_path': production_diff_artifact.name,
+        'production_diff_chars': len(diff_text),
         'changed_projects': changed_projects,
         'production_files': production_files,
         'diff_stat': diff_stat,
-        'production_diff': diff_text,
     }

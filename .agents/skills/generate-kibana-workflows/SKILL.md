@@ -45,6 +45,7 @@ Read [workflow-spec.md](./workflow-spec.md) before designing or editing a workfl
    - Reference Bash with `ssh.run` and `bash /etc/dev-env-scripts/<script>.sh`; reference Python with a thin `ssh.python` wrapper importing from `/etc/dev-env-scripts`; reference JavaScript with a thin `ssh.node` wrapper requiring `/etc/dev-env-scripts/<module>.js`.
    - Pass runtime values through the workflow step's `env`; environment values are strings, so serialize structured values with `| json` and parse them in the external script. Never bake runtime values or secrets into source files.
    - External scripts must return/write JSON-compatible structured results using the step convention: Python/Node wrappers `return` the value; Bash writes JSON to `$STEP_OUTPUT`.
+   - All remotely executed scripts must stream their own logs and child-process logs to step stdout/stderr as they are produced. Use unbuffered output; when capturing subprocess output for parsing or artifacts, also forward log output live rather than replaying it only after completion. See the live logging rules in `workflow-spec.md`.
    - Do not make scripts write beside themselves because the mount is read-only. Use the workflow checkout, `/tmp`, or another explicit writable path.
    - Bound external subprocess/network calls and return actionable timeout diagnostics.
    - Never print credentials or pass secrets into model prompts.
@@ -113,5 +114,6 @@ git diff --check
 - Child workflow failures and missing outputs are handled intentionally.
 - External calls are bounded; write operations are guarded and idempotent where possible.
 - External scripts live in `dev-env/scripts/`, use the correct `/etc/dev-env-scripts` reference pattern, and pass syntax checks (`bash -n`, Python parse/compile, or `node --check`).
+- Remote script and child-process logs reach step stdout/stderr before termination; captured output does not hide live progress.
 - No credential is logged, serialized into output, or sent to an agent.
 - Live schema validation, focused tests, diagnostics, and `git diff --check` pass.

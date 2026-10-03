@@ -584,6 +584,15 @@ Reference the module from a thin `ssh.node` wrapper:
 
 ### Shared Rules
 
+#### Live Logging
+
+- All remotely executed scripts, including inline wrappers and external Bash/Python/JavaScript modules, must send their logs and child-process logs to step stdout/stderr as they are produced, not only when the step terminates.
+- Use unbuffered Python (`python3 -u` or `PYTHONUNBUFFERED=1`) and flush logging writes. This does not make captured subprocess pipes stream automatically: inherit stdout/stderr when no capture is needed, or drain both pipes concurrently and forward log chunks immediately while retaining any needed captured output.
+- For Bash, use `tee` instead of file-only redirection when saving logs, and preserve the child exit code with `pipefail` or `PIPESTATUS`. For Node.js, inherit child stdio or forward both child streams as data arrives; avoid completion-only buffered execution for long-running commands.
+- Enable the child's own unbuffered or line-buffered logging mode when supported. Add periodic safe progress messages for long silent operations, without printing large payloads or credentials.
+- Keep machine-readable results in `$STEP_OUTPUT` or the returned structured value. API responses, source diffs, tokens, and other sensitive data are not logs: capture them privately for parsing and emit only safe progress metadata or redacted diagnostics.
+- Validate live logging with a delayed child process: verify both stdout and stderr become visible in step logs before the child exits, and that its exit status and structured output are still preserved.
+
 - `env` values are strings. Use `${{ ... }}` for native workflow fields, but use `{{ value | json }}` when moving arrays/objects into environment variables.
 - Pass secrets only via environment inherited by deterministic steps. Never include them in prompts, logs, errors, outputs, command arguments, or checked-in files.
 - The mount is read-only. Scripts may read their own resources but must write logs/artifacts to `/tmp`, the checkout, or another explicit writable directory.

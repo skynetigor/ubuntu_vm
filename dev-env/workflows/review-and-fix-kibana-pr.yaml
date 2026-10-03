@@ -67,6 +67,24 @@ steps:
       comment_resolution_status: not_pr
       comment_resolution_result: {}
 
+  - name: checkout_project
+    type: workflow.execute
+    with:
+      workflow-id: checkout-kibana-project
+      inputs:
+        kibana_target: '{{ inputs.kibana_target }}'
+        target_depth: 256
+        additional_branches:
+          - repository: https://github.com/elastic/kibana.git
+            branch: '{{ inputs.base_branch }}'
+            ref: 'refs/remotes/workflow-review/{{ inputs.base_branch }}'
+            depth: 256
+
+  - name: save_checkout
+    type: data.set
+    with:
+      checkout: ${{ steps.checkout_project.output }}
+
   - name: review_and_fix_loop
     type: while
     condition: "${{ variables.needs_work == true }}"
@@ -84,6 +102,7 @@ steps:
             session_id: '{{ variables.agent_session_id }}'
             run_summary: '{{ variables.run_summary }}'
             analyze_pr_comments: false
+            existing_checkout: ${{ variables.checkout }}
 
       - name: save_review_state
         type: data.set
@@ -295,6 +314,7 @@ steps:
             session_id: '{{ variables.agent_session_id }}'
             run_summary: '{{ variables.run_summary }}'
             analyze_pr_comments: false
+            existing_checkout: ${{ variables.checkout }}
 
       - name: save_final_review_state
         type: data.set

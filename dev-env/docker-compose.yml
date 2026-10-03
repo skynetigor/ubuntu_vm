@@ -10,9 +10,9 @@ services:
         required: false
     container_name: elastic-dev-vm
     privileged: true
-    # Keep workflow load (Jest, Claude, preview builds) from starving Kibana/ES on the shared host.
-    mem_limit: ${DEV_VM_MEM_LIMIT:-16g}
-    memswap_limit: ${DEV_VM_MEM_LIMIT:-16g}
+    # 24 GiB is the remaining whole-GiB budget after the other services' caps on a 31 GiB host.
+    mem_limit: ${DEV_VM_MEM_LIMIT:-24g}
+    memswap_limit: ${DEV_VM_MEM_LIMIT:-24g}
     ports:
       - "2222:22"
       - "5003-5999:5003-5999"
@@ -42,6 +42,8 @@ services:
       - ES_LICENSE=${ES_LICENSE:-trial}
     ports:
       - "5001:9200"
+    mem_limit: 3g
+    memswap_limit: 3g
     volumes:
       - es_data:/var/lib/elasticsearch
     healthcheck:
@@ -81,7 +83,9 @@ services:
       - DASHBOARDS_DIR=/opt/kibana/setup/dashboards
     ports:
       - "5002:5601"
-    mem_reservation: 4g
+    mem_limit: 3g
+    memswap_limit: 3g
+    mem_reservation: 2g
     volumes:
       - ../kibana/kibana.dev.yml:/etc/kibana-config/kibana.dev.yml:ro
       # Main-Kibana-only config. Do NOT also set KIBANA_CONFIG_OVERRIDES_B64 for
@@ -115,6 +119,8 @@ services:
       - ES_PASSWORD=${ES_PASSWORD:-changeme}
     ports:
       - "8200:8200"
+    mem_limit: 300m
+    memswap_limit: 300m
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -128,6 +134,8 @@ services:
     container_name: workflows-ui
     ports:
       - '${WEBAPP_PORT:-5000}:5000'
+    mem_limit: 300m
+    memswap_limit: 300m
     environment:
       - ES_HOST=http://elasticsearch:9200
       - KIBANA_HOST=http://kibana:5601
@@ -153,6 +161,8 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:-}
+    mem_limit: 300m
+    memswap_limit: 300m
     networks:
       - elastic
     restart: unless-stopped
