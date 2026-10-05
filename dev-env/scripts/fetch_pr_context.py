@@ -86,6 +86,7 @@ def fetch_pr_context(environment=None):
             }
 
     normalized_comments = []
+    max_body_chars = int(environment.get('MAX_COMMENT_BODY_CHARS', '0'))
     for comment in comments:
         comment_url = comment.get('html_url') or (
             f'https://github.com/{owner}/{repo}/pull/{number}'
@@ -94,7 +95,7 @@ def fetch_pr_context(environment=None):
         normalized_comments.append({
             'id': comment['id'],
             'in_reply_to_id': comment.get('in_reply_to_id'),
-            'body': comment.get('body', ''),
+            'body': comment.get('body', '')[:max_body_chars or None],
             'path': comment.get('path'),
             'line': comment.get('line') or comment.get('original_line'),
             'url': comment_url,
@@ -102,6 +103,25 @@ def fetch_pr_context(environment=None):
             'author': comment.get('user', {}).get('login'),
             **comment_to_thread.get(comment['id'], {}),
         })
+
+    reviews = []
+    if environment.get('INCLUDE_REVIEWS', '').lower() == 'true':
+        page = 1
+        while True:
+            batch = gh_api(f'repos/{owner}/{repo}/pulls/{number}/reviews?per_page=100&page={page}')
+            reviews.extend(
+                {
+                    'id': review['id'],
+                    'author': (review.get('user') or {}).get('login'),
+                    'state': review.get('state'),
+                    'body': (review.get('body') or '')[:max_body_chars or None],
+                }
+                for review in batch
+                if (review.get('body') or '').strip()
+            )
+            if len(batch) < 100:
+                break
+            page += 1
 
     return {
         'owner': owner,
@@ -111,4 +131,5 @@ def fetch_pr_context(environment=None):
         'head_ref': pr['head']['ref'],
         'head_sha': pr['head']['sha'],
         'comments': normalized_comments,
+        'reviews': reviews,
     }

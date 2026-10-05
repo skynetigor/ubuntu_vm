@@ -1,3 +1,4 @@
+import difflib
 import json
 import os
 import re
@@ -35,6 +36,24 @@ def format_finding(finding):
     return comment
 
 
+def normalize_text(text):
+    return ' '.join(re.sub(r'<!--.*?-->', ' ', str(text or ''), flags=re.S).lower().split())
+
+
+def is_already_posted(finding, existing_comments, existing_review_bodies):
+    comment = normalize_text(format_finding(finding))
+    for existing in existing_comments:
+        if existing.get('path') != finding['file']:
+            continue
+        line = existing.get('line')
+        if finding['line'] and isinstance(line, int) and abs(line - finding['line']) > 5:
+            continue
+        body = normalize_text(existing.get('body'))
+        if comment in body or difflib.SequenceMatcher(None, comment, body).ratio() >= 0.8:
+            return True
+    return any(comment in body for body in existing_review_bodies)
+
+
 def build_pr_review(environment=None):
     environment = os.environ if environment is None else environment
     findings = json.loads(environment.get('FINDINGS_JSON') or '[]') or []
@@ -45,6 +64,9 @@ def build_pr_review(environment=None):
         if not re.fullmatch(r'[0-9a-f]{40}', sha):
             raise ValueError('MERGE_BASE and HEAD_COMMIT must be full commit SHAs')
     production_files = set(json.loads(environment.get('PRODUCTION_FILES_JSON') or '[]'))
+    existing_pr = json.loads(environment.get('EXISTING_PR_CONTEXT_JSON') or '{}') or {}
+    existing_comments = existing_pr.get('comments') or []
+    existing_review_bodies = [normalize_text(review.get('body')) for review in existing_pr.get('reviews') or []]
     max_inline = int(environment.get('MAX_INLINE_COMMENTS', '50'))
     marker = f'<!-- kibana-agent-review:{head_commit} -->'
 
@@ -64,15 +86,24 @@ def build_pr_review(environment=None):
             'file': finding.get('file'),
             'line': line if isinstance(line, int) and line > 0 else None,
             'evidence': finding.get('evidence'),
+            'already_raised': finding.get('already_raised') is True,
+            'existing_comment_id': finding.get('existing_comment_id'),
         })
     normalized.sort(key=lambda item: SEVERITY_ORDER.index(item['severity']))
 
+    # Already-raised findings are never reposted but still decide the verdict while unresolved.
+    duplicates = [
+        item for item in normalized
+        if item['already_raised'] or is_already_posted(item, existing_comments, existing_review_bodies)
+    ]
+    new_findings = [item for item in normalized if item not in duplicates]
+
     # Blocking findings are always published so a change request is never unexplained.
     publishable = [
-        item for item in normalized
+        item for item in new_findings
         if item['severity'] in publish_severities or item['severity'] in BLOCKING_SEVERITIES
     ]
-    excluded = [item for item in normalized if item not in publishable]
+    excluded = [item for item in new_findings if item not in publishable]
     blocking_count = sum(1 for item in normalized if item['severity'] in BLOCKING_SEVERITIES)
     event = 'REQUEST_CHANGES' if blocking_count else 'APPROVE'
 
@@ -102,7 +133,10 @@ def build_pr_review(environment=None):
 
     body_parts = [review_note] if review_note else []
     if event == 'REQUEST_CHANGES' and not review_note:
-        body_parts.append('Left some comments, please take a look before we merge.')
+        body_parts.append(
+            'Left some comments, please take a look before we merge.' if publishable
+            else 'The open comments above still need to be addressed before we merge.'
+        )
     if general_findings:
         if inline_comments or review_note:
             body_parts.append('A few more things not tied to the changed lines:')
@@ -113,7 +147,8 @@ def build_pr_review(environment=None):
 
     preview = [f'**Verdict: {event}** ({blocking_count} critical/high findings).',
                f'**{len(publishable)} findings to publish** ({count_text or "none"}); '
-               f'{len(inline_comments)} inline, {len(general_findings)} in the review body.']
+               f'{len(inline_comments)} inline, {len(general_findings)} in the review body; '
+               f'{len(duplicates)} skipped as already raised.']
     if review_note:
         preview.append(f'\nReview note: {review_note}\n')
     for finding in publishable:
@@ -135,6 +170,7 @@ def build_pr_review(environment=None):
         'general_findings': general_findings,
         'publishable_findings': publishable,
         'excluded_findings': excluded,
+        'duplicate_findings': duplicates,
         'counts_by_severity': counts,
         'preview_markdown': '\n'.join(preview),
     }
