@@ -83,6 +83,11 @@ def fetch_issue_candidates(environment=None):
         'url': pull.get('url', ''),
         'head_ref': pull.get('headRefName', ''),
     }
+    # GitHub returns null nodes for linked issues the token cannot read, e.g. in private repos.
+    nodes = pull['closingIssuesReferences']['nodes']
+    result['inaccessible_closing_issues'] = sum(1 for node in nodes if not node)
+    if result['inaccessible_closing_issues']:
+        print(f"Skipping {result['inaccessible_closing_issues']} inaccessible closing issue(s)", flush=True)
     result['closing_issues'] = [
         {
             'ref': f"{node['repository']['nameWithOwner']}#{node['number']}",
@@ -90,6 +95,7 @@ def fetch_issue_candidates(environment=None):
             'url': node.get('url', ''),
             'state': node.get('state', ''),
         }
-        for node in pull['closingIssuesReferences']['nodes']
+        for node in nodes
+        if node and node.get('repository')
     ]
     return result
