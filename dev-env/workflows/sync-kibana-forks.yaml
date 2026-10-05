@@ -36,6 +36,7 @@ steps:
       - name: sync_fork
         type: ssh.python
         connector-id: dev-vm
+        timeout: 10s
         on-failure:
           continue: true
         with:

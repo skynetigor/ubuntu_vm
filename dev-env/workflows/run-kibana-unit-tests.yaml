@@ -42,7 +42,10 @@ triggers:
           minimum: 500
 
 consts:
-  MAX_WORKERS: 1
+  # Benchmarked on dev-vm: 4 capped workers ran workflows_management in 118s (+7.9GB) vs 704s in-band.
+  MAX_WORKERS: 4
+  WORKER_IDLE_MEMORY_LIMIT: 1536MB
+  WORKER_HEAP_MB: 3072
 
 # Same literal key as checkout-kibana-project and run-kibana-eslint: one heavy Node job at a time on dev-vm.
 settings:
@@ -110,6 +113,8 @@ steps:
             SOURCE_ROOT: '{{ foreach.item.source_root }}'
             LOG_DIR: '{{ steps.prepare_runner.output.log_dir }}'
             MAX_WORKERS: '{{ consts.MAX_WORKERS }}'
+            WORKER_IDLE_MEMORY_LIMIT: '{{ consts.WORKER_IDLE_MEMORY_LIMIT }}'
+            WORKER_HEAP_MB: '{{ consts.WORKER_HEAP_MB }}'
             TIMEOUT_SECONDS: '{{ inputs.timeout_seconds }}'
             DIAGNOSTIC_CHARS: '{{ inputs.diagnostic_chars }}'
           command: |
@@ -118,8 +123,15 @@ steps:
               /*|*..*|*[!A-Za-z0-9_./-]*) echo "Invalid source root: $SOURCE_ROOT" >&2; exit 1 ;;
             esac
             config="${SOURCE_ROOT%/}/jest.config.js"
-            log="$LOG_DIR/$(printf '%s' "$PROJECT_ID" | tr -c 'A-Za-z0-9_.-' '_')-jest.log"
-            jest_args=(scripts/jest.js --config "$config" --passWithNoTests "--maxWorkers=$MAX_WORKERS")
+            safe_id=$(printf '%s' "$PROJECT_ID" | tr -c 'A-Za-z0-9_.-' '_')
+            log="$LOG_DIR/$safe_id-jest.log"
+            # Kibana's scripts/jest rejects --workerIdleMemoryLimit, so a wrapper config sets it.
+            wrapper="$LOG_DIR/$safe_id-jest.config.js"
+            printf "const path = require('path');\nconst original = path.resolve('%s', '%s');\nconst config = require(original);\nmodule.exports = { ...config, rootDir: path.resolve(path.dirname(original), config.rootDir || '.'), workerIdleMemoryLimit: '%s' };\n" \
+              "$PWD" "$config" "$WORKER_IDLE_MEMORY_LIMIT" > "$wrapper"
+            chmod 755 "$LOG_DIR"
+            chmod 644 "$wrapper"
+            jest_args=(scripts/jest.js --config "$wrapper" --passWithNoTests "--maxWorkers=$MAX_WORKERS")
             started=$(date +%s)
 
             if [ -f "$config" ]; then
@@ -127,6 +139,7 @@ steps:
               sudo -n -u workflow-runner env -i \
                 HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
                 NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
+                NODE_OPTIONS="--max-old-space-size=$WORKER_HEAP_MB" \
                 CI=true DISABLE_SWC_REGISTER_CACHE=1 \
                 timeout -k 30 "$TIMEOUT_SECONDS" node "${jest_args[@]}" > "$log" 2>&1
               exit_code=$?
@@ -134,6 +147,7 @@ steps:
               echo "No $config" > "$log"
               exit_code=0
             fi
+            elapsed=$(( $(date +%s) - started ))
 
             clean="$log.clean"
             sed 's/\x1b\[[0-9;]*m//g' "$log" > "$clean"
@@ -141,8 +155,10 @@ steps:
               status=failed; reason=missing_project
             elif [ ! -f "$config" ]; then
               status=no_tests; reason=no_jest_config
-            elif [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; then
+            elif [ "$exit_code" -eq 124 ] || { [ "$exit_code" -eq 137 ] && [ "$elapsed" -ge "$TIMEOUT_SECONDS" ]; }; then
               status=failed; reason=timeout
+            elif [ "$exit_code" -eq 137 ]; then
+              status=failed; reason=out_of_memory
             elif [ "$exit_code" -ne 0 ] && grep -q 'terminated by another process: signal=SIGKILL' "$clean"; then
               status=failed; reason=worker_killed
             elif [ "$exit_code" -ne 0 ]; then
@@ -153,7 +169,7 @@ steps:
               status=passed; reason=''
             fi
 
-            echo "[$PROJECT_ID] $status${reason:+ ($reason)} exit=$exit_code in $(( $(date +%s) - started ))s"
+            echo "[$PROJECT_ID] $status${reason:+ ($reason)} exit=$exit_code in ${elapsed}s"
             grep -E '^(FAIL |Test Suites:|Tests:)' "$clean" | sort -u
 
             export STATUS="$status" REASON="$reason" EXIT_CODE="$exit_code" LOG="$log" CLEAN="$clean" \
