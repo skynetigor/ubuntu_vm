@@ -77,7 +77,7 @@ steps:
           esac
         done
 
-        setfacl -R -m u:workflow-runner:rwx node_modules
+        [ -f node_modules/.workflow-runner-acl ] || setfacl -R -m u:workflow-runner:rwx node_modules/
         for root in $SOURCE_ROOTS; do
           [ -d "$root" ] || continue
           setfacl -R -m u:workflow-runner:rwx "$root" || echo "warning: could not grant access to $root" >&2

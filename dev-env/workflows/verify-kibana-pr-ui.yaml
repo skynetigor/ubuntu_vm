@@ -68,6 +68,7 @@ triggers:
           description: Reuse a previous UI assessment instead of classifying again.
 
 consts:
+  LIGHT_AGENT_MODEL: sonnet
   ALLOWED_ISSUE_REPOS_BASE: elastic/kibana
   FIXABLE_SEVERITIES:
     - high
@@ -128,6 +129,7 @@ steps:
           inputs:
             cwd: '{{ inputs.source_dir }}'
             disallow_shell: true
+            model: '{{ consts.LIGHT_AGENT_MODEL }}'
             session_id: '{{ variables.agent_session_id }}'
             run_summary: '{{ variables.run_summary }}'
             prompt: >-
@@ -178,6 +180,7 @@ steps:
           inputs:
             cwd: '{{ inputs.source_dir }}'
             disallow_shell: true
+            model: '{{ consts.LIGHT_AGENT_MODEL }}'
             session_id: '{{ variables.agent_session_id }}'
             run_summary: '{{ variables.run_summary }}'
             prompt: >-

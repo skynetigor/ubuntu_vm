@@ -35,8 +35,13 @@ triggers:
         run_summary:
           type: string
           default: ''
+        enabled:
+          type: boolean
+          default: true
+          description: When false, returns empty results immediately (parallel branches cannot be conditional).
 
 consts:
+  LIGHT_AGENT_MODEL: sonnet
   MAX_PR_COMMENTS: 200
   MAX_LOCAL_DIFF_CHARS: 60000
   FIXABLE_SEVERITIES:
@@ -61,6 +66,22 @@ steps:
       analysis: []
       agent_session_id: '{{ inputs.session_id }}'
       run_summary: '{{ inputs.run_summary }}'
+
+  - name: skip_when_disabled
+    type: if
+    condition: "${{ inputs.enabled == false }}"
+    steps:
+      - name: disabled_output
+        type: workflow.output
+        with:
+          pr_context: {}
+          comments: []
+          analysis: []
+          pr_comments_to_fix: []
+          pr_comments_fixed_locally: []
+          other_pr_comments: []
+          session_id: '{{ variables.agent_session_id }}'
+          run_summary: '{{ variables.run_summary }}'
 
   - name: fetch_pr_context
     type: ssh.python
@@ -129,7 +150,8 @@ steps:
           inputs:
             cwd: '{{ inputs.source_dir }}'
             disallow_shell: true
-            idempotency_key: 'pr-comments-v1:{{ steps.fetch_pr_context.output.head_sha }}:{{ steps.collect_local_changes.output | sha256 }}:{{ steps.fetch_pr_context.output.comments | json | sha256 }}'
+            model: '{{ consts.LIGHT_AGENT_MODEL }}'
+            idempotency_key: 'pr-comments-v2:{{ consts.LIGHT_AGENT_MODEL }}:{{ steps.fetch_pr_context.output.head_sha }}:{{ steps.collect_local_changes.output | sha256 }}:{{ steps.fetch_pr_context.output.comments | json | sha256 }}'
             session_id: '{{ variables.agent_session_id }}'
             run_summary: '{{ variables.run_summary }}'
             prompt: >-

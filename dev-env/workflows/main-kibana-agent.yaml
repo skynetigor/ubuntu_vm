@@ -34,6 +34,11 @@ triggers:
           type: boolean
           default: false
           description: Disable Claude's Bash tool for restricted automation calls.
+        model:
+          type: string
+          default: ''
+          pattern: '^[A-Za-z0-9._-]*$'
+          description: Claude model or alias for this call; empty uses the CLI default.
         idempotency_key:
           type: string
           default: ''
@@ -85,6 +90,7 @@ steps:
         CLAUDE_SESSION_ID: '{{ inputs.session_id | default: "" }}'
         CLAUDE_RUN_SUMMARY: '{{ inputs.run_summary | default: "" }}'
         CLAUDE_DISALLOW_SHELL: '{{ inputs.disallow_shell | default: false }}'
+        CLAUDE_MODEL: '{{ inputs.model | default: "" }}'
       code: |
         import sys
 

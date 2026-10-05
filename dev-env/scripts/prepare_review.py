@@ -5,11 +5,43 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+import urllib.request
+
+from snapshot_worktree import create_worktree_snapshot
+
+SHA = re.compile(r'[0-9a-f]{40}')
+
+
+def github_merge_base(environment, upstream_repo, base_commit, head_commit):
+    match = re.fullmatch(r'https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?', upstream_repo)
+    if not match:
+        return ''
+    owner, repo = match.groups()
+    token = environment.get('GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN', '').strip()
+    request = urllib.request.Request(
+        f'https://api.github.com/repos/{owner}/{repo}/compare/{base_commit}...{head_commit}?per_page=1',
+        headers={
+            'Accept': 'application/vnd.github+json',
+            **({'Authorization': f'Bearer {token}'} if token else {}),
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            sha = (json.load(response).get('merge_base_commit') or {}).get('sha', '')
+    except Exception as error:
+        print(f'GitHub compare failed, falling back to git history: {str(error)[:200]}', flush=True)
+        return ''
+    return sha if SHA.fullmatch(sha or '') else ''
 
 
 def prepare_review(environment=None, cwd=None):
     environment = os.environ if environment is None else environment
     cwd = os.getcwd() if cwd is None else cwd
+    started = time.monotonic()
+
+    def log(message):
+        print(f'[prepare_review +{time.monotonic() - started:.1f}s] {message}', flush=True)
 
     def git(*args, check=True):
         command = ['git', *args]
@@ -40,11 +72,33 @@ def prepare_review(environment=None, cwd=None):
         )
     base_commit = git('rev-parse', base_ref)
     head_commit = git('rev-parse', 'HEAD')
-    merge_base_result = git('merge-base', base_commit, head_commit, check=False)
-    if merge_base_result.returncode not in {0, 1}:
-        raise RuntimeError(merge_base_result.stderr[-4000:] or 'git merge-base failed')
+    log(f'base {base_commit[:12]}, head {head_commit[:12]}')
 
-    if merge_base_result.returncode == 1:
+    def has_commit(sha):
+        return git('cat-file', '-e', sha + '^{commit}', check=False).returncode == 0
+
+    merge_base = ''
+    known_merge_base = environment.get('KNOWN_MERGE_BASE', '').strip()
+    if SHA.fullmatch(known_merge_base) and has_commit(known_merge_base):
+        merge_base = known_merge_base
+        log('reusing known merge base')
+    if not merge_base:
+        merge_base = github_merge_base(environment, environment['UPSTREAM_REPO'], base_commit, head_commit)
+        if merge_base and not has_commit(merge_base):
+            fetched = git('fetch', '--no-tags', '--depth', '1', environment['UPSTREAM_REPO'], merge_base, check=False)
+            if fetched.returncode or not has_commit(merge_base):
+                log('could not fetch merge base reported by GitHub')
+                merge_base = ''
+        if merge_base:
+            log(f'merge base from GitHub compare: {merge_base[:12]}')
+    if merge_base:
+        merge_base_result = None
+    else:
+        merge_base_result = git('merge-base', base_commit, head_commit, check=False)
+        if merge_base_result.returncode not in {0, 1}:
+            raise RuntimeError(merge_base_result.stderr[-4000:] or 'git merge-base failed')
+
+    if merge_base_result is not None and merge_base_result.returncode == 1:
         source_repository = environment['SOURCE_REPOSITORY']
         source_branch = environment.get('SOURCE_BRANCH', '').strip()
         source_ref = source_branch or head_commit
@@ -58,6 +112,7 @@ def prepare_review(environment=None, cwd=None):
 
         while merge_base_result.returncode == 1 and current_depth < max_history_depth:
             deepen_by = min(current_depth, max_history_depth - current_depth)
+            log(f'deepening history by {deepen_by}')
             git('fetch', '--no-tags', '--deepen', str(deepen_by), source_repository, source_ref)
             git(
                 'fetch', '--no-tags', '--deepen', str(deepen_by),
@@ -76,7 +131,9 @@ def prepare_review(environment=None, cwd=None):
                 'the histories may be unrelated or MAX_HISTORY_DEPTH may need to be increased.'
             )
 
-    merge_base = merge_base_result.stdout.strip()
+    if not merge_base:
+        merge_base = merge_base_result.stdout.strip()
+    log(f'merge base resolved: {merge_base[:12]}')
     # Reviews of other people's PRs must ignore local edits left by earlier fix runs in the same checkout.
     committed_only = environment.get('REVIEW_COMMITTED_ONLY', '').lower() == 'true'
     diff_range = [merge_base, head_commit] if committed_only else [merge_base]
@@ -143,6 +200,28 @@ def prepare_review(environment=None, cwd=None):
         with open(os.path.join(cwd, root, 'kibana.jsonc'), encoding='utf-8') as manifest:
             match = re.search(r'"id"\s*:\s*"([^"]+)"', manifest.read())
         return match.group(1) if match else root
+
+    def group_projects(paths):
+        grouped = {}
+        for path in paths:
+            root = find_project_root(path)
+            if root is not None:
+                grouped.setdefault(root, []).append(path)
+        return [
+            {
+                'id': read_project_id(root),
+                'source_root': root,
+                'files': sorted(
+                    path for path in project_files
+                    if path.endswith(lint_extensions)
+                    and os.path.isfile(os.path.join(cwd, path))
+                    and (is_production_path(path) or is_test_path(path))
+                ),
+            }
+            for root, project_files in sorted(grouped.items())
+        ]
+
+    log(f'{len(changed)} changed files')
 
     files_by_root = {}
     unscoped_files = []
@@ -220,6 +299,60 @@ def prepare_review(environment=None, cwd=None):
     )
     with changed_files_artifact:
         json.dump(changed, changed_files_artifact)
+    log('full diff prepared')
+
+    # Later fix rounds review and test only what changed since the previous round's snapshot.
+    delta = {
+        'delta_files': [],
+        'delta_production_files': [],
+        'delta_diff_path': '',
+        'delta_diff_chars': 0,
+        'delta_diff_sha256': '',
+        'delta_projects': [],
+    }
+    delta_base = environment.get('DELTA_BASE', '').strip()
+    if delta_base:
+        if not SHA.fullmatch(delta_base) or not has_commit(delta_base):
+            raise ValueError('DELTA_BASE must be an existing snapshot commit')
+        current_snapshot = create_worktree_snapshot(cwd, environment)
+        delta_files = sorted(
+            path for path in git('diff', '--name-only', delta_base, current_snapshot).splitlines()
+            if path and path not in ignored_changed_files
+            and not any(part in ignored_changed_parts for part in path.split('/'))
+        )
+        delta_production_files = [path for path in delta_files if is_production_path(path)]
+        delta_text = (
+            git('diff', '--no-ext-diff', '--unified=40', delta_base, current_snapshot, '--', *delta_production_files)
+            if delta_production_files else ''
+        )
+        delta_artifact = tempfile.NamedTemporaryFile(
+            mode='w', prefix='kbn-review-delta-diff-', suffix='.patch',
+            delete=False, encoding='utf-8',
+        )
+        with delta_artifact:
+            delta_artifact.write(delta_text)
+        delta = {
+            'delta_files': delta_files,
+            'delta_production_files': delta_production_files,
+            'delta_diff_path': delta_artifact.name,
+            'delta_diff_chars': len(delta_text),
+            'delta_diff_sha256': hashlib.sha256(delta_text.encode('utf-8')).hexdigest(),
+            'delta_projects': group_projects(delta_files),
+        }
+        log(f'delta since {delta_base[:12]}: {len(delta_files)} files')
+
+    if delta_base:
+        failed_ids = set(json.loads(environment.get('PREVIOUS_FAILED_PROJECT_IDS') or '[]'))
+        test_projects = list(delta['delta_projects'])
+        seen_ids = {project['id'] for project in test_projects}
+        test_projects += [
+            project for project in changed_projects
+            if project['id'] in failed_ids and project['id'] not in seen_ids
+        ]
+        lint_projects = delta['delta_projects']
+    else:
+        test_projects = changed_projects
+        lint_projects = changed_projects
 
     return {
         'project': environment['PROJECT'],
@@ -234,4 +367,7 @@ def prepare_review(environment=None, cwd=None):
         'changed_projects': changed_projects,
         'production_files': production_files,
         'diff_stat': diff_stat,
+        'test_projects': test_projects,
+        'lint_projects': lint_projects,
+        **delta,
     }

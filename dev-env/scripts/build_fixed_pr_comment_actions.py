@@ -7,6 +7,12 @@ def build_fixed_pr_comment_actions(environment=None):
     to_fix = json.loads(environment.get('PR_COMMENTS_TO_FIX_JSON', '[]'))
     fixed_locally = json.loads(environment.get('PR_COMMENTS_FIXED_LOCALLY_JSON', '[]'))
     fix_results = json.loads(environment.get('PR_FIX_RESULTS_JSON', '[]'))
+    # Batched fix calls identify PR comments by item_id `pr-<comment_id>`.
+    fix_results = [
+        {**result, 'comment_id': result.get('comment_id') or str(result.get('item_id', ''))[3:]}
+        if isinstance(result, dict) and str(result.get('item_id', '')).startswith('pr-') else result
+        for result in fix_results
+    ]
 
     reported_fixed_ids = {
         str(result.get('comment_id'))

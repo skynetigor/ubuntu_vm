@@ -110,6 +110,25 @@ steps:
         with:
           bootstrap_status: '{{ steps.bootstrap.output.status }}'
 
+      # Test and lint runners skip the slow recursive ACL pass while this marker exists.
+      - name: grant_runner_access
+        type: ssh.run
+        connector-id: dev-vm
+        with:
+          cwd: '{{ steps.checkout.output.source_dir }}'
+          env:
+            BOOTSTRAP_STATUS: '{{ steps.bootstrap.output.status }}'
+          command: |
+            set -euo pipefail
+            marker=node_modules/.workflow-runner-acl
+            if [ "$BOOTSTRAP_STATUS" = bootstrapped ] || [ ! -f "$marker" ]; then
+              echo "Granting workflow-runner access to node_modules"
+              setfacl -R -m u:workflow-runner:rwx node_modules/
+              touch "$marker"
+            else
+              echo "node_modules access already granted"
+            fi
+
   - name: output
     type: workflow.output
     with:

@@ -31,7 +31,32 @@ triggers:
         analyze_pr_comments:
           type: boolean
           default: true
-          description: Classify existing PR review comments; review-and-fix disables this per round.
+          description: Classify existing PR review comments in full mode.
+        mode:
+          type: string
+          enum:
+            - full
+            - delta
+          default: full
+          description: delta verifies previous findings and reviews/tests only changes since delta_base.
+        delta_base:
+          type: string
+          default: ''
+          description: Worktree snapshot commit from the previous round (delta mode).
+        previous_findings:
+          type: array
+          default: []
+          description: Fixable findings from the previous round, each with an id (delta mode).
+        previous_failed_project_ids:
+          type: array
+          default: []
+          items:
+            type: string
+          description: Projects whose tests failed in the previous round; always re-tested in delta mode.
+        known_merge_base:
+          type: string
+          default: ''
+          description: Merge base resolved by an earlier round; skips the lookup.
         existing_checkout:
           type: object
           default: {}
@@ -178,6 +203,9 @@ steps:
         EXCLUDE_GLOBS: '{{ consts.PRODUCTION_FILE_EXCLUDE_GLOBS | json }}'
         MAX_FILES: '{{ consts.MAX_PRODUCTION_FILES }}'
         MAX_DIFF_CHARS: '{{ consts.MAX_DIFF_CHARS }}'
+        KNOWN_MERGE_BASE: '{{ inputs.known_merge_base }}'
+        DELTA_BASE: "{% if inputs.mode == 'delta' %}{{ inputs.delta_base }}{% endif %}"
+        PREVIOUS_FAILED_PROJECT_IDS: '{{ inputs.previous_failed_project_ids | json }}'
       code: |
         import sys
         sys.path.insert(0, '/etc/dev-env-scripts')
@@ -191,75 +219,102 @@ steps:
       pr_comment_analysis: []
       pr_context: {}
       code_findings: []
+      test_failures: []
+      test_results: []
       agent_session_id: '{{ inputs.session_id | default: "" }}'
       run_summary: '{{ inputs.run_summary | default: "" }}'
 
-  - name: review_code
-    type: workflow.execute
-    with:
-      workflow-id: main-kibana-agent
-      inputs:
-        cwd: '{{ variables.checkout.source_dir }}'
-        disallow_shell: true
-        idempotency_key: 'review-code-v1:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.base_commit }}:{{ steps.prepare_review.output.production_diff_sha256 }}'
-        session_id: '{{ variables.agent_session_id }}'
-        run_summary: '{{ variables.run_summary }}'
-        prompt: >-
-          Review the current working-tree diff against base commit
-          {{ steps.prepare_review.output.base_commit }} for head
-          {{ steps.prepare_review.output.head_commit }}. Follow this policy:
-          {{ consts.PRODUCTION_FILE_POLICY }} The production files are
-          {{ steps.prepare_review.output.production_files | json }}. Review only
-          the production diff stored at
-          `{{ steps.prepare_review.output.production_diff_path }}` ({{ steps.prepare_review.output.production_diff_chars }} characters).
-          Read that patch file with your file-reading tool; do not use shell.
-          Apply this rubric: {{ consts.SEVERITY_RUBRIC }}. Report findings at
-          every severity, not only fixable severities. Do not edit files. Return
-          JSON with response, run_summary, findings, and changes. Each finding
-          must contain severity, comment, file, line, and evidence. The comment
-          should concisely state the defect and why it matters. Record skipped
-          ambiguous files.
+  # Branches start fresh agent sessions so they never resume the same session concurrently.
+  - name: review_in_parallel
+    type: parallel
+    mode: fail-fast
+    branches:
+      - name: code_review
+        steps:
+          - name: review_code
+            type: workflow.execute
+            with:
+              workflow-id: main-kibana-agent
+              inputs:
+                cwd: '{{ variables.checkout.source_dir }}'
+                disallow_shell: true
+                idempotency_key: "{% if inputs.mode == 'delta' %}review-delta-v1:{{ steps.prepare_review.output.delta_diff_sha256 }}:{{ inputs.previous_findings | json | sha256 }}{% else %}review-code-v1:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.base_commit }}:{{ steps.prepare_review.output.production_diff_sha256 }}{% endif %}"
+                run_summary: '{{ variables.run_summary }}'
+                prompt: >-
+                  {% if inputs.mode == 'delta' %}
+                  Verify the fixes made since the previous review round
+                  and review only what changed. Previous fixable
+                  findings: {{ inputs.previous_findings | json }}. For
+                  each of them, read the current code and add a finding
+                  with kind `verification`, previous_id (the finding id),
+                  status `resolved` or `unresolved`, and evidence. Then
+                  review only the patch of changes since the previous
+                  round at `{{ steps.prepare_review.output.delta_diff_path }}`
+                  ({{ steps.prepare_review.output.delta_diff_chars }}
+                  characters; changed production files:
+                  {{ steps.prepare_review.output.delta_production_files | json }}).
+                  If there are no previous findings and the patch is empty,
+                  return empty findings right away. Read it with your
+                  file-reading tool; do not use shell and do not re-review
+                  unchanged code. Follow this policy:
+                  {{ consts.PRODUCTION_FILE_POLICY }} Apply this rubric:
+                  {{ consts.SEVERITY_RUBRIC }}. Report new defects introduced
+                  by these changes as findings with severity, comment, file,
+                  line, and evidence. Do not edit files. Return JSON with
+                  response, run_summary, findings, and changes.
+                  {% else %}
+                  Review the current working-tree diff against base commit
+                  {{ steps.prepare_review.output.base_commit }} for head
+                  {{ steps.prepare_review.output.head_commit }}. Follow this policy:
+                  {{ consts.PRODUCTION_FILE_POLICY }} The production files are
+                  {{ steps.prepare_review.output.production_files | json }}. Review only
+                  the production diff stored at
+                  `{{ steps.prepare_review.output.production_diff_path }}` ({{ steps.prepare_review.output.production_diff_chars }} characters).
+                  Read that patch file with your file-reading tool; do not use shell.
+                  Apply this rubric: {{ consts.SEVERITY_RUBRIC }}. Report findings at
+                  every severity, not only fixable severities. Do not edit files. Return
+                  JSON with response, run_summary, findings, and changes. Each finding
+                  must contain severity, comment, file, line, and evidence. The comment
+                  should concisely state the defect and why it matters. Record skipped
+                  ambiguous files.
+                  {% endif %}
 
-  - name: save_code_review_state
+      - name: pr_comments
+        steps:
+          - name: analyze_pr_comments
+            type: workflow.execute
+            with:
+              workflow-id: analyze-kibana-pr-comments
+              inputs:
+                enabled: ${{ steps.detect_target.output.is_pr == true and inputs.analyze_pr_comments == true and inputs.mode != 'delta' }}
+                source_dir: '{{ variables.checkout.source_dir }}'
+                owner: '{{ steps.detect_target.output.owner }}'
+                repo: '{{ steps.detect_target.output.repo }}'
+                number: ${{ steps.detect_target.output.number }}
+                run_summary: '{{ variables.run_summary }}'
+
+      - name: tests
+        steps:
+          - name: run_project_tests
+            type: workflow.execute
+            with:
+              workflow-id: run-kibana-unit-tests
+              inputs:
+                source_dir: '{{ variables.checkout.source_dir }}'
+                projects: ${{ steps.prepare_review.output.test_projects }}
+                diagnostic_chars: ${{ consts.MAX_AGENT_DIAGNOSTIC_CHARS }}
+
+  - name: save_parallel_results
     type: data.set
     with:
       agent_session_id: '{{ steps.review_code.output.session_id }}'
       run_summary: '{{ steps.review_code.output.run_summary }}'
       code_findings: ${{ steps.review_code.output.findings }}
-
-  - name: process_pr_comments
-    type: if
-    condition: "${{ steps.detect_target.output.is_pr == true and inputs.analyze_pr_comments == true }}"
-    steps:
-      - name: analyze_pr_comments
-        type: workflow.execute
-        with:
-          workflow-id: analyze-kibana-pr-comments
-          inputs:
-            source_dir: '{{ variables.checkout.source_dir }}'
-            owner: '{{ steps.detect_target.output.owner }}'
-            repo: '{{ steps.detect_target.output.repo }}'
-            number: ${{ steps.detect_target.output.number }}
-            session_id: '{{ variables.agent_session_id }}'
-            run_summary: '{{ variables.run_summary }}'
-
-      - name: save_pr_review_state
-        type: data.set
-        with:
-          agent_session_id: '{{ steps.analyze_pr_comments.output.session_id }}'
-          run_summary: '{{ steps.analyze_pr_comments.output.run_summary }}'
-          pr_comments: ${{ steps.analyze_pr_comments.output.comments }}
-          pr_context: ${{ steps.analyze_pr_comments.output.pr_context }}
-          pr_comment_analysis: ${{ steps.analyze_pr_comments.output.analysis }}
-
-  - name: run_project_tests
-    type: workflow.execute
-    with:
-      workflow-id: run-kibana-unit-tests
-      inputs:
-        source_dir: '{{ variables.checkout.source_dir }}'
-        projects: ${{ steps.prepare_review.output.changed_projects }}
-        diagnostic_chars: ${{ consts.MAX_AGENT_DIAGNOSTIC_CHARS }}
+      pr_comments: ${{ steps.analyze_pr_comments.output.comments }}
+      pr_context: ${{ steps.analyze_pr_comments.output.pr_context }}
+      pr_comment_analysis: ${{ steps.analyze_pr_comments.output.analysis }}
+      test_failures: ${{ steps.run_project_tests.output.failed }}
+      test_results: ${{ steps.run_project_tests.output.results }}
 
   - name: summarize_review
     type: ssh.python
@@ -268,9 +323,10 @@ steps:
       env:
         FIXABLE_SEVERITIES: '{{ consts.FIXABLE_SEVERITIES | json }}'
         CODE_FINDINGS_JSON: '{{ variables.code_findings | json }}'
+        PREVIOUS_FINDINGS_JSON: "{% if inputs.mode == 'delta' %}{{ inputs.previous_findings | json }}{% else %}[]{% endif %}"
         PR_COMMENTS_JSON: '{{ variables.pr_comments | json }}'
         PR_ANALYSIS_JSON: '{{ variables.pr_comment_analysis | json }}'
-        TEST_FAILURES_JSON: '{{ steps.run_project_tests.output.failed | json }}'
+        TEST_FAILURES_JSON: '{{ variables.test_failures | json }}'
       code: |
         import sys
         sys.path.insert(0, '/etc/dev-env-scripts')
@@ -290,10 +346,14 @@ steps:
       clone_skipped: '{{ variables.checkout.clone_skipped }}'
       fetched_branches: '{{ variables.checkout.fetched_branches }}'
       base_commit: '{{ steps.prepare_review.output.base_commit }}'
+      merge_base: '{{ steps.prepare_review.output.merge_base }}'
       production_diff_path: '{{ steps.prepare_review.output.production_diff_path }}'
       production_files: ${{ steps.prepare_review.output.production_files }}
       changed_files: ${{ steps.prepare_review.output.changed_files }}
       changed_projects: ${{ steps.prepare_review.output.changed_projects }}
+      lint_projects: ${{ steps.prepare_review.output.lint_projects }}
+      test_projects: ${{ steps.prepare_review.output.test_projects }}
+      delta_files: ${{ steps.prepare_review.output.delta_files }}
       is_pr: ${{ steps.detect_target.output.is_pr }}
       pr_target: ${{ steps.detect_target.output }}
       pr_context: ${{ variables.pr_context }}
@@ -304,7 +364,7 @@ steps:
       pr_comments_fixed_locally: ${{ steps.summarize_review.output.pr_comments_fixed_locally }}
       other_pr_comments: ${{ steps.summarize_review.output.other_pr_comments }}
       failed_tests: ${{ steps.summarize_review.output.failed_tests }}
-      test_results: ${{ steps.run_project_tests.output.results }}
+      test_results: ${{ variables.test_results }}
       needs_work: ${{ steps.summarize_review.output.needs_work }}
       session_id: '{{ variables.agent_session_id }}'
       run_summary: '{{ variables.run_summary }}'

@@ -1,5 +1,10 @@
+import hashlib
 import json
 import os
+
+
+def finding_id(file, line, comment):
+    return 'c' + hashlib.sha256(json.dumps([file, line, comment]).encode('utf-8')).hexdigest()[:10]
 
 
 def summarize_review(environment=None):
@@ -9,6 +14,24 @@ def summarize_review(environment=None):
     pr_comments = json.loads(environment.get('PR_COMMENTS_JSON', '[]'))
     pr_analysis = json.loads(environment.get('PR_ANALYSIS_JSON', '[]'))
     test_failures = json.loads(environment.get('TEST_FAILURES_JSON', '[]'))
+    previous_by_id = {
+        item.get('id'): item
+        for item in json.loads(environment.get('PREVIOUS_FINDINGS_JSON') or '[]') or []
+        if isinstance(item, dict) and item.get('id')
+    }
+
+    # Delta reviews return verification entries for earlier findings; unresolved ones carry over verbatim.
+    expanded_findings = []
+    for finding in code_findings:
+        if not isinstance(finding, dict):
+            continue
+        if finding.get('kind') == 'verification':
+            previous = previous_by_id.get(finding.get('previous_id'))
+            if previous and finding.get('status') != 'resolved':
+                expanded_findings.append(previous)
+            continue
+        expanded_findings.append(finding)
+    code_findings = expanded_findings
 
     agent_comments_to_fix = []
     other_agent_comments = []
@@ -20,6 +43,7 @@ def summarize_review(environment=None):
         severity = finding.get('severity', 'low')
         comment = finding.get('comment') or finding.get('impact') or finding.get('evidence') or ''
         item = {
+            'id': finding_id(finding.get('file'), finding.get('line'), comment),
             'severity': severity,
             'comment': comment,
             'source': 'code_review',

@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import re
 import signal
 import subprocess
 import threading
@@ -80,6 +81,11 @@ def run_claude_agent(environment=None):
     ]
     if session_id:
         command.extend(['--resume', session_id])
+    model = environment.get('CLAUDE_MODEL', '').strip()
+    if model:
+        if not re.fullmatch(r'[A-Za-z0-9._-]+', model):
+            raise ValueError('CLAUDE_MODEL contains invalid characters')
+        command.extend(['--model', model])
     command.append(prompt)
     agent_env = environment.copy()
     for secret_name in ('GH_TOKEN', 'GH_UPSTREAM_TOKEN', 'GH_PUBLIC_REPOS_TOKEN', 'GITHUB_TOKEN', 'BUILD_KITE_API_TOKEN'):

@@ -74,7 +74,7 @@ steps:
 
         # Kibana's Jest wrapper writes its cache and JUnit reports to fixed repo paths.
         mkdir -p data/jest-cache target/junit
-        setfacl -R -m u:workflow-runner:rwx node_modules
+        [ -f node_modules/.workflow-runner-acl ] || setfacl -R -m u:workflow-runner:rwx node_modules/
         for dir in data/jest-cache target/junit; do
           setfacl -m u:workflow-runner:rwx "$dir"
           setfacl -d -m u:workflow-runner:rwx "$dir"
