@@ -31,18 +31,20 @@ triggers:
         publish_severities:
           type: array
           default:
+            - critical
             - high
             - medium
             - low
           items:
             type: string
             enum:
+              - critical
               - high
               - medium
               - low
               - nit
               - opinionated
-          description: Severities included in the published review.
+          description: Severities included in the published review; critical and high are always included.
 
 # Same literal key as review-kibana-pr and review-and-fix-kibana-pr: they share /opt/kibana-review.
 settings:
@@ -115,8 +117,9 @@ consts:
     build output, or unrelated files. If a file is ambiguous, skip it and
     report it as skipped.
   SEVERITY_RUBRIC: >-
-    high: likely security vulnerability, data loss/corruption, severe outage, or
-    broad critical-path break. medium: reproducible functional regression or
+    critical: exploitable security vulnerability, data loss, or outage that
+    must not be merged. high: likely security vulnerability, data
+    loss/corruption, severe outage, or broad critical-path break. medium: reproducible functional regression or
     materially harmful reliability/performance issue with meaningful user
     impact. low: minor/narrow impact. nit: style/readability preference.
     opinionated: subjective alternative without a demonstrated defect.
@@ -296,14 +299,10 @@ steps:
         from build_pr_review import build_pr_review
         return build_pr_review()
 
+  # The verdict is APPROVE without critical/high findings and REQUEST_CHANGES otherwise.
   - name: publish_review
     type: if
-    condition: "${{ steps.build_review.output.publishable_count > 0 }}"
-    else:
-      - name: mark_nothing_to_publish
-        type: data.set
-        with:
-          publish_status: no_findings
+    condition: "${{ steps.build_review.output.event != '' }}"
     steps:
       - name: publish_when_enabled
         type: if
@@ -329,7 +328,7 @@ steps:
                 **PR:** [{{ steps.gather_pr_context.output.pull_request.title }}]({{ inputs.pr_url }})
                 **Reviewed commit:** `{{ steps.prepare_review.output.head_commit }}`
 
-                Approving posts these findings as a single PR review (comment only, no approve/request-changes). Nothing is posted if the PR head has moved. Discarding posts nothing.
+                Approving submits one PR review with verdict **{{ steps.build_review.output.event }}** and these comments. Nothing is posted if the PR head has moved. If the token owner authored the PR, it is posted as a plain comment review instead. Discarding posts nothing.
 
                 {{ variables.review_summary | truncate: 2000 }}
 
@@ -381,6 +380,7 @@ steps:
       findings: ${{ steps.build_review.output.publishable_findings }}
       excluded_findings: ${{ steps.build_review.output.excluded_findings }}
       counts_by_severity: ${{ steps.build_review.output.counts_by_severity }}
+      review_event: '{{ steps.build_review.output.event }}'
       review: ${{ steps.build_review.output.review }}
       approval_status: '{{ variables.approval_status }}'
       approved_by: '{{ variables.approved_by }}'

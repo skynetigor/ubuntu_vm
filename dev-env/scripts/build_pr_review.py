@@ -3,7 +3,8 @@ import os
 import re
 import subprocess
 
-SEVERITY_ORDER = ['high', 'medium', 'low', 'nit', 'opinionated']
+SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'nit', 'opinionated']
+BLOCKING_SEVERITIES = {'critical', 'high'}
 HUNK_HEADER = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
 
 
@@ -66,8 +67,14 @@ def build_pr_review(environment=None):
         })
     normalized.sort(key=lambda item: SEVERITY_ORDER.index(item['severity']))
 
-    publishable = [item for item in normalized if item['severity'] in publish_severities]
-    excluded = [item for item in normalized if item['severity'] not in publish_severities]
+    # Blocking findings are always published so a change request is never unexplained.
+    publishable = [
+        item for item in normalized
+        if item['severity'] in publish_severities or item['severity'] in BLOCKING_SEVERITIES
+    ]
+    excluded = [item for item in normalized if item not in publishable]
+    blocking_count = sum(1 for item in normalized if item['severity'] in BLOCKING_SEVERITIES)
+    event = 'REQUEST_CHANGES' if blocking_count else 'APPROVE'
 
     lines_by_file = {}
     inline_comments = []
@@ -94,6 +101,8 @@ def build_pr_review(environment=None):
     count_text = ', '.join(f'{count} {severity}' for severity, count in counts.items() if count)
 
     body_parts = [review_note] if review_note else []
+    if event == 'REQUEST_CHANGES' and not review_note:
+        body_parts.append('Left some comments, please take a look before we merge.')
     if general_findings:
         if inline_comments or review_note:
             body_parts.append('A few more things not tied to the changed lines:')
@@ -102,7 +111,8 @@ def build_pr_review(environment=None):
             body_parts.append(f"- {location + ': ' if location else ''}{format_finding(finding)}")
     body_parts.append(marker)
 
-    preview = [f'**{len(publishable)} findings to publish** ({count_text or "none"}); '
+    preview = [f'**Verdict: {event}** ({blocking_count} critical/high findings).',
+               f'**{len(publishable)} findings to publish** ({count_text or "none"}); '
                f'{len(inline_comments)} inline, {len(general_findings)} in the review body.']
     if review_note:
         preview.append(f'\nReview note: {review_note}\n')
@@ -113,10 +123,12 @@ def build_pr_review(environment=None):
     return {
         'review': {
             'commit_id': head_commit,
-            'event': 'COMMENT',
+            'event': event,
             'body': '\n\n'.join(body_parts),
             'comments': inline_comments,
         },
+        'event': event,
+        'blocking_count': blocking_count,
         'marker': marker,
         'publishable_count': len(publishable),
         'inline_count': len(inline_comments),
