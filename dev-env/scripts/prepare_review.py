@@ -1,4 +1,5 @@
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -76,9 +77,12 @@ def prepare_review(environment=None, cwd=None):
             )
 
     merge_base = merge_base_result.stdout.strip()
+    # Reviews of other people's PRs must ignore local edits left by earlier fix runs in the same checkout.
+    committed_only = environment.get('REVIEW_COMMITTED_ONLY', '').lower() == 'true'
+    diff_range = [merge_base, head_commit] if committed_only else [merge_base]
     changed = [
         path for path in git(
-            'diff', '--name-only', '--diff-filter=ACMRD', merge_base,
+            'diff', '--name-only', '--diff-filter=ACMRD', *diff_range,
         ).splitlines()
         if path
     ]
@@ -92,7 +96,7 @@ def prepare_review(environment=None, cwd=None):
     untracked = [
         path for path in git('ls-files', '--others', '--exclude-standard').splitlines()
         if path
-    ]
+    ] if not committed_only else []
     ignored_changed_parts = {
         'node_modules', 'target', 'dist', 'build', 'generated', '.pnpm-store',
     }
@@ -175,13 +179,13 @@ def prepare_review(environment=None, cwd=None):
 
     tracked_production_files = sorted(set(production_files) - set(untracked))
     diff_stat = (
-        git('diff', '--stat', merge_base, '--', *tracked_production_files)
+        git('diff', '--stat', *diff_range, '--', *tracked_production_files)
         if tracked_production_files else ''
     )
     diff_text = (
         git(
             'diff', '--no-ext-diff', '--unified=60',
-            merge_base, '--', *tracked_production_files,
+            *diff_range, '--', *tracked_production_files,
         )
         if tracked_production_files else ''
     )
@@ -226,6 +230,7 @@ def prepare_review(environment=None, cwd=None):
         'changed_files_path': changed_files_artifact.name,
         'production_diff_path': production_diff_artifact.name,
         'production_diff_chars': len(diff_text),
+        'production_diff_sha256': hashlib.sha256(diff_text.encode('utf-8')).hexdigest(),
         'changed_projects': changed_projects,
         'production_files': production_files,
         'diff_stat': diff_stat,

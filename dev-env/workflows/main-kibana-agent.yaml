@@ -4,6 +4,8 @@ description: >-
   Reusable entry point for calling Claude Code on dev-vm over SSH. Pass the
   returned session_id on later calls to continue the same Claude session.
   response, run_summary, and pull_request.body are GitHub-flavored Markdown.
+  An optional idempotency_key reuses the complete response stored in key-value
+  without invoking Claude again. Empty keys bypass caching.
 enabled: true
 tags:
   - kibana
@@ -32,8 +34,47 @@ triggers:
           type: boolean
           default: false
           description: Disable Claude's Bash tool for restricted automation calls.
+        idempotency_key:
+          type: string
+          default: ''
+          maxLength: 400
+          pattern: '^[A-Za-z0-9._:@/-]*$'
+          description: Cache key for an equivalent request and workspace state; cached responses do not replay edits.
+
+settings:
+  concurrency:
+    key: 'main-kibana-agent:{{ inputs.idempotency_key | default: execution.id }}'
+    strategy: queue
+    max: 1
 
 steps:
+  - name: lookup_cached_response
+    type: if
+    condition: "${{ inputs.idempotency_key != '' }}"
+    steps:
+      - name: get_cached_response
+        type: elasticsearch.request
+        with:
+          method: POST
+          path: /key-value/_mget
+          body:
+            ids:
+              - 'agent:{{ inputs.idempotency_key }}'
+
+      - name: return_when_cached
+        type: if
+        condition: "${{ steps.get_cached_response.output.docs[0].found == true }}"
+        steps:
+          - name: cached_output
+            type: workflow.output
+            with:
+              response: '${{ steps.get_cached_response.output.docs[0]._source.value.response }}'
+              run_summary: '${{ steps.get_cached_response.output.docs[0]._source.value.run_summary }}'
+              findings: '${{ steps.get_cached_response.output.docs[0]._source.value.findings }}'
+              changes: '${{ steps.get_cached_response.output.docs[0]._source.value.changes }}'
+              pull_request: '${{ steps.get_cached_response.output.docs[0]._source.value.pull_request }}'
+              session_id: '${{ steps.get_cached_response.output.docs[0]._source.value.session_id }}'
+
   - name: claude
     type: ssh.python
     connector-id: dev-vm
@@ -51,6 +92,18 @@ steps:
         from run_claude_agent import run_claude_agent
 
         return run_claude_agent()
+
+  - name: cache_response_when_keyed
+    type: if
+    condition: "${{ inputs.idempotency_key != '' }}"
+    steps:
+      - name: save_cached_response
+        type: elasticsearch.request
+        with:
+          method: PUT
+          path: '/key-value/_doc/agent%3A{{ inputs.idempotency_key | url_encode }}'
+          body:
+            value: ${{ steps.claude.output }}
 
   - name: output
     type: workflow.output

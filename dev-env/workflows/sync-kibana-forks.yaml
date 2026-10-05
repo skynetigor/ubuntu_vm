@@ -19,7 +19,9 @@ consts:
     - owner: skynetigor
       repository: kibana
       branch: main
-
+    - owner: yngrdyn
+      repository: kibana
+      branch: main
 triggers:
   - type: scheduled
     with:

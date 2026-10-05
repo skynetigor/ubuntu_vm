@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+install -d -m 0755 -o kibana -g kibana /opt/kibana-cache
 
 if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   mkdir -p /home/kibana/.ssh

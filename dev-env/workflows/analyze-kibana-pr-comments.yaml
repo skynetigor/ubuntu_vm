@@ -129,6 +129,7 @@ steps:
           inputs:
             cwd: '{{ inputs.source_dir }}'
             disallow_shell: true
+            idempotency_key: 'pr-comments-v1:{{ steps.fetch_pr_context.output.head_sha }}:{{ steps.collect_local_changes.output | sha256 }}:{{ steps.fetch_pr_context.output.comments | json | sha256 }}'
             session_id: '{{ variables.agent_session_id }}'
             run_summary: '{{ variables.run_summary }}'
             prompt: >-

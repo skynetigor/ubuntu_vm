@@ -50,6 +50,11 @@ triggers:
           type: boolean
           default: true
           description: Install dependencies for the checked-out commit.
+        project_name:
+          type: string
+          default: ''
+          pattern: '^[a-z0-9-]{0,50}$'
+          description: Fixed project directory under /opt shared across targets; always reset and cleaned. Empty derives it from the target.
 
 consts:
   UBUNTU_VM_REPO: https://github.com/skynetigor/ubuntu_vm.git
@@ -76,6 +81,7 @@ steps:
         KIBANA_TARGET: '{{ inputs.kibana_target }}'
         TARGET_DEPTH: '{{ inputs.target_depth }}'
         ADDITIONAL_BRANCHES_JSON: '{{ inputs.additional_branches | json }}'
+        PROJECT_NAME: '{{ inputs.project_name }}'
         UBUNTU_VM_REPO: '{{ consts.UBUNTU_VM_REPO }}'
         UBUNTU_VM_BRANCH: '{{ consts.UBUNTU_VM_BRANCH }}'
       code: |

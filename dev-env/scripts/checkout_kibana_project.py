@@ -39,13 +39,17 @@ def checkout_kibana_project(environment=None):
         return result
 
     def github_pr(owner, repo, number):
+        token_name = 'GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN'
+        token = environment.get(token_name, '').strip()
+        if owner.lower() == 'elastic' and not token:
+            raise RuntimeError('GH_UPSTREAM_TOKEN is required for upstream PR metadata access')
         request = urllib.request.Request(
             f'https://api.github.com/repos/{owner}/{repo}/pulls/{number}',
             headers={
                 'Accept': 'application/vnd.github+json',
                 **(
-                    {'Authorization': f'Bearer {environment["GH_TOKEN"]}'}
-                    if environment.get('GH_TOKEN') else {}
+                    {'Authorization': f'Bearer {token}'}
+                    if token else {}
                 ),
             },
         )
@@ -85,6 +89,11 @@ def checkout_kibana_project(environment=None):
         raise ValueError('KIBANA_TARGET must identify a PR, branch, or hexadecimal commit')
 
     project = re.sub(r'[^a-z0-9-]', '-', project_seed.lower().replace('/', '-'))[:50]
+    shared_project = environment.get('PROJECT_NAME', '').strip()
+    if shared_project:
+        if not re.fullmatch(r'[a-z0-9-]{1,50}', shared_project):
+            raise ValueError('PROJECT_NAME must match [a-z0-9-]{1,50}')
+        project = shared_project
     if not project:
         raise RuntimeError('Target resolved to an empty project name')
     deploy_dir = Path(environment.get('DEPLOY_ROOT', '/opt')) / project
@@ -146,6 +155,10 @@ def checkout_kibana_project(environment=None):
             ['git', 'fetch', '--depth', str(target_depth), 'origin', source_branch],
             cwd=source_dir,
         )
+    # A shared checkout may hold edits from a previous run on the same commit.
+    if shared_project and not checkout_changed:
+        run(['git', 'reset', '--hard', current_commit], cwd=source_dir)
+        run(['git', 'clean', '-fd'], cwd=source_dir)
 
     fetched_branches = []
     for item in additional_branches:
@@ -175,6 +188,9 @@ def checkout_kibana_project(environment=None):
             'commit': run(['git', 'rev-parse', ref], cwd=source_dir, timeout=30).stdout.strip(),
             'depth': depth,
         })
+
+    if shared_project:
+        run(['git', 'gc', '--auto', '--quiet'], cwd=source_dir, timeout=1800)
 
     (source_dir / '.clonecommit').write_text(current_commit + '\n', encoding='utf-8')
     return {

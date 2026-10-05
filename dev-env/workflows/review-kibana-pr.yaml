@@ -59,8 +59,20 @@ triggers:
               type: string
             bootstrap_status:
               type: string
+        concurrency_key:
+          type: string
+          default: kibana-review-checkout
+          description: Callers that already hold the shared review checkout pass a per-run key to avoid waiting on themselves.
+
+# Same literal key as review-and-fix-kibana-pr and review-external-kibana-pr: they share /opt/kibana-review.
+settings:
+  concurrency:
+    key: '{{ inputs.concurrency_key }}'
+    strategy: queue
+    max: 1
 
 consts:
+  REVIEW_PROJECT: kibana-review
   UPSTREAM_KIBANA_REPO: https://github.com/elastic/kibana.git
   MAX_PRODUCTION_FILES: 100
   MAX_DIFF_CHARS: 160000
@@ -123,6 +135,7 @@ steps:
           workflow-id: checkout-kibana-project
           inputs:
             kibana_target: '{{ inputs.kibana_target }}'
+            project_name: '{{ consts.REVIEW_PROJECT }}'
             target_depth: 256
             additional_branches:
               - repository: '{{ consts.UPSTREAM_KIBANA_REPO }}'
@@ -188,6 +201,7 @@ steps:
       inputs:
         cwd: '{{ variables.checkout.source_dir }}'
         disallow_shell: true
+        idempotency_key: 'review-code-v1:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.base_commit }}:{{ steps.prepare_review.output.production_diff_sha256 }}'
         session_id: '{{ variables.agent_session_id }}'
         run_summary: '{{ variables.run_summary }}'
         prompt: >-
@@ -276,6 +290,7 @@ steps:
       clone_skipped: '{{ variables.checkout.clone_skipped }}'
       fetched_branches: '{{ variables.checkout.fetched_branches }}'
       base_commit: '{{ steps.prepare_review.output.base_commit }}'
+      production_diff_path: '{{ steps.prepare_review.output.production_diff_path }}'
       production_files: ${{ steps.prepare_review.output.production_files }}
       changed_files: ${{ steps.prepare_review.output.changed_files }}
       changed_projects: ${{ steps.prepare_review.output.changed_projects }}

@@ -6,14 +6,15 @@ import subprocess
 
 def write_pr_comments(environment=None):
     environment = os.environ if environment is None else environment
-    if not environment.get('GH_TOKEN'):
-        raise RuntimeError('GH_TOKEN is required for PR comment writes')
-
     pr = json.loads(environment['PR_CONTEXT_JSON'])
     analysis = json.loads(environment['COMMENT_ANALYSIS_JSON'])
     fixes = json.loads(environment['COMMENT_FIXES_JSON'])
     eligible = set(json.loads(environment['FIXABLE_SEVERITIES']))
     owner, repo, number = pr['owner'], pr['repo'], pr['number']
+    token_name = 'GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN'
+    token = environment.get(token_name, '').strip()
+    if not token:
+        raise RuntimeError(f'{token_name} is required for PR comment writes')
     commit_sha = environment['COMMIT_SHA']
     fix_pr_url = environment.get('FIX_PR_URL', '').strip()
 
@@ -23,6 +24,7 @@ def write_pr_comments(environment=None):
                 ['gh', 'api', *args], text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 timeout=90,
+                env={**os.environ, **environment, 'GH_TOKEN': token},
             )
         except subprocess.TimeoutExpired as error:
             raise RuntimeError('GitHub API request timed out after 90 seconds') from error

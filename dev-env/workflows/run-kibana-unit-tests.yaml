@@ -32,10 +32,6 @@ triggers:
                 type: string
               source_root:
                 type: string
-        max_workers:
-          type: integer
-          default: 2
-          minimum: 1
         timeout_seconds:
           type: integer
           default: 7200
@@ -46,9 +42,7 @@ triggers:
           minimum: 500
 
 consts:
-  PROJECT_CONFIGS:
-    '@kbn/stack-connectors-plugin':
-      max_workers: 1
+  MAX_WORKERS: 1
 
 # Same literal key as checkout-kibana-project and run-kibana-eslint: one heavy Node job at a time on dev-vm.
 settings:
@@ -115,7 +109,7 @@ steps:
             PROJECT_ID: '{{ foreach.item.id }}'
             SOURCE_ROOT: '{{ foreach.item.source_root }}'
             LOG_DIR: '{{ steps.prepare_runner.output.log_dir }}'
-            MAX_WORKERS: '{{ consts.PROJECT_CONFIGS[foreach.item.id].max_workers | default: inputs.max_workers }}'
+            MAX_WORKERS: '{{ consts.MAX_WORKERS }}'
             TIMEOUT_SECONDS: '{{ inputs.timeout_seconds }}'
             DIAGNOSTIC_CHARS: '{{ inputs.diagnostic_chars }}'
           command: |

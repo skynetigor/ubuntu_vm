@@ -81,7 +81,7 @@ def run_claude_agent(environment=None):
         command.extend(['--resume', session_id])
     command.append(prompt)
     agent_env = environment.copy()
-    for secret_name in ('GH_TOKEN', 'GITHUB_TOKEN', 'BUILD_KITE_API_TOKEN'):
+    for secret_name in ('GH_TOKEN', 'GH_UPSTREAM_TOKEN', 'GITHUB_TOKEN', 'BUILD_KITE_API_TOKEN'):
         agent_env.pop(secret_name, None)
     timeout_seconds = int(environment.get('CLAUDE_TIMEOUT_SECONDS', '3600'))
 

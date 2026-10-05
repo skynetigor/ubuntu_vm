@@ -43,6 +43,11 @@ if [ -n "$CACHE_DIR" ] && [ -d "$CACHE_DIR/node_modules" ] && { [ ! -e node_modu
   exit 0
 fi
 
+# Bootstrapping through a symlink would rewrite another commit's cached node_modules.
+if [ -L node_modules ]; then
+  rm node_modules
+fi
+
 # ── Node version ──────────────────────────────────────────────────────────────
 # set +u: nvm.sh uses unbound variables internally
 # shellcheck disable=SC1091
