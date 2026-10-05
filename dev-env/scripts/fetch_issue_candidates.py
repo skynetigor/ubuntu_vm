@@ -6,17 +6,13 @@ import subprocess
 IDENTIFIER = re.compile(r'[A-Za-z0-9_.-]+')
 
 
-def gh_api(environment, owner, *args):
-    token_name = 'GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN'
-    token = environment.get(token_name, '').strip()
-    if not token:
-        raise RuntimeError(f'{token_name} is required for GitHub issue access')
+def gh_api(environment, *args):
     try:
         result = subprocess.run(
             ['gh', 'api', *args], text=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             timeout=90,
-            env={**os.environ, **environment, 'GH_TOKEN': token},
+            env={**os.environ, **environment},
         )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError('GitHub API request timed out after 90 seconds') from error
@@ -84,7 +80,7 @@ def fetch_issue_candidates(environment=None):
       }
     }'''
     data = gh_api(
-        environment, owner, 'graphql', '-f', 'query=' + query,
+        environment, 'graphql', '-f', 'query=' + query,
         '-F', 'owner=' + owner, '-F', 'name=' + repo, '-F', 'number=' + number,
     )
     pull = (data.get('data') or {}).get('repository', {}).get('pullRequest')

@@ -8,10 +8,6 @@ def fetch_pr_context(environment=None):
     owner = environment['PR_OWNER']
     repo = environment['PR_REPO']
     number = environment['PR_NUMBER']
-    token_name = 'GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN'
-    token = environment.get(token_name, '').strip()
-    if not token:
-        raise RuntimeError(f'{token_name} is required for PR comment access')
 
     def gh_api(*args):
         try:
@@ -19,7 +15,7 @@ def fetch_pr_context(environment=None):
                 ['gh', 'api', *args], text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 timeout=90,
-                env={**os.environ, **environment, 'GH_TOKEN': token},
+                env={**os.environ, **environment},
             )
         except subprocess.TimeoutExpired as error:
             raise RuntimeError('GitHub API request timed out after 90 seconds') from error

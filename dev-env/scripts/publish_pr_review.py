@@ -12,10 +12,6 @@ def publish_pr_review(environment=None):
     owner, repo, number = pr['owner'], pr['repo'], int(pr['number'])
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', owner) or not re.fullmatch(r'[A-Za-z0-9_.-]+', repo):
         raise ValueError('Invalid PR owner or repo')
-    token_name = 'GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN'
-    token = environment.get(token_name, '').strip()
-    if not token:
-        raise RuntimeError(f'{token_name} is required to publish PR reviews')
 
     def gh_api(*args, payload=None):
         try:
@@ -24,7 +20,7 @@ def publish_pr_review(environment=None):
                 input=None if payload is None else json.dumps(payload),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 timeout=90,
-                env={**os.environ, **environment, 'GH_TOKEN': token},
+                env={**os.environ, **environment},
             )
         except subprocess.TimeoutExpired as error:
             raise RuntimeError('GitHub API request timed out after 90 seconds') from error

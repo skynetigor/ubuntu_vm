@@ -18,7 +18,7 @@ def github_merge_base(environment, upstream_repo, base_commit, head_commit):
     if not match:
         return ''
     owner, repo = match.groups()
-    token = environment.get('GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN', '').strip()
+    token = environment.get('GH_TOKEN', '').strip()
     request = urllib.request.Request(
         f'https://api.github.com/repos/{owner}/{repo}/compare/{base_commit}...{head_commit}?per_page=1',
         headers={

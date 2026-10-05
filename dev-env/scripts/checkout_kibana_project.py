@@ -39,10 +39,7 @@ def checkout_kibana_project(environment=None):
         return result
 
     def github_pr(owner, repo, number):
-        token_name = 'GH_UPSTREAM_TOKEN' if owner.lower() == 'elastic' else 'GH_TOKEN'
-        token = environment.get(token_name, '').strip()
-        if owner.lower() == 'elastic' and not token:
-            raise RuntimeError('GH_UPSTREAM_TOKEN is required for upstream PR metadata access')
+        token = environment.get('GH_TOKEN', '').strip()
         request = urllib.request.Request(
             f'https://api.github.com/repos/{owner}/{repo}/pulls/{number}',
             headers={

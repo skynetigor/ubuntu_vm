@@ -7,9 +7,9 @@ import urllib.request
 
 def sync_github_fork(environment=None):
     environment = os.environ if environment is None else environment
-    token = environment.get('GH_PUBLIC_REPOS_TOKEN', '').strip()
+    token = environment.get('GH_TOKEN', '').strip()
     if not token:
-        raise RuntimeError('GH_PUBLIC_REPOS_TOKEN is required to synchronize GitHub forks')
+        raise RuntimeError('GH_TOKEN is required to synchronize GitHub forks')
 
     fork = json.loads(environment['FORK_JSON'])
     owner = str(fork.get('owner', '')).strip()

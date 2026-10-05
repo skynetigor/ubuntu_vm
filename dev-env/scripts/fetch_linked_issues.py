@@ -61,12 +61,12 @@ def fetch_linked_issues(environment=None):
 
         print(f'Fetching issue {owner}/{repo}#{number}', flush=True)
         try:
-            issue = gh_api(environment, owner, f'repos/{owner}/{repo}/issues/{number}')
+            issue = gh_api(environment, f'repos/{owner}/{repo}/issues/{number}')
             if issue.get('pull_request'):
                 skipped.append({'ref': ref, 'reason': 'is_pull_request'})
                 continue
             comments = gh_api(
-                environment, owner,
+                environment,
                 f'repos/{owner}/{repo}/issues/{number}/comments?per_page={max_comments}',
             ) if issue.get('comments') else []
         except RuntimeError as error:
