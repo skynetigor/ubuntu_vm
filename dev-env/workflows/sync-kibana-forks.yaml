@@ -36,6 +36,8 @@ steps:
       - name: sync_fork
         type: ssh.python
         connector-id: dev-vm
+        on-failure:
+          continue: true
         with:
           env:
             FORK_JSON: '{{ foreach.item | json }}'
