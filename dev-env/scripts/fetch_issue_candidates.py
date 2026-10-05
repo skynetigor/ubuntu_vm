@@ -28,7 +28,10 @@ def gh_api(environment, owner, *args):
 def fetch_issue_candidates(environment=None):
     environment = os.environ if environment is None else environment
     max_chars = int(environment.get('MAX_BODY_CHARS', '8000'))
-    max_commits = int(environment.get('MAX_COMMITS', '100'))
+    max_commit_body_chars = int(environment.get('MAX_COMMIT_BODY_CHARS', '1500'))
+    max_commits = int(environment.get('MAX_COMMITS', '50'))
+    # The candidates end up in the agent prompt env var, which Linux caps at 128 KiB.
+    max_commit_total_chars = int(environment.get('MAX_COMMIT_TOTAL_CHARS', '40000'))
     base_commit = environment['BASE_COMMIT'].strip()
     if not re.fullmatch(r'[0-9a-f]{7,40}', base_commit):
         raise ValueError('BASE_COMMIT must be a commit SHA')
@@ -39,14 +42,24 @@ def fetch_issue_candidates(environment=None):
         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=True,
     ).stdout
     commits = []
+    commit_chars = 0
+    commits_truncated = False
     for record in log.split('\x1e'):
         parts = record.strip().split('\x1f')
         if len(parts) == 3:
-            commits.append({'sha': parts[0], 'subject': parts[1], 'body': parts[2][:max_chars]})
+            commit = {'sha': parts[0], 'subject': parts[1], 'body': parts[2][:max_commit_body_chars]}
+            size = len(json.dumps(commit))
+            if commit_chars + size > max_commit_total_chars:
+                commits_truncated = True
+                break
+            commits.append(commit)
+            commit_chars += size
+    print(f'{len(commits)} commits kept ({commit_chars} chars, truncated={commits_truncated})', flush=True)
 
     result = {
         'source_branch': environment.get('SOURCE_BRANCH', ''),
         'commits': commits,
+        'commits_truncated': commits_truncated,
         'pull_request': None,
         'closing_issues': [],
     }

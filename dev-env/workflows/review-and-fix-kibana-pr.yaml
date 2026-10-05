@@ -290,7 +290,7 @@ steps:
               workflow-id: verify-kibana-pr-ui
               inputs:
                 source_dir: '/opt/{{ variables.current_project }}/kibana/src'
-                base_commit: '{{ variables.current_base_commit }}'
+                base_commit: '{{ variables.merge_base | default: variables.current_base_commit }}'
                 production_files: ${{ variables.current_production_files }}
                 production_diff_path: '{{ variables.current_production_diff_path }}'
                 is_pr: ${{ variables.is_pr }}
@@ -418,7 +418,7 @@ steps:
           workflow-id: verify-kibana-pr-ui
           inputs:
             source_dir: '/opt/{{ variables.current_project }}/kibana/src'
-            base_commit: '{{ variables.current_base_commit }}'
+            base_commit: '{{ variables.merge_base | default: variables.current_base_commit }}'
             production_files: ${{ variables.current_production_files }}
             production_diff_path: '{{ variables.current_production_diff_path }}'
             is_pr: ${{ variables.is_pr }}
