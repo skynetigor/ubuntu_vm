@@ -116,6 +116,14 @@ steps:
       merge_result: {}
       comment_resolution_status: not_pr
       comment_resolution_result: {}
+      test_initial_failed: []
+      test_remaining_failed: []
+      test_fixed: []
+      test_rounds: 0
+      test_fix_publish_status: not_run
+      test_fix_pr_url: ''
+      test_fix_approval_status: not_requested
+      test_fix_merge_status: not_merged
 
   - name: checkout_project
     type: workflow.execute
@@ -157,6 +165,7 @@ steps:
             previous_findings: ${{ variables.current_agent_comments_to_fix }}
             previous_failed_project_ids: "${{ variables.current_failed_tests | map: 'project' }}"
             known_merge_base: '{{ variables.merge_base }}'
+            run_tests: false
             existing_checkout: ${{ variables.checkout }}
             concurrency_key: 'review-and-fix-nested:{{ execution.id }}'
 
@@ -375,6 +384,7 @@ steps:
             previous_findings: ${{ variables.current_agent_comments_to_fix }}
             previous_failed_project_ids: "${{ variables.current_failed_tests | map: 'project' }}"
             known_merge_base: '{{ variables.merge_base }}'
+            run_tests: false
             existing_checkout: ${{ variables.checkout }}
             concurrency_key: 'review-and-fix-nested:{{ execution.id }}'
 
@@ -496,143 +506,38 @@ steps:
             with:
               publish_status: dry_run
         steps:
-          - name: commit_and_push_pr_fixes
-            type: ssh.python
-            connector-id: dev-vm
+          - name: publish_review_fixes
+            type: workflow.execute
             with:
-              cwd: '/opt/{{ variables.current_project }}/kibana/src'
-              env:
-                PR_CONTEXT_JSON: '{{ variables.initial_pr_context | json }}'
-                PRODUCTION_FILES_JSON: '{{ variables.current_production_files | json }}'
-                CHANGED_PROJECTS: '{{ variables.current_changed_projects | json }}'
-                FIX_BRANCH_SUFFIX: '{{ execution.id }}'
-              code: |
-                import sys
-                sys.path.insert(0, '/etc/dev-env-scripts')
-                from publish_pr_fixes import publish_pr_fixes
-                return publish_pr_fixes()
+              workflow-id: publish-kibana-fix-pr
+              inputs:
+                source_dir: '/opt/{{ variables.current_project }}/kibana/src'
+                pr_context: ${{ variables.initial_pr_context }}
+                production_files: ${{ variables.current_production_files }}
+                changed_projects: ${{ variables.current_changed_projects }}
+                fix_branch_suffix: '{{ execution.id }}'
+                run_summary: '{{ variables.run_summary }}'
+                approval_note: Approving squash-merges the fix PR, then replies to and resolves the fixed review comments on the original PR. Rejecting leaves the fix PR open and posts nothing.
+                draft_details: >-
+                  Fixed agent comments: {{ steps.summarize_fixed_items.output.fixed_agent_comments | json }}.
+                  Fixed PR comments: {{ steps.build_pr_comment_actions.output.fixed_comments | json }}.
+                  Fixed browser-testing findings: {{ steps.summarize_fixed_items.output.fixed_ui_findings | json }}.
+                  Linked issue verdicts from browser testing: {{ variables.issue_verdicts | json }}.
+                  Files changed by ESLint autofix: {{ variables.lint_fixed_files | json }}.
 
           - name: save_publish_result
             type: data.set
             with:
-              publish_status: '{{ steps.commit_and_push_pr_fixes.output.status }}'
-              publish_result: ${{ steps.commit_and_push_pr_fixes.output }}
-
-  - name: create_fix_pull_request
-    type: if
-    condition: "${{ variables.publish_status == 'published' }}"
-    steps:
-      - name: agent_draft_fix_pull_request
-        type: workflow.execute
-        with:
-          workflow-id: main-kibana-agent
-          inputs:
-            cwd: '/opt/{{ variables.current_project }}/kibana/src'
-            disallow_shell: true
-            model: '{{ consts.LIGHT_AGENT_MODEL }}'
-            idempotency_key: 'fix-pr-draft-v3:{{ variables.publish_result.commit_sha }}'
-            run_summary: '{{ variables.run_summary }}'
-            prompt: >-
-              Draft the follow-up pull request for these fixes.
-              The PR will be opened in {{ variables.publish_result.fork_repository }}
-              from branch {{ variables.publish_result.fix_branch }} into the
-              original branch {{ variables.publish_result.base_branch }}.
-              Summarize only fixes actually represented by these resolved agent
-              comments, PR comments, and tests. Do not use tools, edit files, or
-              call GitHub. Return the normal structured response plus
-              pull_request with a short plain title (no prefixes like "fix:")
-              and a body that is a short intro sentence plus a simple bullet
-              list of changes, no headings, no mention of automation, agents,
-              or workflows. Style for title and body: {{ consts.REVIEWER_VOICE }}
-              Fixed agent comments: {{ steps.summarize_fixed_items.output.fixed_agent_comments | json }}.
-              Fixed PR comments: {{ steps.build_pr_comment_actions.output.fixed_comments | json }}.
-              Fixed tests: {{ steps.summarize_fixed_items.output.fixed_tests | json }}.
-              Fixed browser-testing findings: {{ steps.summarize_fixed_items.output.fixed_ui_findings | json }}.
-              Linked issue verdicts from browser testing: {{ variables.issue_verdicts | json }}.
-              Files changed by ESLint autofix: {{ variables.lint_fixed_files | json }}.
-
-      - name: save_fix_pr_draft_session
-        type: data.set
-        with:
-          agent_session_id: '{{ steps.agent_draft_fix_pull_request.output.session_id }}'
-          run_summary: '{{ steps.agent_draft_fix_pull_request.output.run_summary }}'
-
-      - name: create_agent_fix_pull_request
-        type: ssh.python
-        connector-id: dev-vm
-        with:
-          env:
-            PUBLISH_RESULT_JSON: '{{ variables.publish_result | json }}'
-            PR_DRAFT_JSON: '{{ steps.agent_draft_fix_pull_request.output.pull_request | json }}'
-          code: |
-            import sys
-            sys.path.insert(0, '/etc/dev-env-scripts')
-            from create_fix_pull_request import create_fix_pull_request
-            return create_fix_pull_request()
-
-      - name: save_fix_pull_request
-        type: data.set
-        with:
-          fix_pr_status: '{{ steps.create_agent_fix_pull_request.output.status }}'
-          fix_pr_result: ${{ steps.create_agent_fix_pull_request.output }}
-          fix_pr_url: '{{ steps.create_agent_fix_pull_request.output.url }}'
-          fix_pr_body: '{{ steps.agent_draft_fix_pull_request.output.pull_request.body }}'
-
-  - name: approve_and_merge_fix_pull_request
-    type: if
-    condition: "${{ variables.fix_pr_url != '' }}"
-    steps:
-      # A timeout continues so the run still reports no_response instead of failing.
-      - name: approve_fix_pull_request
-        type: waitForApproval
-        timeout: 72h
-        on-failure:
-          continue: true
-        with:
-          approveLabel: Merge fix PR
-          rejectLabel: Reject
-          message: |
-            ## Review automated fixes for {{ variables.initial_pr_context.owner }}/{{ variables.initial_pr_context.repo }}#{{ variables.initial_pr_context.number }}
-
-            **Fix PR:** {{ variables.fix_pr_url }}
-            **Branch:** `{{ variables.publish_result.fix_branch }}` into `{{ variables.publish_result.base_branch }}`
-            **Commit:** `{{ variables.publish_result.commit_sha }}`
-
-            Approving squash-merges the fix PR, then replies to and resolves the fixed review comments on the original PR. Rejecting leaves the fix PR open and posts nothing.
-
-            ---
-
-            {{ variables.fix_pr_body | truncate: 8000 }}
-
-      - name: save_approval
-        type: data.set
-        with:
-          approval_status: "{% if steps.approve_fix_pull_request.output.response.approved == true %}approved{% elsif steps.approve_fix_pull_request.output.response.approved == false %}rejected{% else %}no_response{% endif %}"
-          approved_by: '{{ steps.approve_fix_pull_request.output.respondedBy }}'
-
-      - name: merge_when_approved
-        type: if
-        condition: "${{ variables.approval_status == 'approved' }}"
-        steps:
-          - name: merge_fix_pr
-            type: ssh.python
-            connector-id: dev-vm
-            with:
-              env:
-                FIX_PR_RESULT_JSON: '{{ variables.fix_pr_result | json }}'
-                EXPECTED_HEAD_SHA: '{{ variables.publish_result.commit_sha }}'
-                MERGE_METHOD: squash
-              code: |
-                import sys
-                sys.path.insert(0, '/etc/dev-env-scripts')
-                from merge_fix_pull_request import merge_fix_pull_request
-                return merge_fix_pull_request()
-
-          - name: save_merge_result
-            type: data.set
-            with:
-              merge_status: '{{ steps.merge_fix_pr.output.status }}'
-              merge_result: ${{ steps.merge_fix_pr.output }}
+              publish_status: '{{ steps.publish_review_fixes.output.publish_status }}'
+              publish_result: ${{ steps.publish_review_fixes.output.publish_result }}
+              fix_pr_status: '{{ steps.publish_review_fixes.output.fix_pr_status }}'
+              fix_pr_result: ${{ steps.publish_review_fixes.output.fix_pr_result }}
+              fix_pr_url: '{{ steps.publish_review_fixes.output.fix_pr_url }}'
+              fix_pr_body: '{{ steps.publish_review_fixes.output.fix_pr_body }}'
+              approval_status: '{{ steps.publish_review_fixes.output.approval_status }}'
+              approved_by: '{{ steps.publish_review_fixes.output.approved_by }}'
+              merge_status: '{{ steps.publish_review_fixes.output.merge_status }}'
+              merge_result: ${{ steps.publish_review_fixes.output.merge_result }}
 
   - name: resolve_fixed_pr_comments
     type: if
@@ -671,6 +576,85 @@ steps:
               comment_resolution_status: completed
               comment_resolution_result: ${{ steps.write_fixed_comment_replies.output }}
 
+  # Unit tests run once review fixes are merged and replied to, against the merged PR head.
+  - name: refresh_checkout_after_merge
+    type: if
+    condition: "${{ variables.merge_status == 'merged' }}"
+    steps:
+      - name: checkout_merged_head
+        type: workflow.execute
+        with:
+          workflow-id: checkout-kibana-project
+          inputs:
+            kibana_target: '{{ inputs.kibana_target }}'
+            project_name: kibana-review
+            target_depth: 256
+
+  - name: run_test_fixes
+    type: workflow.execute
+    with:
+      workflow-id: fix-kibana-tests
+      inputs:
+        source_dir: '/opt/{{ variables.current_project }}/kibana/src'
+        projects: ${{ variables.current_changed_projects }}
+        run_summary: '{{ variables.run_summary }}'
+
+  - name: save_test_phase
+    type: data.set
+    with:
+      run_summary: '{{ steps.run_test_fixes.output.run_summary }}'
+      test_initial_failed: ${{ steps.run_test_fixes.output.initial_failed }}
+      test_remaining_failed: ${{ steps.run_test_fixes.output.remaining_failed }}
+      test_fixed: ${{ steps.run_test_fixes.output.fixed_tests }}
+      test_rounds: ${{ steps.run_test_fixes.output.rounds }}
+      test_fix_publish_status: "{% if steps.run_test_fixes.output.changed_code != true %}no_test_fixes{% elsif inputs.dry_run %}dry_run{% elsif variables.is_pr != true %}not_pr{% else %}blocked_unmerged_review_fixes{% endif %}"
+
+  # Test fixes are published only on top of a PR head that already contains the review fixes.
+  - name: publish_test_fixes
+    type: if
+    condition: "${{ inputs.dry_run == false and variables.is_pr == true and steps.run_test_fixes.output.changed_code == true and (variables.merge_status == 'merged' or variables.publish_status == 'no_changes') }}"
+    steps:
+      - name: refresh_pr_context
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          env:
+            PR_OWNER: '{{ variables.initial_pr_context.owner }}'
+            PR_REPO: '{{ variables.initial_pr_context.repo }}'
+            PR_NUMBER: '{{ variables.initial_pr_context.number }}'
+            MAX_PR_COMMENTS: '300'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from fetch_pr_context import fetch_pr_context
+            return fetch_pr_context()
+
+      - name: publish_test_fix_pr
+        type: workflow.execute
+        with:
+          workflow-id: publish-kibana-fix-pr
+          inputs:
+            source_dir: '/opt/{{ variables.current_project }}/kibana/src'
+            pr_context: ${{ steps.refresh_pr_context.output }}
+            production_files: ${{ variables.current_production_files }}
+            changed_projects: ${{ variables.current_changed_projects }}
+            fix_branch_suffix: 'tests-{{ execution.id }}'
+            commit_message: Fix failing unit tests
+            run_summary: '{{ variables.run_summary }}'
+            approval_note: Approving squash-merges these unit test fixes into the original PR branch. Rejecting leaves the fix PR open.
+            draft_details: >-
+              Fixed failing unit test projects: {{ variables.test_fixed | json }}.
+              Agent fix results: {{ steps.run_test_fixes.output.fix_results | json }}.
+              Still failing after fixes: {{ variables.test_remaining_failed | map: 'project' | json }}.
+
+      - name: save_test_fix_pr
+        type: data.set
+        with:
+          test_fix_publish_status: '{{ steps.publish_test_fix_pr.output.publish_status }}'
+          test_fix_pr_url: '{{ steps.publish_test_fix_pr.output.fix_pr_url }}'
+          test_fix_approval_status: '{{ steps.publish_test_fix_pr.output.approval_status }}'
+          test_fix_merge_status: '{{ steps.publish_test_fix_pr.output.merge_status }}'
+
   - name: output
     type: workflow.output
     with:
@@ -705,6 +689,14 @@ steps:
       merge_result: ${{ variables.merge_result }}
       comment_resolution_status: '{{ variables.comment_resolution_status }}'
       comment_resolution_result: ${{ variables.comment_resolution_result }}
+      test_initial_failed: ${{ variables.test_initial_failed }}
+      test_remaining_failed: ${{ variables.test_remaining_failed }}
+      test_fixed: ${{ variables.test_fixed }}
+      test_rounds: ${{ variables.test_rounds }}
+      test_fix_publish_status: '{{ variables.test_fix_publish_status }}'
+      test_fix_pr_url: '{{ variables.test_fix_pr_url }}'
+      test_fix_approval_status: '{{ variables.test_fix_approval_status }}'
+      test_fix_merge_status: '{{ variables.test_fix_merge_status }}'
       project: '{{ variables.current_project }}'
       session_id: '{{ variables.agent_session_id }}'
       run_summary: '{{ variables.run_summary }}'

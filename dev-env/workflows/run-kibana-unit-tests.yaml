@@ -21,14 +21,17 @@ triggers:
           description: Kibana source root on dev-vm, e.g. /opt/<project>/kibana/src.
         projects:
           type: array
-          description: Projects to test; a source_root without jest.config.js is reported as no_tests.
+          description: >-
+            Projects to test; a source_root without jest.config.js is reported as no_tests.
+            Earlier results can be passed back directly (project is used when id is absent).
           items:
             type: object
             required:
-              - id
               - source_root
             properties:
               id:
+                type: string
+              project:
                 type: string
               source_root:
                 type: string
@@ -42,9 +45,10 @@ triggers:
           minimum: 500
 
 consts:
-  # Benchmarked on dev-vm: 4 capped workers ran workflows_management in 118s (+7.9GB) vs 704s in-band.
-  MAX_WORKERS: 4
-  WORKER_IDLE_MEMORY_LIMIT: 1536MB
+  # Jest recycles workers on heapUsed only; SWC transforms leak native memory outside the heap,
+  # so a low limit restarts workers after almost every file and frees that memory.
+  MAX_WORKERS: 3
+  WORKER_IDLE_MEMORY_LIMIT: 600MB
   WORKER_HEAP_MB: 3072
 
 # Same literal key as checkout-kibana-project and run-kibana-eslint: one heavy Node job at a time on dev-vm.
@@ -109,7 +113,7 @@ steps:
         with:
           cwd: '{{ inputs.source_dir }}'
           env:
-            PROJECT_ID: '{{ foreach.item.id }}'
+            PROJECT_ID: '{{ foreach.item.id | default: foreach.item.project }}'
             SOURCE_ROOT: '{{ foreach.item.source_root }}'
             LOG_DIR: '{{ steps.prepare_runner.output.log_dir }}'
             MAX_WORKERS: '{{ consts.MAX_WORKERS }}'

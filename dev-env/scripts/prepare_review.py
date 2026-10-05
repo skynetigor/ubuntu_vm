@@ -353,6 +353,8 @@ def prepare_review(environment=None, cwd=None):
     else:
         test_projects = changed_projects
         lint_projects = changed_projects
+    if environment.get('RUN_TESTS', 'true').lower() == 'false':
+        test_projects = []
 
     return {
         'project': environment['PROJECT'],

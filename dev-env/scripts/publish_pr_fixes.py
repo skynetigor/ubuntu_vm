@@ -89,7 +89,7 @@ def publish_pr_fixes(environment=None):
         run([
             'git', '-c', f'user.name={login}',
             '-c', f'user.email={user_id}+{login}@users.noreply.github.com',
-            'commit', '-m', 'Address review comments',
+            'commit', '-m', environment.get('COMMIT_MESSAGE') or 'Address review comments',
         ])
         commit_sha = run(['git', 'rev-parse', 'HEAD']).stdout.strip()
         pushed = run(

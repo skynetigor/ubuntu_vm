@@ -1,0 +1,228 @@
+version: '1'
+name: Publish Kibana Fix PR
+description: >-
+  Commits the local fixes in a Kibana PR checkout, pushes them to a fix branch,
+  opens a follow-up PR into the original PR branch, waits for human approval,
+  and squash-merges it when approved.
+enabled: true
+tags:
+  - kibana
+  - github
+  - automation
+
+triggers:
+  - type: manual
+    inputs:
+      additionalProperties: false
+      required:
+        - source_dir
+        - pr_context
+        - fix_branch_suffix
+      properties:
+        source_dir:
+          type: string
+          description: Kibana source root on dev-vm with the PR head checked out and fixes applied.
+        pr_context:
+          type: object
+          description: PR context from fetch_pr_context (owner, repo, number, head_repo, head_ref, head_sha).
+        production_files:
+          type: array
+          default: []
+          items:
+            type: string
+        changed_projects:
+          type: array
+          default: []
+        fix_branch_suffix:
+          type: string
+          description: Must be unique per published fix PR.
+        commit_message:
+          type: string
+          default: Address review comments
+        draft_details:
+          type: string
+          default: ''
+          description: What was fixed; used to draft the PR title and body.
+        approval_note:
+          type: string
+          default: Approving squash-merges the fix PR into the original PR branch. Rejecting leaves it open.
+        run_summary:
+          type: string
+          default: ''
+
+consts:
+  LIGHT_AGENT_MODEL: sonnet
+  REVIEWER_VOICE: >-
+    Write every GitHub-visible text as a senior software engineer with about
+    10 years of experience whose English is upper-intermediate: short, direct,
+    plain sentences, natural and a bit informal, small non-native phrasing is
+    fine. It must read like a normal human teammate wrote it. Never sound like
+    AI: no bold labels, no emojis, no em dashes, no "Great catch!", "I've
+    addressed", "It's worth noting", "Overall", no filler or praise, no
+    restating the comment back.
+
+steps:
+  - name: initialize_state
+    type: data.set
+    with:
+      publish_status: not_published
+      publish_result: {}
+      fix_pr_status: not_created
+      fix_pr_result: {}
+      fix_pr_url: ''
+      fix_pr_body: ''
+      approval_status: not_requested
+      approved_by: ''
+      merge_status: not_merged
+      merge_result: {}
+      agent_session_id: ''
+      run_summary: '{{ inputs.run_summary }}'
+
+  - name: commit_and_push_fixes
+    type: ssh.python
+    connector-id: dev-vm
+    with:
+      cwd: '{{ inputs.source_dir }}'
+      env:
+        PR_CONTEXT_JSON: '{{ inputs.pr_context | json }}'
+        PRODUCTION_FILES_JSON: '{{ inputs.production_files | json }}'
+        CHANGED_PROJECTS: '{{ inputs.changed_projects | json }}'
+        FIX_BRANCH_SUFFIX: '{{ inputs.fix_branch_suffix }}'
+        COMMIT_MESSAGE: '{{ inputs.commit_message }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from publish_pr_fixes import publish_pr_fixes
+        return publish_pr_fixes()
+
+  - name: save_publish_result
+    type: data.set
+    with:
+      publish_status: '{{ steps.commit_and_push_fixes.output.status }}'
+      publish_result: ${{ steps.commit_and_push_fixes.output }}
+
+  - name: create_fix_pull_request
+    type: if
+    condition: "${{ variables.publish_status == 'published' }}"
+    steps:
+      - name: draft_fix_pull_request
+        type: workflow.execute
+        with:
+          workflow-id: main-kibana-agent
+          inputs:
+            cwd: '{{ inputs.source_dir }}'
+            disallow_shell: true
+            model: '{{ consts.LIGHT_AGENT_MODEL }}'
+            idempotency_key: 'fix-pr-draft-v4:{{ variables.publish_result.commit_sha }}'
+            run_summary: '{{ variables.run_summary }}'
+            prompt: >-
+              Draft the follow-up pull request for these fixes.
+              The PR will be opened in {{ variables.publish_result.fork_repository }}
+              from branch {{ variables.publish_result.fix_branch }} into the
+              original branch {{ variables.publish_result.base_branch }}.
+              Summarize only the fixes described below. Do not use tools, edit
+              files, or call GitHub. Return the normal structured response plus
+              pull_request with a short plain title (no prefixes like "fix:")
+              and a body that is a short intro sentence plus a simple bullet
+              list of changes, no headings, no mention of automation, agents,
+              or workflows. Style for title and body: {{ consts.REVIEWER_VOICE }}
+              Fixes: {{ inputs.draft_details }}
+
+      - name: save_draft_session
+        type: data.set
+        with:
+          agent_session_id: '{{ steps.draft_fix_pull_request.output.session_id }}'
+          run_summary: '{{ steps.draft_fix_pull_request.output.run_summary }}'
+
+      - name: open_fix_pull_request
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          env:
+            PUBLISH_RESULT_JSON: '{{ variables.publish_result | json }}'
+            PR_DRAFT_JSON: '{{ steps.draft_fix_pull_request.output.pull_request | json }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from create_fix_pull_request import create_fix_pull_request
+            return create_fix_pull_request()
+
+      - name: save_fix_pull_request
+        type: data.set
+        with:
+          fix_pr_status: '{{ steps.open_fix_pull_request.output.status }}'
+          fix_pr_result: ${{ steps.open_fix_pull_request.output }}
+          fix_pr_url: '{{ steps.open_fix_pull_request.output.url }}'
+          fix_pr_body: '{{ steps.draft_fix_pull_request.output.pull_request.body }}'
+
+  - name: approve_and_merge
+    type: if
+    condition: "${{ variables.fix_pr_url != '' }}"
+    steps:
+      # A timeout continues so the run still reports no_response instead of failing.
+      - name: approve_fix_pull_request
+        type: waitForApproval
+        timeout: 72h
+        on-failure:
+          continue: true
+        with:
+          approveLabel: Merge fix PR
+          rejectLabel: Reject
+          message: |
+            ## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
+
+            **Fix PR:** {{ variables.fix_pr_url }}
+            **Branch:** `{{ variables.publish_result.fix_branch }}` into `{{ variables.publish_result.base_branch }}`
+            **Commit:** `{{ variables.publish_result.commit_sha }}`
+
+            {{ inputs.approval_note }}
+
+            ---
+
+            {{ variables.fix_pr_body | truncate: 8000 }}
+
+      - name: save_approval
+        type: data.set
+        with:
+          approval_status: "{% if steps.approve_fix_pull_request.output.response.approved == true %}approved{% elsif steps.approve_fix_pull_request.output.response.approved == false %}rejected{% else %}no_response{% endif %}"
+          approved_by: '{{ steps.approve_fix_pull_request.output.respondedBy }}'
+
+      - name: merge_when_approved
+        type: if
+        condition: "${{ variables.approval_status == 'approved' }}"
+        steps:
+          - name: merge_fix_pr
+            type: ssh.python
+            connector-id: dev-vm
+            with:
+              env:
+                FIX_PR_RESULT_JSON: '{{ variables.fix_pr_result | json }}'
+                EXPECTED_HEAD_SHA: '{{ variables.publish_result.commit_sha }}'
+                MERGE_METHOD: squash
+              code: |
+                import sys
+                sys.path.insert(0, '/etc/dev-env-scripts')
+                from merge_fix_pull_request import merge_fix_pull_request
+                return merge_fix_pull_request()
+
+          - name: save_merge_result
+            type: data.set
+            with:
+              merge_status: '{{ steps.merge_fix_pr.output.status }}'
+              merge_result: ${{ steps.merge_fix_pr.output }}
+
+  - name: output
+    type: workflow.output
+    with:
+      publish_status: '{{ variables.publish_status }}'
+      publish_result: ${{ variables.publish_result }}
+      fix_pr_status: '{{ variables.fix_pr_status }}'
+      fix_pr_result: ${{ variables.fix_pr_result }}
+      fix_pr_url: '{{ variables.fix_pr_url }}'
+      fix_pr_body: '{{ variables.fix_pr_body }}'
+      approval_status: '{{ variables.approval_status }}'
+      approved_by: '{{ variables.approved_by }}'
+      merge_status: '{{ variables.merge_status }}'
+      merge_result: ${{ variables.merge_result }}
+      session_id: '{{ variables.agent_session_id }}'
+      run_summary: '{{ variables.run_summary }}'

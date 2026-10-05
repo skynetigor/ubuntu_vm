@@ -41,7 +41,7 @@ def group_fix_items(environment=None, cwd=None):
     for failure in load('FAILED_TESTS_JSON'):
         project = failure.get('project')
         details = failure.get('failures') or []
-        root = root_by_id.get(project) or next(
+        root = root_by_id.get(project) or failure.get('source_root') or next(
             (detail.get('source_root') for detail in details if detail.get('source_root')), None,
         )
         add(root or 'repository', {'item_id': f'test-{project}', 'kind': 'failing_tests', **failure})

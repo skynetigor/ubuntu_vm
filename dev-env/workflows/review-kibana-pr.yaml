@@ -57,6 +57,10 @@ triggers:
           type: string
           default: ''
           description: Merge base resolved by an earlier round; skips the lookup.
+        run_tests:
+          type: boolean
+          default: true
+          description: review-and-fix runs unit tests in a separate phase after publishing.
         existing_checkout:
           type: object
           default: {}
@@ -206,6 +210,7 @@ steps:
         KNOWN_MERGE_BASE: '{{ inputs.known_merge_base }}'
         DELTA_BASE: "{% if inputs.mode == 'delta' %}{{ inputs.delta_base }}{% endif %}"
         PREVIOUS_FAILED_PROJECT_IDS: '{{ inputs.previous_failed_project_ids | json }}'
+        RUN_TESTS: '{{ inputs.run_tests }}'
       code: |
         import sys
         sys.path.insert(0, '/etc/dev-env-scripts')

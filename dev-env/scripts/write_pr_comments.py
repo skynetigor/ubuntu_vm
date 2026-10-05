@@ -44,6 +44,7 @@ def write_pr_comments(environment=None):
     }
     analysis_by_id = {str(item.get('comment_id')): item for item in analysis}
     outcomes = []
+    summary_items = []
 
     for fix in fixes:
         comment_id = str(fix.get('comment_id', ''))
@@ -60,7 +61,7 @@ def write_pr_comments(environment=None):
         if not original or not thread_id:
             outcomes.append({'comment_id': comment_id, 'status': 'skipped_missing_thread'})
             continue
-        if not re.fullmatch(r'PRRT_[A-Za-z0-9]+', thread_id):
+        if not re.fullmatch(r'PRRT_[A-Za-z0-9_-]+', thread_id):
             outcomes.append({'comment_id': comment_id, 'status': 'skipped_invalid_thread_id'})
             continue
 
@@ -98,5 +99,26 @@ def write_pr_comments(environment=None):
             'comment_id': comment_id,
             'status': 'replied_and_resolved' if not existing_reply else 'reply_exists_resolved',
         })
+        summary_items.append((original, (fix.get('reply') or 'Fixed.').strip()))
 
-    return {'outcomes': outcomes, 'commit_sha': commit_sha}
+    # Replies sit in resolved threads, which GitHub folds away, so also post a visible summary.
+    summary_posted = False
+    if summary_items:
+        summary_marker = '<!-- workflow-fix-summary:' + commit_sha + ' -->'
+        issue_comments = gh_api(f'repos/{owner}/{repo}/issues/{number}/comments?per_page=100')
+        if not any(summary_marker in (item.get('body') or '') for item in issue_comments):
+            lines = ['Fixed review comments' + (f' in {fix_pr_url}' if fix_pr_url else f' ({commit_sha[:10]})') + ':', '']
+            for original, reply in summary_items:
+                location = original.get('path', '').split('/')[-1]
+                line = original.get('original_line') or original.get('line')
+                if line:
+                    location += f':{line}'
+                lines.append(f"- [{location}]({original.get('html_url')}): {reply}")
+            lines += ['', summary_marker]
+            gh_api(
+                '--method', 'POST', f'repos/{owner}/{repo}/issues/{number}/comments',
+                '-f', 'body=' + '\n'.join(lines),
+            )
+            summary_posted = True
+
+    return {'outcomes': outcomes, 'commit_sha': commit_sha, 'summary_posted': summary_posted}

@@ -1,0 +1,165 @@
+version: '1'
+name: Fix Kibana Tests
+description: >-
+  Runs Jest for the given Kibana projects, asks the agent to fix failing
+  projects (one call per project group), and re-runs only the failed projects,
+  for up to three fix rounds. Edits the working tree; never commits or pushes.
+enabled: true
+tags:
+  - kibana
+  - tests
+  - automation
+
+triggers:
+  - type: manual
+    inputs:
+      additionalProperties: false
+      required:
+        - source_dir
+        - projects
+      properties:
+        source_dir:
+          type: string
+          description: Kibana source root on dev-vm.
+        projects:
+          type: array
+          description: Projects to test, each with id and source_root.
+        run_summary:
+          type: string
+          default: ''
+
+consts:
+  MAX_FIX_ROUNDS: 3
+  FIX_INSTRUCTIONS: >-
+    Each item is a failing Jest project with its test output. Make the failing
+    tests pass by fixing the code, or the test when the test itself is wrong;
+    never weaken or delete assertions just to pass. Read the current working
+    tree first. Do not commit, push, call GitHub, or make unrelated changes.
+    Return JSON with response, run_summary, findings, and changes. findings
+    must have exactly one entry per item with item_id and status (fixed or
+    not_fixed).
+
+steps:
+  - name: initialize_state
+    type: data.set
+    with:
+      needs_tests: true
+      projects_to_run: ${{ inputs.projects }}
+      failed: []
+      initial_failed: []
+      fix_results: []
+      round_count: 0
+      agent_session_id: ''
+      run_summary: '{{ inputs.run_summary }}'
+
+  - name: test_and_fix_loop
+    type: while
+    condition: "${{ variables.needs_tests == true }}"
+    max-iterations:
+      limit: 4
+      on-limit: continue
+    steps:
+      - name: run_tests
+        type: workflow.execute
+        with:
+          workflow-id: run-kibana-unit-tests
+          inputs:
+            source_dir: '{{ inputs.source_dir }}'
+            projects: ${{ variables.projects_to_run }}
+
+      - name: save_test_run
+        type: data.set
+        with:
+          failed: ${{ steps.run_tests.output.failed }}
+          round_count: '{{ variables.round_count | plus: 1 }}'
+
+      - name: capture_initial_failures
+        type: if
+        condition: "${{ while.iteration == 0 }}"
+        steps:
+          - name: save_initial_failures
+            type: data.set
+            with:
+              initial_failed: ${{ steps.run_tests.output.failed }}
+
+      # The last allowed test run only reports; fixes after it would go unverified.
+      - name: fix_when_failed
+        type: if
+        condition: "${{ steps.run_tests.output.failed.size > 0 and while.iteration < consts.MAX_FIX_ROUNDS }}"
+        else:
+          - name: stop_testing
+            type: data.set
+            with:
+              needs_tests: false
+        steps:
+          - name: group_failures
+            type: ssh.python
+            connector-id: dev-vm
+            with:
+              cwd: '{{ inputs.source_dir }}'
+              env:
+                FAILED_TESTS_JSON: '{{ steps.run_tests.output.failed | json }}'
+                PROJECTS_JSON: '{{ inputs.projects | json }}'
+              code: |
+                import sys
+                sys.path.insert(0, '/etc/dev-env-scripts')
+                from group_fix_items import group_fix_items
+                return group_fix_items()
+
+          - name: fix_groups
+            type: foreach
+            foreach: '${{ steps.group_failures.output.groups }}'
+            max-iterations:
+              limit: 50
+              on-limit: fail
+            steps:
+              - name: fix_group
+                type: workflow.execute
+                with:
+                  workflow-id: main-kibana-agent
+                  inputs:
+                    cwd: '{{ inputs.source_dir }}'
+                    disallow_shell: true
+                    run_summary: '{{ variables.run_summary }}'
+                    prompt: >-
+                      Fix every failing test project below; they all belong to
+                      `{{ foreach.item.group }}`. {{ consts.FIX_INSTRUCTIONS }}
+                      Items: {{ foreach.item.items | json }}
+
+              - name: save_group_fix
+                type: data.set
+                with:
+                  agent_session_id: '{{ steps.fix_group.output.session_id }}'
+                  run_summary: '{{ steps.fix_group.output.run_summary }}'
+                  fix_results: "${{ variables.fix_results | concat: steps.fix_group.output.findings }}"
+
+          - name: retest_failed_projects
+            type: data.set
+            with:
+              needs_tests: true
+              projects_to_run: ${{ steps.run_tests.output.failed }}
+
+  - name: summarize_test_fixes
+    type: ssh.python
+    connector-id: dev-vm
+    with:
+      env:
+        INITIAL_TESTS_JSON: '{{ variables.initial_failed | json }}'
+        REMAINING_TESTS_JSON: '{{ variables.failed | json }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from summarize_fixes import summarize_fixes
+        return summarize_fixes()
+
+  - name: output
+    type: workflow.output
+    with:
+      initial_failed: ${{ variables.initial_failed }}
+      remaining_failed: ${{ variables.failed }}
+      fixed_tests: ${{ steps.summarize_test_fixes.output.fixed_tests }}
+      fix_results: ${{ variables.fix_results }}
+      changed_code: ${{ variables.initial_failed.size > 0 }}
+      rounds: ${{ variables.round_count }}
+      session_id: '{{ variables.agent_session_id }}'
+      run_summary: '{{ variables.run_summary }}'
