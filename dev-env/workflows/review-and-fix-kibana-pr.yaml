@@ -35,6 +35,16 @@ settings:
     strategy: queue
     max: 1
 
+consts:
+  REVIEWER_VOICE: >-
+    Write every GitHub-visible text as a senior software engineer with about
+    10 years of experience whose English is upper-intermediate: short, direct,
+    plain sentences, natural and a bit informal, small non-native phrasing is
+    fine. It must read like a normal human teammate wrote it. Never sound like
+    AI: no bold labels, no emojis, no em dashes, no "Great catch!", "I've
+    addressed", "It's worth noting", "Overall", no filler or praise, no
+    restating the comment back.
+
 steps:
   - name: initialize_state
     type: data.set
@@ -314,8 +324,13 @@ steps:
                       no change. Otherwise fix only this comment. Do not commit,
                       push, call GitHub APIs, or make unrelated changes. Return
                       JSON with response, run_summary, findings, and changes.
-                      findings must contain exactly one entry with comment_id and
-                      status set to fixed, already_fixed, or not_fixed.
+                      findings must contain exactly one entry with comment_id,
+                      status set to fixed, already_fixed, or not_fixed, and
+                      reply. reply is posted as-is as your answer to the
+                      reviewer on GitHub: one or two sentences saying what you
+                      changed or why it is already fine (for example "Moved the
+                      check before the loop, thanks." or "Done, now we return
+                      early when the list is empty."). Style: {{ consts.REVIEWER_VOICE }}
                       PR comment: {{ foreach.item | json }}
 
               - name: save_pr_comment_fix
@@ -562,18 +577,21 @@ steps:
           inputs:
             cwd: '/opt/{{ variables.current_project }}/kibana/src'
             disallow_shell: true
-            idempotency_key: 'fix-pr-draft-v1:{{ variables.publish_result.commit_sha }}'
+            idempotency_key: 'fix-pr-draft-v2:{{ variables.publish_result.commit_sha }}'
             session_id: '{{ variables.agent_session_id }}'
             run_summary: '{{ variables.run_summary }}'
             prompt: >-
-              Draft the follow-up pull request for the validated automated fixes.
+              Draft the follow-up pull request for these fixes.
               The PR will be opened in {{ variables.publish_result.fork_repository }}
               from branch {{ variables.publish_result.fix_branch }} into the
               original branch {{ variables.publish_result.base_branch }}.
               Summarize only fixes actually represented by these resolved agent
               comments, PR comments, and tests. Do not use tools, edit files, or
               call GitHub. Return the normal structured response plus
-              pull_request with a concise title and Markdown body.
+              pull_request with a short plain title (no prefixes like "fix:")
+              and a body that is a short intro sentence plus a simple bullet
+              list of changes, no headings, no mention of automation, agents,
+              or workflows. Style for title and body: {{ consts.REVIEWER_VOICE }}
               Fixed agent comments: {{ steps.summarize_fixed_items.output.fixed_agent_comments | json }}.
               Fixed PR comments: {{ steps.build_pr_comment_actions.output.fixed_comments | json }}.
               Fixed tests: {{ steps.summarize_fixed_items.output.fixed_tests | json }}.

@@ -47,9 +47,10 @@ def run_claude_agent(environment=None):
         prompt = 'Previous workflow phase summary:\n' + run_summary + '\n\n' + prompt
     prompt += (
         '\n\nReturn the requested structured result. '
-        'Format `response`, `run_summary`, and any `pull_request.body` as '
+        'Format `response` and `run_summary` as '
         'GitHub-flavored Markdown: use headings, bullet lists, and inline code '
         'for paths and identifiers; never return a single unstructured paragraph. '
+        'Any `pull_request.body` is GitHub-flavored Markdown in the style the request asks for. '
         '`run_summary` must be a concise durable handoff with `### Decisions`, '
         '`### Findings`, `### Files changed`, `### Unresolved`, and '
         '`### Next actions` sections (write "None" for empty ones). '

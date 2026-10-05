@@ -53,6 +53,18 @@ settings:
 
 consts:
   REVIEW_PROJECT: kibana-review
+  REVIEWER_VOICE: >-
+    Write every GitHub-visible text as a senior software engineer with about
+    10 years of experience whose English is upper-intermediate: short, direct,
+    plain sentences, natural and a bit informal, small non-native phrasing is
+    fine. It must read like a normal human teammate wrote it. Never sound like
+    AI: no headings, no bold labels, no severity tags, no emojis, no em dashes,
+    no "Great job", "I noticed that", "It's worth noting", "Consider",
+    "Overall", no summaries of what the code does, no lists of praise. Ask a
+    question when unsure ("Can this be null here?"). Point to the concrete
+    problem and how to fix it; add a small code snippet or a GitHub
+    ```suggestion``` block only when it really helps. One or two sentences is
+    usually enough. Start minor style remarks with "nit:".
   UPSTREAM_KIBANA_REPO: https://github.com/elastic/kibana.git
   MAX_PRODUCTION_FILES: 150
   MAX_DIFF_CHARS: 200000
@@ -226,7 +238,7 @@ steps:
           inputs:
             cwd: '{{ steps.checkout_project.output.source_dir }}'
             disallow_shell: true
-            idempotency_key: 'external-review-v1:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.merge_base }}:{{ steps.prepare_review.output.production_diff_sha256 }}'
+            idempotency_key: 'external-review-v2:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.merge_base }}:{{ steps.prepare_review.output.production_diff_sha256 }}'
             prompt: >-
               Review someone else's pull request
               {{ steps.detect_target.output.owner }}/{{ steps.detect_target.output.repo }}#{{ steps.detect_target.output.number }}.
@@ -247,12 +259,16 @@ steps:
               are {{ steps.prepare_review.output.production_files | json }}.
               Apply this rubric: {{ consts.SEVERITY_RUBRIC }}. Report findings at
               every severity. Do not edit files. Return JSON with response (a
-              short overall assessment), run_summary, findings, and changes.
-              Each finding must contain severity, comment, file, line, and
-              evidence. comment is addressed to the PR author: state the
-              problem, why it matters, and a concrete suggestion. line is the
-              line number in the head version of the file and should point at
-              an added or modified line when possible.
+              short overall assessment for the workflow operator), run_summary,
+              findings, and changes. Each finding must contain severity,
+              comment, file, line, and evidence. comment is posted as-is to the
+              PR author, so it must follow this style: {{ consts.REVIEWER_VOICE }}
+              Keep evidence separate; it is only shown to the operator. line is
+              the line number in the head version of the file and should point
+              at an added or modified line when possible. Also add exactly one
+              finding with kind `review_body` whose comment is the short
+              top-level review message (one to three sentences, same style, no
+              summary of the PR, empty string if nothing to add).
 
       - name: save_review
         type: data.set

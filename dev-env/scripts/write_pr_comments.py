@@ -84,9 +84,8 @@ def write_pr_comments(environment=None):
             for item in fresh_comments
         )
         if not existing_reply:
-            body = (fix.get('reply') or ('Fixed in commit ' + commit_sha + '.')).strip()
-            if fix_pr_url:
-                body += '\n\nMerged in follow-up PR: ' + fix_pr_url
+            body = (fix.get('reply') or 'Fixed.').strip()
+            body += f'\n\nFix: {fix_pr_url}' if fix_pr_url else f' ({commit_sha[:10]})'
             body += '\n\n' + marker
             gh_api(
                 '--method', 'POST', f'repos/{owner}/{repo}/pulls/{number}/comments',

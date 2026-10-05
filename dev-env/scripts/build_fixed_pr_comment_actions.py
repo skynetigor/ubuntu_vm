@@ -13,6 +13,11 @@ def build_fixed_pr_comment_actions(environment=None):
         for result in fix_results
         if isinstance(result, dict) and result.get('status') in {'fixed', 'already_fixed'}
     }
+    replies = {
+        str(result.get('comment_id')): str(result.get('reply') or '').strip()
+        for result in fix_results
+        if isinstance(result, dict) and result.get('comment_id')
+    }
     fixed_comments = list(fixed_locally) + [
         comment for comment in to_fix if str(comment.get('comment_id')) in reported_fixed_ids
     ]
@@ -29,7 +34,7 @@ def build_fixed_pr_comment_actions(environment=None):
         actions.append({
             'comment_id': comment_id,
             'fixed': True,
-            'reply': 'Addressed by the validated changes in this workflow run.',
+            'reply': replies.get(comment_id) or 'Fixed.',
         })
     return {
         'fixes': actions,

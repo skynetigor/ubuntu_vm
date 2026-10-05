@@ -28,10 +28,10 @@ def commentable_lines(merge_base, head_commit, path):
 
 
 def format_finding(finding):
-    text = f"**{finding['severity'].upper()}**: {finding['comment']}"
-    if finding.get('evidence'):
-        text += f"\n\n<details><summary>Evidence</summary>\n\n{finding['evidence']}\n\n</details>"
-    return text
+    comment = finding['comment']
+    if finding['severity'] == 'nit' and not comment.lower().startswith('nit'):
+        comment = 'nit: ' + comment
+    return comment
 
 
 def build_pr_review(environment=None):
@@ -48,7 +48,11 @@ def build_pr_review(environment=None):
     marker = f'<!-- kibana-agent-review:{head_commit} -->'
 
     normalized = []
+    review_note = ''
     for finding in findings:
+        if isinstance(finding, dict) and finding.get('kind') == 'review_body':
+            review_note = str(finding.get('comment') or '').strip()
+            continue
         if not isinstance(finding, dict) or not finding.get('comment'):
             continue
         severity = str(finding.get('severity', 'low')).lower()
@@ -89,16 +93,19 @@ def build_pr_review(environment=None):
         counts[finding['severity']] += 1
     count_text = ', '.join(f'{count} {severity}' for severity, count in counts.items() if count)
 
-    body_parts = [f'### Automated review\n\n{count_text or "No findings"}.']
+    body_parts = [review_note] if review_note else []
     if general_findings:
-        body_parts.append('#### Findings outside changed lines')
+        if inline_comments or review_note:
+            body_parts.append('A few more things not tied to the changed lines:')
         for finding in general_findings:
-            location = f"`{finding['file']}`" + (f":{finding['line']}" if finding['line'] else '') if finding['file'] else 'General'
-            body_parts.append(f'- {location} — {format_finding(finding)}')
+            location = f"`{finding['file']}`" + (f" (L{finding['line']})" if finding['line'] else '') if finding['file'] else ''
+            body_parts.append(f"- {location + ': ' if location else ''}{format_finding(finding)}")
     body_parts.append(marker)
 
     preview = [f'**{len(publishable)} findings to publish** ({count_text or "none"}); '
                f'{len(inline_comments)} inline, {len(general_findings)} in the review body.']
+    if review_note:
+        preview.append(f'\nReview note: {review_note}\n')
     for finding in publishable:
         location = f"{finding['file']}:{finding['line'] or '-'}" if finding['file'] else 'general'
         preview.append(f"- **{finding['severity']}** `{location}` — {finding['comment']}")
