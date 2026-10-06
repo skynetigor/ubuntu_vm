@@ -213,9 +213,9 @@ steps:
             slack_api:
               connector-id: slack-bot
               channels:
-                - C0BDEQKS0N4 # #test-channel
+                - '#ihor-pr-fixes'
           message: |
-            {% if steps.format_slack_approval.output.message %}{{ steps.format_slack_approval.output.message }}{% else %}## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
+            {% if steps.format_slack_approval.output.message %}{{ steps.format_slack_approval.output.message }}{% else %}<@{{ consts.SLACK_USER_ID }}> ## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
 
             **Fix PR:** {{ variables.fix_pr_url }}
             **Branch:** `{{ variables.publish_result.fix_branch }}` into `{{ variables.publish_result.base_branch }}`

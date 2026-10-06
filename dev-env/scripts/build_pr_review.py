@@ -72,7 +72,11 @@ def build_pr_review(environment=None):
 
     normalized = []
     review_note = ''
+    pr_summary = ''
     for finding in findings:
+        if isinstance(finding, dict) and finding.get('kind') == 'pr_summary':
+            pr_summary = str(finding.get('comment') or '').strip()
+            continue
         if isinstance(finding, dict) and finding.get('kind') == 'review_body':
             review_note = str(finding.get('comment') or '').strip()
             continue
@@ -143,6 +147,8 @@ def build_pr_review(environment=None):
         for finding in general_findings:
             location = f"`{finding['file']}`" + (f" (L{finding['line']})" if finding['line'] else '') if finding['file'] else ''
             body_parts.append(f"- {location + ': ' if location else ''}{format_finding(finding)}")
+    if event == 'APPROVE' and not publishable and not review_note:
+        body_parts.append('Looks good to me. I went through the production changes and did not find anything to change.')
     body_parts.append(marker)
 
     preview = [f'**Verdict: {event}** ({blocking_count} critical/high findings).',
@@ -165,6 +171,7 @@ def build_pr_review(environment=None):
         'event': event,
         'blocking_count': blocking_count,
         'marker': marker,
+        'pr_summary': pr_summary,
         'publishable_count': len(publishable),
         'inline_count': len(inline_comments),
         'general_findings': general_findings,

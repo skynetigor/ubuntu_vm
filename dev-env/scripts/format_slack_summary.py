@@ -115,9 +115,12 @@ def format_slack_summary(environment=None):
     }
     needs_work = environment.get('NEEDS_WORK', '').lower() == 'true' or open_total > 0
     headline = ':warning: Needs work' if needs_work else ':white_check_mark: Clean'
+    user_id = environment.get('SLACK_USER_ID', '').strip()
+    # Only a run that left work behind needs an action from the reviewer, so only then is the reviewer pinged.
+    mention = f'<@{user_id}> ' if needs_work and re.fullmatch(r'[UW][A-Z0-9]+', user_id) else ''
 
     lines = [
-        f"*Review and fix finished* for {link(pr_url, pr_label)} - {headline}",
+        f"{mention}*Review and fix finished* for {link(pr_url, pr_label)} - {headline}",
         f"{link(execution_url, 'Open the execution')}"
         f" | rounds: {escape(environment.get('ROUNDS', '?'))}"
         f" | test rounds: {escape(environment.get('TEST_ROUNDS', '?'))}",

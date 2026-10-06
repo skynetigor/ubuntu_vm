@@ -73,6 +73,7 @@ def fetch_issue_candidates(environment=None):
       repository(owner:$owner, name:$name) {
         pullRequest(number:$number) {
           title body url headRefName
+          author { login }
           closingIssuesReferences(first:20) {
             nodes { number title url state repository { nameWithOwner } }
           }
@@ -91,6 +92,7 @@ def fetch_issue_candidates(environment=None):
         'body': (pull.get('body') or '')[:max_chars],
         'url': pull.get('url', ''),
         'head_ref': pull.get('headRefName', ''),
+        'author': (pull.get('author') or {}).get('login', ''),
     }
     # GitHub returns null nodes for linked issues the token cannot read, e.g. in private repos.
     nodes = pull['closingIssuesReferences']['nodes']

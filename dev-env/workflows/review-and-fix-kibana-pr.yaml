@@ -38,6 +38,8 @@ settings:
 
 consts:
   PUBLIC_URL: https://wf.skynetapp.dev
+  # Slack member ID pinged when a run leaves work for the reviewer.
+  SLACK_USER_ID: U0C6Y3EQPBM
   LIGHT_AGENT_MODEL: sonnet
   FIX_GROUP_INSTRUCTIONS: >-
     Item kinds: review_finding is a code-review defect to fix. failing_tests
@@ -661,7 +663,7 @@ steps:
           test_fix_approval_status: '{{ steps.publish_test_fix_pr.output.approval_status }}'
           test_fix_merge_status: '{{ steps.publish_test_fix_pr.output.merge_status }}'
 
-  # Posts what this run did to #test-channel through the Slack bot; a Slack problem must not fail the run.
+  # Posts what this run did to #ihor-pr-fixes through the Slack bot; a Slack problem must not fail the run.
   - name: build_slack_summary
     type: ssh.python
     connector-id: dev-vm
@@ -671,6 +673,7 @@ steps:
     with:
       env:
         PUBLIC_URL: '{{ consts.PUBLIC_URL }}'
+        SLACK_USER_ID: '{{ consts.SLACK_USER_ID }}'
         EXECUTION_ID: '{{ execution.id }}'
         KIBANA_TARGET: '{{ inputs.kibana_target }}'
         DRY_RUN: '{{ inputs.dry_run }}'
@@ -715,7 +718,7 @@ steps:
       continue: true
     with:
       channelNames:
-        - '#test-channel'
+        - '#ihor-pr-fixes'
       text: '{{ steps.build_slack_summary.output.message }}'
 
   - name: output

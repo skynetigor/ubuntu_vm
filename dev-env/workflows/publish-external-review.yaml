@@ -1,0 +1,275 @@
+version: '1'
+name: Publish External Review
+description: >-
+  Takes the verified comments of an external PR review, mirrors the PR into a
+  preview PR in a fork with the comments on it, asks for approval in Slack with
+  real buttons, and posts the review on the original PR only when approved. In
+  clean mode there are no comments: it asks whether to approve the PR with a
+  short message.
+  Started by review-external-kibana-pr; runs without the shared checkout lock.
+enabled: true
+tags:
+  - kibana
+  - review
+  - automation
+
+triggers:
+  - type: manual
+    inputs:
+      additionalProperties: false
+      required:
+        - pr
+        - pr_url
+        - head_commit
+        - merge_base
+        - review
+        - marker
+      properties:
+        pr:
+          type: object
+          description: Target from detect_target (owner, repo, number).
+        pr_url:
+          type: string
+        mode:
+          type: string
+          default: comments
+          enum:
+            - comments
+            - clean
+          description: >-
+            comments previews and publishes the review comments; clean asks whether to approve a PR
+            the review found nothing in (no preview PR).
+        pr_title:
+          type: string
+          default: ''
+        pr_author:
+          type: string
+          default: ''
+        pr_summary:
+          type: string
+          default: ''
+          description: Short description of what the PR does, from the review agent.
+        head_commit:
+          type: string
+        merge_base:
+          type: string
+        review:
+          type: object
+          description: Review payload from build_pr_review (commit_id, event, body, comments).
+        event:
+          type: string
+          default: COMMENT
+        marker:
+          type: string
+          description: Hidden marker that makes publishing idempotent for this commit.
+        findings:
+          type: array
+          default: []
+          description: Publishable findings, listed in the Slack message.
+        dropped_count:
+          type: integer
+          default: 0
+        parent_workflow_id:
+          type: string
+          default: ''
+        parent_execution_id:
+          type: string
+          default: ''
+
+# Nothing here touches the checkout, so no concurrency key: many reviews can wait for approval at once.
+settings:
+  timeout: 73h
+
+consts:
+  PREVIEW_REPOSITORY: skynetigor/kibana
+  PUBLIC_URL: https://wf.skynetapp.dev
+  # Slack member ID of the reviewer to ping; the channel is #ihor-reviews.
+  SLACK_USER_ID: U0C6Y3EQPBM
+
+steps:
+  - name: initialize_state
+    type: data.set
+    with:
+      approval_status: not_requested
+      approved_by: ''
+      publish_status: not_published
+      publish_result: {}
+      preview_pr_url: ''
+      preview_pr_number: ''
+      preview_base_ref: ''
+      preview_head_ref: ''
+
+  # The preview PR lets the comments be read in GitHub before anything is posted upstream.
+  - name: preview_when_comments
+    type: if
+    condition: "${{ inputs.mode == 'comments' }}"
+    steps:
+      - name: create_preview
+        type: ssh.python
+        connector-id: dev-vm
+        timeout: 3m
+        on-failure:
+          continue: true
+        with:
+          env:
+            PR_JSON: '{{ inputs.pr | json }}'
+            PR_URL: '{{ inputs.pr_url }}'
+            PR_TITLE: '{{ inputs.pr_title }}'
+            REVIEW_JSON: '{{ inputs.review | json }}'
+            MERGE_BASE: '{{ inputs.merge_base }}'
+            HEAD_COMMIT: '{{ inputs.head_commit }}'
+            PREVIEW_REPOSITORY: '{{ consts.PREVIEW_REPOSITORY }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from review_preview_pr import create_review_preview
+            return create_review_preview()
+
+      - name: save_preview
+        type: data.set
+        with:
+          preview_pr_url: '{{ steps.create_preview.output.preview_pr_url }}'
+          preview_pr_number: '{{ steps.create_preview.output.preview_pr_number }}'
+          preview_base_ref: '{{ steps.create_preview.output.base_ref }}'
+          preview_head_ref: '{{ steps.create_preview.output.head_ref }}'
+
+  - name: format_approval
+    type: ssh.python
+    connector-id: dev-vm
+    timeout: 1m
+    on-failure:
+      continue: true
+    with:
+      env:
+        MODE: "{% if inputs.mode == 'clean' %}clean_approval{% else %}approval{% endif %}"
+        APPROVAL_MESSAGE: '{{ inputs.review.body }}'
+        PR_JSON: '{{ inputs.pr | json }}'
+        PR_URL: '{{ inputs.pr_url }}'
+        PR_TITLE: '{{ inputs.pr_title }}'
+        PR_AUTHOR: '{{ inputs.pr_author }}'
+        PR_SUMMARY: '{{ inputs.pr_summary }}'
+        FINDINGS_JSON: '{{ inputs.findings | json }}'
+        EVENT: '{{ inputs.event }}'
+        DROPPED_COUNT: '{{ inputs.dropped_count }}'
+        PREVIEW_PR_URL: '{{ variables.preview_pr_url }}'
+        EXECUTION_URL: '{{ consts.PUBLIC_URL }}/app/workflows/publish-external-review?executionId={{ execution.id }}'
+        SLACK_USER_ID: '{{ consts.SLACK_USER_ID }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from format_external_review_slack import format_external_review_slack
+        return format_external_review_slack()
+
+  # Real Merge/Reject style buttons come from the Slack bot channel. A timeout continues so the run
+  # reports no_response; a Slack failure ends the step the same way and nothing is posted.
+  - name: approve_review
+    type: waitForApproval
+    timeout: 72h
+    on-failure:
+      continue: true
+    with:
+      approveLabel: "{% if inputs.mode == 'clean' %}Approve PR{% else %}Publish review{% endif %}"
+      rejectLabel: "{% if inputs.mode == 'clean' %}Skip{% else %}Discard{% endif %}"
+      channels:
+        slack_api:
+          connector-id: slack-bot
+          channels:
+            - '#ihor-reviews'
+      message: |
+        {% if steps.format_approval.output.message %}{{ steps.format_approval.output.message }}{% else %}<@{{ consts.SLACK_USER_ID }}> Review ready to publish for {{ inputs.pr_url }}. Check the comments before approving: {{ inputs.review.comments.size }} inline comments, verdict {{ inputs.event }}.{% endif %}
+
+  - name: save_approval
+    type: data.set
+    with:
+      approval_status: "{% if steps.approve_review.output.response.approved == true %}approved{% elsif steps.approve_review.output.response.approved == false %}rejected{% else %}no_response{% endif %}"
+      approved_by: '{{ steps.approve_review.output.respondedBy }}'
+      publish_status: "{% if steps.approve_review.output.response.approved == true %}approved{% elsif steps.approve_review.output.response.approved == false %}rejected{% else %}no_response{% endif %}"
+
+  - name: post_when_approved
+    type: if
+    condition: "${{ variables.approval_status == 'approved' }}"
+    steps:
+      - name: post_review
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          env:
+            PR_JSON: '{{ inputs.pr | json }}'
+            REVIEW_JSON: '{{ inputs.review | json }}'
+            MARKER: '{{ inputs.marker }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from publish_pr_review import publish_pr_review
+            return publish_pr_review()
+
+      - name: save_publish_result
+        type: data.set
+        with:
+          publish_status: '{{ steps.post_review.output.status }}'
+          publish_result: ${{ steps.post_review.output }}
+
+  # Always tidy up the fork: close the preview PR and delete its two branches.
+  - name: close_preview
+    type: if
+    condition: "${{ variables.preview_pr_number != '' }}"
+    steps:
+      - name: close_preview_pr
+        type: ssh.python
+        connector-id: dev-vm
+        timeout: 2m
+        on-failure:
+          continue: true
+        with:
+          env:
+            PREVIEW_REPOSITORY: '{{ consts.PREVIEW_REPOSITORY }}'
+            PREVIEW_PR_NUMBER: '{{ variables.preview_pr_number }}'
+            BASE_REF: '{{ variables.preview_base_ref }}'
+            HEAD_REF: '{{ variables.preview_head_ref }}'
+            OUTCOME: '{{ variables.publish_status }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from review_preview_pr import close_review_preview
+            return close_review_preview()
+
+  - name: format_outcome
+    type: ssh.python
+    connector-id: dev-vm
+    timeout: 1m
+    on-failure:
+      continue: true
+    with:
+      env:
+        MODE: outcome
+        KIND: '{{ inputs.mode }}'
+        OUTCOME: '{{ variables.publish_status }}'
+        REVIEW_URL: '{{ variables.publish_result.url }}'
+        PR_JSON: '{{ inputs.pr | json }}'
+        PR_URL: '{{ inputs.pr_url }}'
+        PR_TITLE: '{{ inputs.pr_title }}'
+        PR_AUTHOR: '{{ inputs.pr_author }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from format_external_review_slack import format_external_review_slack
+        return format_external_review_slack()
+
+  - name: post_outcome
+    type: slack_api.postMessage
+    connector-id: slack-bot
+    on-failure:
+      continue: true
+    with:
+      channelNames:
+        - '#ihor-reviews'
+      text: '{{ steps.format_outcome.output.message }}'
+
+  - name: output
+    type: workflow.output
+    with:
+      approval_status: '{{ variables.approval_status }}'
+      approved_by: '{{ variables.approved_by }}'
+      publish_status: '{{ variables.publish_status }}'
+      publish_result: ${{ variables.publish_result }}
+      preview_pr_url: '{{ variables.preview_pr_url }}'

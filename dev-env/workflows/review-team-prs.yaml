@@ -1,0 +1,138 @@
+version: '1'
+name: Review Team PRs
+description: >-
+  Every day, finds open non-draft Kibana pull requests from the one-workflow
+  team (elastic/workflows-eng), skips mine, and runs review-external-kibana-pr
+  on each one (dry_run false), one at a time. Comments are previewed in a PR in
+  my fork and published only after approval in Slack. PRs with no findings are
+  offered for approval in Slack with a short message, and approved on GitHub only after a click. A PR is skipped until its
+  head commit changes after its last review; use force to review again.
+enabled: true
+tags:
+  - kibana
+  - review
+  - automation
+  - scheduled
+
+triggers:
+  - type: scheduled
+    with:
+      every: 1d
+  - type: manual
+    inputs:
+      additionalProperties: false
+      properties:
+        base_branch:
+          type: string
+          default: main
+        max_prs:
+          type: integer
+          default: 10
+          minimum: 1
+          description: Most PRs reviewed per run, most recently updated first.
+        max_age_days:
+          type: integer
+          default: 30
+          minimum: 1
+          description: PRs not updated for this long are skipped.
+        force:
+          type: boolean
+          default: false
+          description: Review PRs again even if their head commit was already reviewed.
+        dry_run:
+          type: boolean
+          default: false
+          description: Passed to review-external-kibana-pr; the daily schedule always uses false.
+        approve_when_clean:
+          type: boolean
+          default: true
+          description: Ask in Slack whether to approve PRs, with a short message, when the review finds nothing.
+
+# A run still going when the next day starts makes that run a no-op.
+settings:
+  timeout: 24h
+  concurrency:
+    key: '{{ workflow.id }}'
+    strategy: drop
+    max: 1
+
+consts:
+  REPOSITORY: elastic/kibana
+  # Members of the GitHub team elastic/workflows-eng, which owns the workflows packages in CODEOWNERS.
+  TEAM_MEMBERS:
+    - dej611
+    - yngrdyn
+    - Kiryous
+    - h88
+    - shahargl
+    - semd
+    - skynetigor
+    - tinnytintin10
+    - rosomri
+    - talboren
+  # My own PRs are handled by review-and-fix-my-open-prs.
+  EXCLUDE_AUTHORS:
+    - skynetigor
+
+steps:
+  - name: list_team_prs
+    type: ssh.python
+    connector-id: dev-vm
+    timeout: 10m
+    with:
+      env:
+        REPOSITORY: '{{ consts.REPOSITORY }}'
+        AUTHORS_JSON: '{{ consts.TEAM_MEMBERS | json }}'
+        EXCLUDE_AUTHORS_JSON: '{{ consts.EXCLUDE_AUTHORS | json }}'
+        MAX_PRS: '{{ inputs.max_prs | default: 10 }}'
+        MAX_AGE_DAYS: '{{ inputs.max_age_days | default: 30 }}'
+        FORCE: '{{ inputs.force | default: false }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from list_team_prs import list_team_prs
+        return list_team_prs()
+
+  - name: review_each_pr
+    type: foreach
+    foreach: '${{ steps.list_team_prs.output.prs }}'
+    steps:
+      # The review run ends once the comments are handed to publish-external-review, so this loop does not
+      # wait for anyone to approve anything.
+      - name: review_external_pr
+        type: workflow.execute
+        on-failure:
+          continue: true
+        with:
+          workflow-id: review-external-kibana-pr
+          inputs:
+            pr_url: '{{ foreach.item.url }}'
+            base_branch: '{{ inputs.base_branch | default: "main" }}'
+            dry_run: "${{ inputs.dry_run | default: false }}"
+            approve_when_clean: "${{ inputs.approve_when_clean | default: true }}"
+
+      # Recorded even after a failure so a PR that cannot be reviewed is not retried every day; use force.
+      - name: record_pr
+        type: ssh.python
+        connector-id: dev-vm
+        timeout: 2m
+        with:
+          env:
+            REPOSITORY: '{{ consts.REPOSITORY }}'
+            PR_NUMBER: '{{ foreach.item.number }}'
+            HEAD_SHA: '{{ foreach.item.head_sha }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from list_team_prs import record_team_pr_reviewed
+            return record_team_pr_reviewed()
+
+  - name: output
+    type: workflow.output
+    with:
+      candidates: ${{ steps.list_team_prs.output.candidates }}
+      reviewed: ${{ steps.list_team_prs.output.prs }}
+      unchanged: ${{ steps.list_team_prs.output.unchanged }}
+      stale: ${{ steps.list_team_prs.output.stale }}
+      queued_for_merge: ${{ steps.list_team_prs.output.queued_for_merge }}
+      excluded_authors: ${{ steps.list_team_prs.output.excluded_authors }}
