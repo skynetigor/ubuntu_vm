@@ -61,7 +61,7 @@ consts:
   PUBLIC_URL: https://wf.skynetapp.dev
   SLACK_HANDLE: ihor.panasiuk
   # Slack member ID (profile > more > Copy member ID); a bare handle cannot ping through a webhook.
-  SLACK_USER_ID: U08T0GHGRPG
+  SLACK_USER_ID: U0C6Y3EQPBM
   LIGHT_AGENT_MODEL: sonnet
   REVIEWER_VOICE: >-
     Write every GitHub-visible text as a senior software engineer with about
