@@ -49,8 +49,20 @@ triggers:
         run_summary:
           type: string
           default: ''
+        parent_workflow_id:
+          type: string
+          default: ''
+          description: Workflow that started this one; linked from the Slack approval message.
+        parent_execution_id:
+          type: string
+          default: ''
 
 consts:
+  PUBLIC_URL: https://wf.skynetapp.dev
+  SLACK_CONNECTOR_ID: one-workflow-playground
+  SLACK_HANDLE: ihor.panasiuk
+  # Slack member ID (profile > more > Copy member ID); a bare handle cannot ping through a webhook.
+  SLACK_USER_ID: U08T0GHGRPG
   LIGHT_AGENT_MODEL: sonnet
   REVIEWER_VOICE: >-
     Write every GitHub-visible text as a senior software engineer with about
@@ -159,6 +171,43 @@ steps:
     type: if
     condition: "${{ variables.fix_pr_url != '' }}"
     steps:
+      - name: format_slack_approval
+        type: ssh.python
+        connector-id: dev-vm
+        timeout: 1m
+        on-failure:
+          continue: true
+        with:
+          env:
+            PR_CONTEXT_JSON: '{{ inputs.pr_context | json }}'
+            PUBLIC_URL: '{{ consts.PUBLIC_URL }}'
+            WORKFLOW_ID: '{{ workflow.id }}'
+            EXECUTION_ID: '{{ execution.id }}'
+            PARENT_WORKFLOW_ID: '{{ inputs.parent_workflow_id }}'
+            PARENT_EXECUTION_ID: '{{ inputs.parent_execution_id }}'
+            SLACK_USER_ID: '{{ consts.SLACK_USER_ID }}'
+            SLACK_HANDLE: '{{ consts.SLACK_HANDLE }}'
+            FIX_PR_URL: '{{ variables.fix_pr_url }}'
+            FIX_BRANCH: '{{ variables.publish_result.fix_branch }}'
+            BASE_BRANCH: '{{ variables.publish_result.base_branch }}'
+            COMMIT_SHA: '{{ variables.publish_result.commit_sha }}'
+            APPROVAL_NOTE: '{{ inputs.approval_note }}'
+            FIX_PR_BODY: '{{ variables.fix_pr_body | truncate: 8000 }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from format_slack_approval import format_slack_approval
+            return format_slack_approval()
+
+      # Slack trouble must not block the approval itself.
+      - name: notify_slack
+        type: slack
+        connector-id: '{{ consts.SLACK_CONNECTOR_ID }}'
+        on-failure:
+          continue: true
+        with:
+          message: '{{ steps.format_slack_approval.output.message }}'
+
       # A timeout continues so the run still reports no_response instead of failing.
       - name: approve_fix_pull_request
         type: waitForApproval

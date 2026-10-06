@@ -517,6 +517,8 @@ steps:
                 production_files: ${{ variables.current_production_files }}
                 changed_projects: ${{ variables.current_changed_projects }}
                 fix_branch_suffix: '{{ execution.id }}'
+                parent_workflow_id: review-and-fix-kibana-pr
+                parent_execution_id: '{{ execution.id }}'
                 run_summary: '{{ variables.run_summary }}'
                 approval_note: Approving squash-merges the fix PR, then replies to and resolves the fixed review comments on the original PR. Rejecting leaves the fix PR open and posts nothing.
                 draft_details: >-
@@ -640,6 +642,8 @@ steps:
             production_files: ${{ variables.current_production_files }}
             changed_projects: ${{ variables.current_changed_projects }}
             fix_branch_suffix: 'tests-{{ execution.id }}'
+            parent_workflow_id: review-and-fix-kibana-pr
+            parent_execution_id: '{{ execution.id }}'
             commit_message: Fix failing unit tests
             run_summary: '{{ variables.run_summary }}'
             approval_note: Approving squash-merges these unit test fixes into the original PR branch. Rejecting leaves the fix PR open.
