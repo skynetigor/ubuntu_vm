@@ -191,15 +191,22 @@ steps:
             BASE_BRANCH: '{{ variables.publish_result.base_branch }}'
             COMMIT_SHA: '{{ variables.publish_result.commit_sha }}'
             APPROVAL_NOTE: '{{ inputs.approval_note }}'
-            FIX_PR_BODY: '{{ variables.fix_pr_body | truncate: 6000 }}'
+            FIX_PR_BODY: '{{ variables.fix_pr_body | truncate: 8000 }}'
           code: |
             import sys
             sys.path.insert(0, '/etc/dev-env-scripts')
             from format_slack_approval import format_slack_approval
             return format_slack_approval()
 
-      # Slack gets this message plus public Approve and Reject links, so the approval can be given there
-      # or in Kibana, whichever answers first. If Slack fails the step ends as no_response and nothing merges.
+      # Slack trouble must not block the approval itself.
+      - name: notify_slack
+        type: slack
+        connector-id: drop-table-labs-test-channel
+        on-failure:
+          continue: true
+        with:
+          message: '{{ steps.format_slack_approval.output.message }}'
+
       # A timeout continues so the run still reports no_response instead of failing.
       - name: approve_fix_pull_request
         type: waitForApproval
@@ -209,17 +216,18 @@ steps:
         with:
           approveLabel: Merge fix PR
           rejectLabel: Reject
-          channels:
-            slack:
-              connector-id: drop-table-labs-test-channel
           message: |
-            {% if steps.format_slack_approval.output.message %}{{ steps.format_slack_approval.output.message }}{% else %}## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
+            ## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
 
             **Fix PR:** {{ variables.fix_pr_url }}
             **Branch:** `{{ variables.publish_result.fix_branch }}` into `{{ variables.publish_result.base_branch }}`
             **Commit:** `{{ variables.publish_result.commit_sha }}`
 
-            {{ inputs.approval_note }}{% endif %}
+            {{ inputs.approval_note }}
+
+            ---
+
+            {{ variables.fix_pr_body | truncate: 8000 }}
 
       - name: save_approval
         type: data.set
