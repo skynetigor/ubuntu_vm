@@ -213,7 +213,7 @@ steps:
             slack_api:
               connector-id: slack-bot
               channels:
-                - '#ihor-pr-fixes'
+                - C0C72LP1FBM # #ihor-pr-fixes
           message: |
             {% if steps.format_slack_approval.output.message %}{{ steps.format_slack_approval.output.message }}{% else %}<@{{ consts.SLACK_USER_ID }}> ## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
 

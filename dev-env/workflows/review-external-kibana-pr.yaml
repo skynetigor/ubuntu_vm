@@ -499,8 +499,8 @@ steps:
                 on-failure:
                   continue: true
                 with:
-                  channelNames:
-                    - '#ihor-reviews'
+                  channelIds:
+                    - C0C76UDRLJ2 # #ihor-reviews
                   text: '{{ steps.format_no_comments.output.message }}'
 
               - name: save_no_comments

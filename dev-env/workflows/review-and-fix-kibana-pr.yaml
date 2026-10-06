@@ -717,8 +717,8 @@ steps:
     on-failure:
       continue: true
     with:
-      channelNames:
-        - '#ihor-pr-fixes'
+      channelIds:
+        - C0C72LP1FBM # #ihor-pr-fixes
       text: '{{ steps.build_slack_summary.output.message }}'
 
   - name: output

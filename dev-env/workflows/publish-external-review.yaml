@@ -174,7 +174,7 @@ steps:
         slack_api:
           connector-id: slack-bot
           channels:
-            - '#ihor-reviews'
+            - C0C76UDRLJ2 # #ihor-reviews
       message: |
         {% if steps.format_approval.output.message %}{{ steps.format_approval.output.message }}{% else %}<@{{ consts.SLACK_USER_ID }}> Review ready to publish for {{ inputs.pr_url }}. Check the comments before approving: {{ inputs.review.comments.size }} inline comments, verdict {{ inputs.event }}.{% endif %}
 
@@ -261,8 +261,8 @@ steps:
     on-failure:
       continue: true
     with:
-      channelNames:
-        - '#ihor-reviews'
+      channelIds:
+        - C0C76UDRLJ2 # #ihor-reviews
       text: '{{ steps.format_outcome.output.message }}'
 
   - name: output
