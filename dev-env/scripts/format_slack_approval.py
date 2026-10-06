@@ -82,7 +82,6 @@ def format_slack_approval(environment=None):
     mention = f'<@{user_id}>' if re.fullmatch(r'[UW][A-Z0-9]+', user_id) else (f'@{handle}' if handle else '')
 
     note = escape(environment.get('APPROVAL_NOTE', '').strip())
-    body = github_markdown_to_slack(environment.get('FIX_PR_BODY', '')[:6000])
     parts = [
         f"{mention} Approval needed to merge the fix PR for {link(pr_url, pr_label)}.".strip(),
         '',
@@ -95,5 +94,17 @@ def format_slack_approval(environment=None):
     ]
     if parent_url:
         parts.append(f"*Main workflow ({parent_workflow}):* {link(parent_url, 'open the review-and-fix execution')}")
-    parts += ['', note, '', '---', '', body]
-    return {'message': '\n'.join(parts).strip(), 'execution_url': execution_url}
+    parts += ['', note, '', '---', '']
+    header = '\n'.join(parts)
+
+    # Slack section blocks hold at most 3000 characters, so the PR body gets the remaining room.
+    max_chars = int(environment.get('MAX_MESSAGE_CHARS') or 2900)
+    budget = max_chars - len(header) - len('\n...(see the fix PR for the rest)')
+    body = github_markdown_to_slack(environment.get('FIX_PR_BODY', ''))
+    if len(body) > budget:
+        body = body[:max(budget, 0)].rsplit('\n', 1)[0] if budget > 0 else ''
+        if body.count('```') % 2:
+            body += '\n```'
+        body += '\n...(see the fix PR for the rest)'
+    message = (header + body).strip()
+    return {'message': message, 'execution_url': execution_url}

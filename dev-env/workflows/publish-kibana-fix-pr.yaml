@@ -198,15 +198,8 @@ steps:
             from format_slack_approval import format_slack_approval
             return format_slack_approval()
 
-      # Slack trouble must not block the approval itself.
-      - name: notify_slack
-        type: slack
-        connector-id: drop-table-labs-test-channel
-        on-failure:
-          continue: true
-        with:
-          message: '{{ steps.format_slack_approval.output.message }}'
-
+      # The Slack bot posts this message with real Merge fix PR / Reject buttons (Block Kit). Kibana can also
+      # approve it; whichever answers first wins. If Slack fails the step ends as no_response and nothing merges.
       # A timeout continues so the run still reports no_response instead of failing.
       - name: approve_fix_pull_request
         type: waitForApproval
@@ -216,8 +209,13 @@ steps:
         with:
           approveLabel: Merge fix PR
           rejectLabel: Reject
+          channels:
+            slack_api:
+              connector-id: slack-bot
+              channels:
+                - C0BDEQKS0N4 # #test-channel
           message: |
-            ## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
+            {% if steps.format_slack_approval.output.message %}{{ steps.format_slack_approval.output.message }}{% else %}## Review fixes for {{ inputs.pr_context.owner }}/{{ inputs.pr_context.repo }}#{{ inputs.pr_context.number }}
 
             **Fix PR:** {{ variables.fix_pr_url }}
             **Branch:** `{{ variables.publish_result.fix_branch }}` into `{{ variables.publish_result.base_branch }}`
@@ -227,7 +225,7 @@ steps:
 
             ---
 
-            {{ variables.fix_pr_body | truncate: 8000 }}
+            {{ variables.fix_pr_body | truncate: 1200 }}{% endif %}
 
       - name: save_approval
         type: data.set
