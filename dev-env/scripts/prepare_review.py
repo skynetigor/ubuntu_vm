@@ -250,7 +250,8 @@ def prepare_review(environment=None, cwd=None):
 
     production_files = sorted(set(production_files))
     max_files = int(environment['MAX_FILES'])
-    if len(production_files) > max_files:
+    allow_partial = environment.get('ALLOW_PARTIAL_DIFF', '').lower() == 'true'
+    if len(production_files) > max_files and not allow_partial:
         raise RuntimeError(
             f'{len(production_files)} production files exceed the configured limit '
             f'of {max_files}; reduce the review scope or raise the limit.'
@@ -261,30 +262,58 @@ def prepare_review(environment=None, cwd=None):
         git('diff', '--stat', *diff_range, '--', *tracked_production_files)
         if tracked_production_files else ''
     )
-    diff_text = (
-        git(
-            'diff', '--no-ext-diff', '--unified=60',
-            *diff_range, '--', *tracked_production_files,
-        )
-        if tracked_production_files else ''
-    )
-    untracked_diffs = []
-    for path in sorted(set(production_files) & set(untracked)):
-        completed = subprocess.run(
-            ['git', 'diff', '--no-index', '--no-ext-diff', '--unified=60', '--', '/dev/null', path],
-            cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=300,
-        )
-        if completed.returncode not in {0, 1}:
-            raise RuntimeError(completed.stderr[-4000:] or f'Unable to diff untracked file: {path}')
-        untracked_diffs.append(completed.stdout)
-    diff_text += ''.join(untracked_diffs)
     max_diff_chars = int(environment['MAX_DIFF_CHARS'])
-    if len(diff_text) > max_diff_chars:
-        raise RuntimeError(
-            f'Production diff is {len(diff_text)} characters, above the hard limit '
-            f'of {max_diff_chars}; reduce the review scope or raise the limit.'
+
+    def build_diff(context_lines):
+        text = (
+            git(
+                'diff', '--no-ext-diff', f'--unified={context_lines}',
+                *diff_range, '--', *tracked_production_files,
+            )
+            if tracked_production_files else ''
         )
+        for path in sorted(set(production_files) & set(untracked)):
+            completed = subprocess.run(
+                ['git', 'diff', '--no-index', '--no-ext-diff', f'--unified={context_lines}',
+                 '--', '/dev/null', path],
+                cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=300,
+            )
+            if completed.returncode not in {0, 1}:
+                raise RuntimeError(completed.stderr[-4000:] or f'Unable to diff untracked file: {path}')
+            text += completed.stdout
+        return text
+
+    # Large PRs get less surrounding context before any file is left out.
+    for context_lines in (60, 20, 10, 3):
+        diff_text = build_diff(context_lines)
+        if len(diff_text) <= max_diff_chars:
+            break
+        log(f'diff with {context_lines} context lines is {len(diff_text)} characters, over {max_diff_chars}')
+
+    skipped_diff_files = []
+    if len(diff_text) > max_diff_chars or (allow_partial and len(production_files) > max_files):
+        if not allow_partial:
+            raise RuntimeError(
+                f'Production diff is {len(diff_text)} characters even with minimal context, above the '
+                f'hard limit of {max_diff_chars}; reduce the review scope or raise the limit.'
+            )
+        # Keep as many files as fit, smallest first, so the most files get reviewed.
+        parts = re.split(r'(?m)^(?=diff --git )', diff_text)
+        file_diffs = []
+        for part in parts:
+            match = re.match(r'diff --git a/(.+?) b/', part)
+            if match:
+                file_diffs.append((match.group(1), part))
+        kept, used = set(), 0
+        for path, part in sorted(file_diffs, key=lambda item: len(item[1])):
+            if used + len(part) > max_diff_chars or len(kept) >= max_files:
+                continue
+            kept.add(path)
+            used += len(part)
+        skipped_diff_files = sorted({path for path, _ in file_diffs} - kept)
+        diff_text = ''.join(part for path, part in file_diffs if path in kept)
+        log(f'partial diff: {len(kept)} files kept, {len(skipped_diff_files)} skipped, {len(diff_text)} characters')
 
     production_diff_artifact = tempfile.NamedTemporaryFile(
         mode='w', prefix='kbn-review-production-diff-', suffix='.patch',
@@ -365,6 +394,8 @@ def prepare_review(environment=None, cwd=None):
         'changed_files_path': changed_files_artifact.name,
         'production_diff_path': production_diff_artifact.name,
         'production_diff_chars': len(diff_text),
+        'diff_context_lines': context_lines,
+        'diff_skipped_files': skipped_diff_files,
         'production_diff_sha256': hashlib.sha256(diff_text.encode('utf-8')).hexdigest(),
         'changed_projects': changed_projects,
         'production_files': production_files,

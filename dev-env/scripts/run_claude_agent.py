@@ -111,6 +111,7 @@ def run_claude_agent(environment=None):
 
     threading.Thread(target=read_output, daemon=True).start()
     result = None
+    plain_lines = []
     deadline = time.monotonic() + timeout_seconds
 
     def terminate_process_group():
@@ -146,6 +147,7 @@ def run_claude_agent(environment=None):
             event = json.loads(line)
         except json.JSONDecodeError:
             print(line.rstrip(), flush=True)
+            plain_lines.append(line.rstrip())
             continue
 
         if event.get('type') == 'assistant':
@@ -162,7 +164,13 @@ def run_claude_agent(environment=None):
         terminate_process_group()
         raise RuntimeError(f'Claude CLI timed out after {timeout_seconds} seconds') from error
     if exit_code != 0:
-        raise RuntimeError('Claude CLI exited with status ' + str(exit_code))
+        output_tail = '\n'.join(plain_lines)[-1500:]
+        # Sessions live in the VM's home directory and are lost when it is recreated or when a
+        # cached response replays an old id; the run summary already carries the context.
+        if session_id and 'No conversation found' in output_tail:
+            print('Claude: session ' + session_id + ' not found, starting a new session', flush=True)
+            return run_claude_agent({**environment, 'CLAUDE_SESSION_ID': ''})
+        raise RuntimeError('Claude CLI exited with status ' + str(exit_code) + (': ' + output_tail if output_tail else ''))
     if result is None:
         raise RuntimeError('Claude CLI did not return a result event')
 

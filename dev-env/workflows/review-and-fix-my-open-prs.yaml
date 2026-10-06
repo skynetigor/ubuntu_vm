@@ -1,0 +1,110 @@
+version: '1'
+name: Review and Fix My Open PRs
+description: >-
+  Every hour, finds open non-draft pull requests authored by the GitHub token's
+  user and runs review-and-fix-kibana-pr (dry_run false) on each one, one at a
+  time. A PR is skipped until its head commit changes after its last run; use
+  force to review everything again.
+enabled: true
+tags:
+  - kibana
+  - review
+  - automation
+  - scheduled
+
+triggers:
+  - type: scheduled
+    with:
+      every: 1h
+  - type: manual
+    inputs:
+      additionalProperties: false
+      properties:
+        repository:
+          type: string
+          default: elastic/kibana
+        author:
+          type: string
+          description: GitHub login whose PRs are processed; empty means the token's user.
+          default: ''
+        base_branch:
+          type: string
+          default: main
+        max_prs:
+          type: integer
+          default: 10
+          minimum: 1
+        force:
+          type: boolean
+          description: Review PRs again even if their head commit was already processed.
+          default: false
+        dry_run:
+          type: boolean
+          description: Passed to review-and-fix-kibana-pr; the hourly schedule always uses false.
+          default: false
+
+# A sweep still running when the next hour starts makes that run a no-op.
+settings:
+  timeout: 24h
+  concurrency:
+    key: '{{ workflow.id }}'
+    strategy: drop
+    max: 1
+
+consts:
+  DEFAULT_REPOSITORY: elastic/kibana
+
+steps:
+  - name: list_my_open_prs
+    type: ssh.python
+    connector-id: dev-vm
+    timeout: 5m
+    with:
+      env:
+        REPOSITORY: "{{ inputs.repository | default: consts.DEFAULT_REPOSITORY }}"
+        AUTHOR: '{{ inputs.author | default: "" }}'
+        MAX_PRS: '{{ inputs.max_prs | default: 10 }}'
+        FORCE: '{{ inputs.force | default: false }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from my_open_prs import list_my_open_prs
+        return list_my_open_prs()
+
+  - name: review_each_pr
+    type: foreach
+    foreach: '${{ steps.list_my_open_prs.output.prs }}'
+    steps:
+      - name: review_and_fix_pr
+        type: workflow.execute
+        on-failure:
+          continue: true
+        with:
+          workflow-id: review-and-fix-kibana-pr
+          inputs:
+            kibana_target: '{{ foreach.item.url }}'
+            base_branch: '{{ inputs.base_branch | default: "main" }}'
+            dry_run: "${{ inputs.dry_run | default: false }}"
+
+      # Recorded even after a failure so a broken PR is not retried every hour; use force to retry.
+      - name: record_pr
+        type: ssh.python
+        connector-id: dev-vm
+        timeout: 2m
+        with:
+          env:
+            REPOSITORY: "{{ inputs.repository | default: consts.DEFAULT_REPOSITORY }}"
+            PR_NUMBER: '{{ foreach.item.number }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from my_open_prs import record_swept_pr
+            return record_swept_pr()
+
+  - name: output
+    type: workflow.output
+    with:
+      author: '{{ steps.list_my_open_prs.output.author }}'
+      total_open: ${{ steps.list_my_open_prs.output.total_open }}
+      reviewed: ${{ steps.list_my_open_prs.output.prs }}
+      skipped: ${{ steps.list_my_open_prs.output.skipped }}

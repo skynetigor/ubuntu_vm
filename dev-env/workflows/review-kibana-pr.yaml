@@ -103,8 +103,8 @@ settings:
 consts:
   REVIEW_PROJECT: kibana-review
   UPSTREAM_KIBANA_REPO: https://github.com/elastic/kibana.git
-  MAX_PRODUCTION_FILES: 100
-  MAX_DIFF_CHARS: 160000
+  MAX_PRODUCTION_FILES: 250
+  MAX_DIFF_CHARS: 300000
   MAX_AGENT_DIAGNOSTIC_CHARS: 12000
   PRODUCTION_FILE_INCLUDE_GLOBS:
     - '**/*.ts'
@@ -207,6 +207,7 @@ steps:
         EXCLUDE_GLOBS: '{{ consts.PRODUCTION_FILE_EXCLUDE_GLOBS | json }}'
         MAX_FILES: '{{ consts.MAX_PRODUCTION_FILES }}'
         MAX_DIFF_CHARS: '{{ consts.MAX_DIFF_CHARS }}'
+        ALLOW_PARTIAL_DIFF: 'true'
         KNOWN_MERGE_BASE: '{{ inputs.known_merge_base }}'
         DELTA_BASE: "{% if inputs.mode == 'delta' %}{{ inputs.delta_base }}{% endif %}"
         PREVIOUS_FAILED_PROJECT_IDS: '{{ inputs.previous_failed_project_ids | json }}'
@@ -243,7 +244,7 @@ steps:
               inputs:
                 cwd: '{{ variables.checkout.source_dir }}'
                 disallow_shell: true
-                idempotency_key: "{% if inputs.mode == 'delta' %}review-delta-v1:{{ steps.prepare_review.output.delta_diff_sha256 }}:{{ inputs.previous_findings | json | sha256 }}{% else %}review-code-v1:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.base_commit }}:{{ steps.prepare_review.output.production_diff_sha256 }}{% endif %}"
+                idempotency_key: "{% if inputs.mode == 'delta' %}review-delta-v2:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.merge_base }}:{{ steps.prepare_review.output.delta_diff_sha256 }}:{{ inputs.previous_findings | json | sha256 }}{% else %}review-code-v1:{{ steps.prepare_review.output.head_commit }}:{{ steps.prepare_review.output.base_commit }}:{{ steps.prepare_review.output.production_diff_sha256 }}{% endif %}"
                 run_summary: '{{ variables.run_summary }}'
                 prompt: >-
                   {% if inputs.mode == 'delta' %}
@@ -276,6 +277,12 @@ steps:
                   the production diff stored at
                   `{{ steps.prepare_review.output.production_diff_path }}` ({{ steps.prepare_review.output.production_diff_chars }} characters).
                   Read that patch file with your file-reading tool; do not use shell.
+                  {% if steps.prepare_review.output.diff_skipped_files.size > 0 %}
+                  The patch is too large to include in full, so these production files
+                  were left out of it and are not to be reviewed:
+                  {{ steps.prepare_review.output.diff_skipped_files | json }}. Say in
+                  run_summary that they were not reviewed.
+                  {% endif %}
                   Apply this rubric: {{ consts.SEVERITY_RUBRIC }}. Report findings at
                   every severity, not only fixable severities. Do not edit files. Return
                   JSON with response, run_summary, findings, and changes. Each finding
@@ -354,6 +361,7 @@ steps:
       merge_base: '{{ steps.prepare_review.output.merge_base }}'
       production_diff_path: '{{ steps.prepare_review.output.production_diff_path }}'
       production_files: ${{ steps.prepare_review.output.production_files }}
+      diff_skipped_files: ${{ steps.prepare_review.output.diff_skipped_files }}
       changed_files: ${{ steps.prepare_review.output.changed_files }}
       changed_projects: ${{ steps.prepare_review.output.changed_projects }}
       lint_projects: ${{ steps.prepare_review.output.lint_projects }}
