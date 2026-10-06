@@ -24,6 +24,34 @@ def github(environment, path):
         return json.load(response)
 
 
+def github_graphql(environment, query):
+    token = environment.get('GH_TOKEN', '').strip()
+    request = urllib.request.Request(
+        'https://api.github.com/graphql',
+        data=json.dumps({'query': query}).encode('utf-8'),
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'kibana-pr-sweep-workflow',
+        },
+    )
+    with urllib.request.urlopen(request, timeout=90) as response:
+        return json.load(response)
+
+
+def is_queued_for_merge(environment, repository, number, pull):
+    """True when auto-merge is enabled or the PR sits in the GitHub merge queue."""
+    if pull.get('auto_merge'):
+        return True
+    owner, name = repository.split('/')
+    query = (
+        'query { repository(owner: "%s", name: "%s") { pullRequest(number: %d) '
+        '{ isInMergeQueue autoMergeRequest { enabledAt } } } }' % (owner, name, number)
+    )
+    node = ((github_graphql(environment, query).get('data') or {}).get('repository') or {}).get('pullRequest') or {}
+    return bool(node.get('isInMergeQueue') or node.get('autoMergeRequest'))
+
+
 def read_state():
     try:
         with open(STATE_PATH, encoding='utf-8') as handle:
@@ -52,11 +80,14 @@ def list_my_open_prs(environment=None):
     query = urllib.parse.quote(f'repo:{repository} is:pr is:open draft:false author:{author}')
     found = github(environment, f'/search/issues?q={query}&per_page=100&sort=created&order=asc')
     state = read_state()
-    selected, skipped = [], []
+    selected, skipped, queued_for_merge = [], [], []
     for item in found.get('items', []):
         number = item['number']
         pull = github(environment, f'/repos/{repository}/pulls/{number}')
         if pull.get('draft') or pull.get('state') != 'open':
+            continue
+        if is_queued_for_merge(environment, repository, number, pull):
+            queued_for_merge.append(number)
             continue
         entry = {
             'number': number,
@@ -70,7 +101,7 @@ def list_my_open_prs(environment=None):
             selected.append(entry)
         else:
             skipped.append(number)
-    return {'author': author, 'prs': selected, 'skipped': skipped, 'total_open': len(found.get('items', []))}
+    return {'author': author, 'prs': selected, 'skipped': skipped, 'queued_for_merge': queued_for_merge, 'total_open': len(found.get('items', []))}
 
 
 def record_swept_pr(environment=None):

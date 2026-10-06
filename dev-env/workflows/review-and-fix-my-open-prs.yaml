@@ -3,7 +3,7 @@ name: Review and Fix My Open PRs
 description: >-
   Every hour, finds open non-draft pull requests authored by the GitHub token's
   user and runs review-and-fix-kibana-pr (dry_run false) on each one, one at a
-  time. A PR is skipped until its head commit changes after its last run; use
+  time. PRs with auto-merge enabled or in the merge queue are skipped. A PR is skipped until its head commit changes after its last run; use
   force to review everything again.
 enabled: true
 tags:
@@ -108,3 +108,4 @@ steps:
       total_open: ${{ steps.list_my_open_prs.output.total_open }}
       reviewed: ${{ steps.list_my_open_prs.output.prs }}
       skipped: ${{ steps.list_my_open_prs.output.skipped }}
+      queued_for_merge: ${{ steps.list_my_open_prs.output.queued_for_merge }}
