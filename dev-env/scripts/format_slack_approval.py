@@ -82,7 +82,7 @@ def format_slack_approval(environment=None):
     mention = f'<@{user_id}>' if re.fullmatch(r'[UW][A-Z0-9]+', user_id) else (f'@{handle}' if handle else '')
 
     note = escape(environment.get('APPROVAL_NOTE', '').strip())
-    body = github_markdown_to_slack(environment.get('FIX_PR_BODY', '')[:8000])
+    body = github_markdown_to_slack(environment.get('FIX_PR_BODY', '')[:6000])
     parts = [
         f"{mention} Approval needed to merge the fix PR for {link(pr_url, pr_label)}.".strip(),
         '',

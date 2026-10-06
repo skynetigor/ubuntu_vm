@@ -1,7 +1,7 @@
 version: '1'
 name: Review and Fix My Open PRs
 description: >-
-  Every hour, finds open non-draft pull requests authored by the GitHub token's
+  Every day, finds open non-draft pull requests authored by the GitHub token's
   user and runs review-and-fix-kibana-pr (dry_run false) on each one, one at a
   time. PRs with auto-merge enabled or in the merge queue are skipped. A PR is skipped until its head commit changes after its last run; use
   force to review everything again.
@@ -15,7 +15,7 @@ tags:
 triggers:
   - type: scheduled
     with:
-      every: 1h
+      every: 1d
   - type: manual
     inputs:
       additionalProperties: false
@@ -40,10 +40,10 @@ triggers:
           default: false
         dry_run:
           type: boolean
-          description: Passed to review-and-fix-kibana-pr; the hourly schedule always uses false.
+          description: Passed to review-and-fix-kibana-pr; the scheduled run always uses false.
           default: false
 
-# A sweep still running when the next hour starts makes that run a no-op.
+# A sweep still running when the next day starts makes that run a no-op.
 settings:
   timeout: 24h
   concurrency:
@@ -86,7 +86,7 @@ steps:
             base_branch: '{{ inputs.base_branch | default: "main" }}'
             dry_run: "${{ inputs.dry_run | default: false }}"
 
-      # Recorded even after a failure so a broken PR is not retried every hour; use force to retry.
+      # Recorded even after a failure so a broken PR is not retried every day; use force to retry.
       - name: record_pr
         type: ssh.python
         connector-id: dev-vm
