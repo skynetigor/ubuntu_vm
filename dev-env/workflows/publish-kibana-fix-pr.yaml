@@ -201,7 +201,7 @@ steps:
       # Slack trouble must not block the approval itself.
       - name: notify_slack
         type: slack
-        connector-id: one-workflow-playground
+        connector-id: drop-table-labs-test-channel
         on-failure:
           continue: true
         with:
