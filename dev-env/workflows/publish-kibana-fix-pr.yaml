@@ -59,7 +59,6 @@ triggers:
 
 consts:
   PUBLIC_URL: https://wf.skynetapp.dev
-  SLACK_CONNECTOR_ID: one-workflow-playground
   SLACK_HANDLE: ihor.panasiuk
   # Slack member ID (profile > more > Copy member ID); a bare handle cannot ping through a webhook.
   SLACK_USER_ID: U08T0GHGRPG
@@ -202,7 +201,7 @@ steps:
       # Slack trouble must not block the approval itself.
       - name: notify_slack
         type: slack
-        connector-id: '{{ consts.SLACK_CONNECTOR_ID }}'
+        connector-id: one-workflow-playground
         on-failure:
           continue: true
         with:
