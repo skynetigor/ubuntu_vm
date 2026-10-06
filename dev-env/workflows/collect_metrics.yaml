@@ -44,7 +44,7 @@ steps:
     type: elasticsearch.request
     with:
       method: GET
-      path: /{{consts.DEPLOYMENTS_INDEX}}/_search
+      path: /{{consts.DEPLOYMENTS_INDEX}}/_search?ignore_unavailable=true
 
   - name: foreach_deployment
     type: foreach

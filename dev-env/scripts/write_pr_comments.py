@@ -121,4 +121,16 @@ def write_pr_comments(environment=None):
             )
             summary_posted = True
 
-    return {'outcomes': outcomes, 'commit_sha': commit_sha, 'summary_posted': summary_posted}
+    counts = {}
+    for outcome in outcomes:
+        counts[outcome['status']] = counts.get(outcome['status'], 0) + 1
+    # Already-resolved threads are expected; any other skip means a reply was not posted.
+    skipped = [o for o in outcomes
+               if o['status'].startswith('skipped_') and o['status'] != 'skipped_already_resolved']
+    return {
+        'outcomes': outcomes,
+        'counts': counts,
+        'skipped_count': len(skipped),
+        'commit_sha': commit_sha,
+        'summary_posted': summary_posted,
+    }

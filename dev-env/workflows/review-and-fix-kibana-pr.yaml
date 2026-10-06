@@ -30,6 +30,7 @@ triggers:
 
 # Same literal key as review-kibana-pr and review-external-kibana-pr: they share /opt/kibana-review.
 settings:
+  timeout: 4h
   concurrency:
     key: kibana-review-checkout
     strategy: queue
@@ -573,7 +574,7 @@ steps:
           - name: save_comment_resolution_result
             type: data.set
             with:
-              comment_resolution_status: completed
+              comment_resolution_status: "{% if steps.write_fixed_comment_replies.output.skipped_count > 0 %}completed_with_skips{% else %}completed{% endif %}"
               comment_resolution_result: ${{ steps.write_fixed_comment_replies.output }}
 
   # Unit tests run once review fixes are merged and replied to, against the merged PR head.

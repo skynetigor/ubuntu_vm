@@ -111,6 +111,9 @@ RUN sed -i \
     -e 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' \
     /etc/ssh/sshd_config
 
+# Probe idle clients so a dead connection is closed (and its workflow step fails) instead of hanging.
+RUN printf 'ClientAliveInterval 30\nClientAliveCountMax 4\nTCPKeepAlive yes\n' >> /etc/ssh/sshd_config
+
 RUN ssh-keygen -A
 
 COPY entrypoint.sh /entrypoint.sh

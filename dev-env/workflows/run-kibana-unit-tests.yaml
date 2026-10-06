@@ -37,7 +37,7 @@ triggers:
                 type: string
         timeout_seconds:
           type: integer
-          default: 7200
+          default: 1800
           minimum: 60
         diagnostic_chars:
           type: integer
@@ -53,6 +53,8 @@ consts:
 
 # Same literal key as checkout-kibana-project and run-kibana-eslint: one heavy Node job at a time on dev-vm.
 settings:
+  # A hung SSH session otherwise blocks the run until the engine's default workflow timeout.
+  timeout: 2h
   concurrency:
     key: dev-vm-node-heavy
     strategy: queue
@@ -96,7 +98,11 @@ steps:
         "${runner[@]}" git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$PWD" \
           || "${runner[@]}" git config --global --add safe.directory "$PWD"
 
-        log_dir=$(mktemp -d /tmp/kbn-unit-tests-XXXXXX)
+        # Logs live on the persistent /opt volume so they survive a VM restart.
+        logs_root=/opt/kibana-cache/unit-test-logs
+        mkdir -p "$logs_root"
+        find "$logs_root" -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} + 2>/dev/null || true
+        log_dir=$(mktemp -d "$logs_root/run-XXXXXX")
         echo "Logs: $log_dir"
         printf '{"log_dir":"%s"}' "$log_dir" > "$STEP_OUTPUT"
 
@@ -135,21 +141,38 @@ steps:
               "$PWD" "$config" "$WORKER_IDLE_MEMORY_LIMIT" > "$wrapper"
             chmod 755 "$LOG_DIR"
             chmod 644 "$wrapper"
-            jest_args=(scripts/jest.js --config "$wrapper" --passWithNoTests "--maxWorkers=$MAX_WORKERS")
             started=$(date +%s)
+            workers="$MAX_WORKERS"
+            attempts=1
 
-            if [ -f "$config" ]; then
+            run_jest() {
+              local budget=$(( TIMEOUT_SECONDS - ($(date +%s) - started) ))
+              jest_args=(scripts/jest.js --config "$wrapper" --passWithNoTests "--maxWorkers=$workers")
               # timeout runs as workflow-runner so it can kill the whole Jest worker group.
               sudo -n -u workflow-runner env -i \
                 HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
                 NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
                 NODE_OPTIONS="--max-old-space-size=$WORKER_HEAP_MB" \
                 CI=true DISABLE_SWC_REGISTER_CACHE=1 \
-                timeout -k 30 "$TIMEOUT_SECONDS" node "${jest_args[@]}" > "$log" 2>&1
+                timeout -k 30 "$budget" node "${jest_args[@]}" > "$log" 2>&1
               exit_code=$?
+            }
+
+            if [ -f "$config" ]; then
+              run_jest
+              # A killed worker usually means memory pressure; retry once with a single worker.
+              if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 124 ] && [ "$workers" -gt 1 ] \
+                  && [ $(( TIMEOUT_SECONDS - ($(date +%s) - started) )) -gt 120 ] \
+                  && { [ "$exit_code" -eq 137 ] || grep -q 'terminated by another process: signal=SIGKILL' "$log"; }; then
+                echo "[$PROJECT_ID] worker killed with $workers workers (exit=$exit_code), retrying with 1 worker"
+                cp "$log" "$log.attempt1"
+                workers=1; attempts=2
+                run_jest
+              fi
             else
               echo "No $config" > "$log"
               exit_code=0
+              jest_args=(scripts/jest.js --config "$wrapper")
             fi
             elapsed=$(( $(date +%s) - started ))
 
@@ -177,7 +200,7 @@ steps:
             grep -E '^(FAIL |Test Suites:|Tests:)' "$clean" | sort -u
 
             export STATUS="$status" REASON="$reason" EXIT_CODE="$exit_code" LOG="$log" CLEAN="$clean" \
-              COMMAND="node ${jest_args[*]}"
+              COMMAND="node ${jest_args[*]}" WORKERS="$workers" ATTEMPTS="$attempts"
             python3 -c '
             import json, os, re
             e = os.environ
@@ -188,7 +211,8 @@ steps:
                 "status": e["STATUS"],
                 "reason": e["REASON"],
                 "exit_code": int(e["EXIT_CODE"]),
-                "max_workers": int(e["MAX_WORKERS"]),
+                "max_workers": int(e["WORKERS"]),
+                "attempts": int(e["ATTEMPTS"]),
                 "command": e["COMMAND"],
                 "failed_suites": sorted(set(re.findall(r"^FAIL\s+(\S+)", text, re.M))),
                 "diagnostic": text[-int(e["DIAGNOSTIC_CHARS"]):],

@@ -28,6 +28,9 @@ triggers:
           type: string
           default: ''
 
+settings:
+  timeout: 3h
+
 consts:
   MAX_FIX_ROUNDS: 3
   FIX_INSTRUCTIONS: >-
