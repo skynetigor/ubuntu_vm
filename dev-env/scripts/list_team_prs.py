@@ -17,6 +17,23 @@ def read_state():
         return {}
 
 
+def approved_by(environment, repository, number, login):
+    """True when the user's latest approve/request-changes/dismiss verdict on the PR is an approval."""
+    verdict = ''
+    page = 1
+    while True:
+        reviews = github(environment, f'/repos/{repository}/pulls/{number}/reviews?per_page=100&page={page}')
+        # Reviews come oldest first; plain comments and pending drafts never change the verdict.
+        for review in reviews:
+            if (review.get('user') or {}).get('login', '').lower() == login.lower() \
+                    and review.get('state') in {'APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'}:
+                verdict = review['state']
+        if len(reviews) < 100:
+            break
+        page += 1
+    return verdict == 'APPROVED'
+
+
 def list_team_prs(environment=None):
     """Open, non-draft PRs by team members (never the token's user) whose head changed since the last review."""
     environment = os.environ if environment is None else environment
@@ -42,7 +59,7 @@ def list_team_prs(environment=None):
             items[item['number']] = item
 
     state = read_state()
-    selected, unchanged, stale, queued = [], [], [], []
+    selected, unchanged, stale, queued, approved = [], [], [], [], []
     for number, item in sorted(items.items(), key=lambda pair: pair[1]['updated_at'], reverse=True):
         updated = datetime.strptime(item['updated_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
         if updated < oldest:
@@ -52,6 +69,10 @@ def list_team_prs(environment=None):
         if pull.get('draft') or pull.get('state') != 'open' or pull['user']['login'].lower() in excluded:
             continue
         head_sha = pull['head']['sha']
+        # A PR the token's user already approved is never reviewed again, whatever force says.
+        if approved_by(environment, repository, number, me):
+            approved.append(number)
+            continue
         if not force and state.get(f'{repository}#{number}') == head_sha:
             unchanged.append(number)
         elif is_queued_for_merge(environment, repository, number, pull):
@@ -71,6 +92,7 @@ def list_team_prs(environment=None):
         'unchanged': unchanged,
         'stale': stale,
         'queued_for_merge': queued,
+        'approved_by_me': approved,
         'excluded_authors': sorted(excluded),
     }
 

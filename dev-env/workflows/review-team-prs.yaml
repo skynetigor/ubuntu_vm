@@ -6,7 +6,8 @@ description: >-
   on each one (dry_run false), one at a time. Comments are previewed in a PR in
   my fork and published only after approval in Slack. PRs with no findings are
   offered for approval in Slack with a short message, and approved on GitHub only after a click. A PR is skipped until its
-  head commit changes after its last review; use force to review again.
+  head commit changes after its last review; use force to review again. PRs I
+  have already approved are never reviewed.
 enabled: true
 tags:
   - kibana
@@ -38,7 +39,7 @@ triggers:
         force:
           type: boolean
           default: false
-          description: Review PRs again even if their head commit was already reviewed.
+          description: Review PRs again even if their head commit was already reviewed (PRs I approved stay skipped).
         dry_run:
           type: boolean
           default: false
@@ -135,4 +136,5 @@ steps:
       unchanged: ${{ steps.list_team_prs.output.unchanged }}
       stale: ${{ steps.list_team_prs.output.stale }}
       queued_for_merge: ${{ steps.list_team_prs.output.queued_for_merge }}
+      approved_by_me: ${{ steps.list_team_prs.output.approved_by_me }}
       excluded_authors: ${{ steps.list_team_prs.output.excluded_authors }}
