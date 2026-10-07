@@ -66,7 +66,7 @@ consts:
   # Slack member ID pinged when a PR is ready for review.
   SLACK_USER_ID: U0C6Y3EQPBM
   # Slack channel ID of #ihor-issues-implementation (channels are addressed by ID, see the other workflows).
-  SLACK_CHANNEL_ID: REPLACE_WITH_CHANNEL_ID
+  SLACK_CHANNEL_ID: ihor-issues-implementation
 
 steps:
   - name: initialize_state
