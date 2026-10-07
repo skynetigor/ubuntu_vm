@@ -8,6 +8,10 @@
 //   KIBANA_URL      — default: http://localhost:5601
 //   KIBANA_USERNAME — default: elastic
 //   KIBANA_PASSWORD — default: changeme
+//   PRUNE_EXTRAS    — default: true. Delete every connector that is not in the file, so Kibana has exactly
+//                     the connectors listed (preconfigured and system connectors cannot be deleted and are kept).
+//                     Set to false to only upsert.
+//   PRUNE_DRY_RUN   — set to true to print what would be deleted and exit without changing anything.
 
 const fs             = require('fs');
 const path           = require('path');
@@ -130,6 +134,18 @@ async function main() {
   const existingById = new Set(existing.map(c => c.id));
   console.log(`    Found ${existing.length} existing connector(s)`);
 
+  const wanted = new Set(connectors.map(c => c.id));
+  const prune = (process.env.PRUNE_EXTRAS || 'true').toLowerCase() !== 'false';
+  const dryRun = (process.env.PRUNE_DRY_RUN || '').toLowerCase() === 'true';
+  const extras = existing.filter(c => !wanted.has(c.id) && !c.is_preconfigured && !c.is_system_action);
+  if (dryRun) {
+    console.log(`=== Dry run: ${extras.length} connector(s) not in the file would be deleted ===`);
+    for (const c of extras) {
+      console.log(`    ${c.id} (${c.connector_type_id}, referenced by ${c.referenced_by_count ?? '?'})`);
+    }
+    process.exit(0);
+  }
+
   let errors = 0;
   for (const connector of connectors) {
     const { id, name } = connector;
@@ -147,6 +163,19 @@ async function main() {
     } catch (e) {
       console.error(`ERROR [${id}]: ${e.message}`);
       errors++;
+    }
+  }
+
+  // Pruned last, and only when the file was read, so a missing or empty file never wipes Kibana.
+  if (prune) {
+    for (const c of extras) {
+      try {
+        console.log(`=== Deleting (not in the file): ${c.name} (${c.id}) ===`);
+        await kibanaApi('DELETE', `/api/actions/connector/${c.id}`);
+      } catch (e) {
+        console.error(`ERROR [${c.id}]: ${e.message}`);
+        errors++;
+      }
     }
   }
 
