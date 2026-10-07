@@ -1,0 +1,38 @@
+# Elasticsearch inference endpoints created by the dev-env setup
+# (kibana/scripts/upload_inference_endpoints.js). Kibana lists chat_completion endpoints as AI
+# connectors, so a workflow can use `connector-id: <inference_id>` in ai.prompt, ai.classify
+# and ai.summarize. This replaces the deprecated .gen-ai, .bedrock, .gemini and .inference connectors.
+#
+# Copy to env/inference-endpoints.yml (gitignored). Secrets are ${VAR} placeholders filled from
+# env/ai.env. An endpoint whose variable is unset is skipped with a warning.
+#
+# Each entry is the body of PUT _inference/<task_type>/<inference_id>:
+#   inference_id, task_type, service, service_settings and optionally task_settings.
+
+- inference_id: azure-gpt-5-chat
+  task_type: chat_completion
+  service: azureopenai
+  service_settings:
+    api_key: "${AZURE_OPENAI_API_KEY}"
+    resource_name: ai-jamesmistraltesting147387030826
+    deployment_id: gpt-5-chat
+    api_version: 2025-01-01-preview
+
+# gpt-oss on Amazon Bedrock through its OpenAI-compatible endpoint.
+- inference_id: bedrock-gpt-oss-120b
+  task_type: chat_completion
+  service: openai
+  service_settings:
+    api_key: "${BEDROCK_OPENAI_API_KEY}"
+    url: https://bedrock-runtime.us-west-2.amazonaws.com/openai/v1/chat/completions
+    model_id: openai.gpt-oss-120b-1:0
+
+- inference_id: bedrock-sonnet-4-5
+  task_type: chat_completion
+  service: amazonbedrock
+  service_settings:
+    access_key: "${AWS_BEDROCK_ACCESS_KEY}"
+    secret_key: "${AWS_BEDROCK_SECRET_KEY}"
+    region: us-east-1
+    provider: anthropic
+    model: us.anthropic.claude-sonnet-4-5-20250929-v1:0
