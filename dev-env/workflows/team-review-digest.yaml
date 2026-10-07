@@ -1,12 +1,12 @@
 version: '1'
 name: Team Review Digest
 description: >-
-  Every weekday morning, posts one message to the team channel with three groups:
+  Every morning except Saturday (Sunday to Friday, 09:00 Europe/Rome), posts one message to the team channel with three groups:
   the team's own PRs still waiting for review, contributor PRs (authors outside
   the team) that need the workflows-eng code owner review, and the team's own
   approved PRs that are not merged yet. Automated PRs and PRs with no activity
   for a long time are only counted.
-enabled: false
+enabled: true
 tags:
   - kibana
   - review
@@ -18,7 +18,7 @@ triggers:
       rrule:
         freq: WEEKLY
         interval: 1
-        byweekday: [MO, TU, WE, TH, FR]
+        byweekday: [SU, MO, TU, WE, TH, FR]
         byhour: [9]
         byminute: [0]
         tzid: Europe/Rome
@@ -31,11 +31,21 @@ triggers:
           default: 60
           minimum: 1
           description: Pending PRs with no activity for this long are counted, not listed.
-        max_listed:
+        max_team_prs:
           type: integer
-          default: 30
+          default: 10
           minimum: 1
-          description: Most PRs listed per group.
+          description: Most one-workflow team PRs listed, longest waiting first.
+        max_approved_prs:
+          type: integer
+          default: 5
+          minimum: 1
+          description: Most approved-but-unmerged PRs listed, mergeable ones first.
+        max_contributor_prs:
+          type: integer
+          default: 5
+          minimum: 1
+          description: Most contributor PRs listed, the most relevant first.
         post:
           type: boolean
           default: true
@@ -43,7 +53,7 @@ triggers:
         test_channel:
           type: boolean
           default: false
-          description: Post through the Slack bot to the private #ihor-reviews channel instead of the team webhook.
+          description: Post through the Slack bot to #test-channel instead of the team webhook.
 
 # A run still going when the next one starts makes that one a no-op.
 settings:
@@ -73,7 +83,7 @@ consts:
     - kibanamachine
 
 steps:
-  - name: build_digest
+  - name: collect_digest
     type: ssh.python
     connector-id: dev-vm
     timeout: 15m
@@ -84,12 +94,54 @@ steps:
         AUTHORS_JSON: '{{ consts.TEAM_MEMBERS | json }}'
         BOT_AUTHORS_JSON: '{{ consts.BOT_AUTHORS | json }}'
         MAX_AGE_DAYS: '{{ inputs.max_age_days | default: 60 }}'
-        MAX_LISTED: '{{ inputs.max_listed | default: 30 }}'
       code: |
         import sys
         sys.path.insert(0, '/etc/dev-env-scripts')
-        from team_review_digest import run_review_digest
-        return run_review_digest()
+        from team_review_digest import collect_digest
+        return collect_digest()
+
+  # A fresh, creative opening every run, written from the day's real numbers. No idempotency key, so the
+  # reply is never cached; if the agent fails, the digest uses a plain greeting and no call to action.
+  - name: write_intro
+    type: workflow.execute
+    on-failure:
+      continue: true
+    with:
+      workflow-id: main-kibana-agent
+      inputs:
+        cwd: /opt/kibana-cache
+        disallow_shell: true
+        model: sonnet
+        prompt: >-
+          You write the opening of the daily "PRs waiting for review" digest for a software team's Slack
+          channel. The team builds Kibana workflows, an automation engine. It is a {{ 'now' | date: '%A' }}
+          morning. These are the only facts you may use, and you must never invent numbers, names or PRs:
+          {{ steps.collect_digest.output.stats | json }}. Return exactly two findings. First, kind `greeting`:
+          a fresh, creative good-morning line, at most 100 characters, with a pun or a small image if it
+          fits. Second, kind `nudge`: one sentence, at most 150 characters, that turn the facts into
+          a friendly, specific call to action, for example point at the PRs ready to merge, the longest
+          waiting PR (write its number like #123), or the easy win, and invite people to claim a PR by
+          replying in the thread with :eyes:. Light humor is welcome. Use at most two emoji in total, written
+          as Slack shortcodes like :coffee:. No hashtags, no @-mentions, no markdown, no quotation marks, and
+          no stock phrases like "rise and shine". Put the text of each in its `comment`; the response can
+          just say done.
+
+  - name: format_digest
+    type: ssh.python
+    connector-id: dev-vm
+    timeout: 5m
+    with:
+      env:
+        DIGEST_JSON: '{{ steps.collect_digest.output.data | json }}'
+        INTRO_JSON: '{{ steps.write_intro.output.findings | json }}'
+        MAX_TEAM_PRS: '{{ inputs.max_team_prs | default: 10 }}'
+        MAX_APPROVED_PRS: '{{ inputs.max_approved_prs | default: 5 }}'
+        MAX_CONTRIBUTOR_PRS: '{{ inputs.max_contributor_prs | default: 5 }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from team_review_digest import format_review_digest
+        return format_review_digest()
 
   - name: post_digest
     type: if
@@ -99,7 +151,7 @@ steps:
         type: if
         condition: "${{ inputs.test_channel == true }}"
         steps:
-          # Test runs go to the private #ihor-reviews channel through the bot.
+          # Test runs go to #test-channel through the bot.
           - name: post_to_test_channel
             type: slack_api.postMessage
             connector-id: slack-bot
@@ -107,8 +159,8 @@ steps:
               continue: true
             with:
               channelIds:
-                - C0C76UDRLJ2 # #ihor-reviews
-              text: '{{ steps.build_digest.output.message }}'
+                - C0BDEQKS0N4 # #test-channel
+              text: '{{ steps.format_digest.output.message }}'
         else:
           - name: post_to_team_channel
             type: slack
@@ -116,14 +168,14 @@ steps:
             on-failure:
               continue: true
             with:
-              message: '{{ steps.build_digest.output.message }}'
+              message: '{{ steps.format_digest.output.message }}'
 
   - name: output
     type: workflow.output
     with:
-      pending_count: ${{ steps.build_digest.output.pending_count }}
-      contributor_count: ${{ steps.build_digest.output.contributor_count }}
-      approved_count: ${{ steps.build_digest.output.approved_count }}
-      bot_count: ${{ steps.build_digest.output.bot_count }}
-      stale_count: ${{ steps.build_digest.output.stale_count }}
-      message: '{{ steps.build_digest.output.message }}'
+      pending_count: ${{ steps.format_digest.output.pending_count }}
+      contributor_count: ${{ steps.format_digest.output.contributor_count }}
+      approved_count: ${{ steps.format_digest.output.approved_count }}
+      bot_count: ${{ steps.collect_digest.output.data.bot_count }}
+      stale_count: ${{ steps.collect_digest.output.data.stale_count }}
+      message: '{{ steps.format_digest.output.message }}'

@@ -97,6 +97,25 @@ def merge_labels(details):
     return labels
 
 
+def relevance(row):
+    """How close a contributor PR is to merging once the team's review is given; higher means more relevant."""
+    score = min(row['approvals'], 3) * 2          # others already reviewed it, so the team is the blocker
+    score += 2 if row['checks'] == 'SUCCESS' else -2 if row['checks'] in {'FAILURE', 'ERROR'} else 0
+    score -= 2 if row['merge_state'] == 'DIRTY' else 0
+    score -= 3 if row['changes_requested'] else 0
+    return score
+
+
+def approved_relevance(labels):
+    """How actionable an approved PR is: mergeable now beats blocked, conflicted or failing ones."""
+    text = ' '.join(labels)
+    score = 3 if 'ready to merge' in text else 0
+    score -= 2 if 'merge conflicts' in text else 0
+    score -= 1 if 'checks failing' in text else 0
+    score -= 1 if 'branch behind' in text else 0
+    return score
+
+
 def collect_pending_reviews(environment=None):
     environment = os.environ if environment is None else environment
     repository = check_repository(environment)
@@ -142,7 +161,10 @@ def collect_pending_reviews(environment=None):
             'since': team_requested_since(environment, repository, number, team_slug, item['created_at']),
             'approvals': sum(1 for state in verdicts.values() if state == 'APPROVED'),
             'changes_requested': any(state == 'CHANGES_REQUESTED' for state in verdicts.values()),
+            'checks': details(number)['checks'],
+            'merge_state': details(number)['merge_state'],
         }
+        row['relevance'] = relevance(row)
         # Authors outside the team are contributors whose code owner review (the team) is still outstanding.
         (pending if row['author'].lower() in member_logins else contributors).append(row)
 
@@ -171,10 +193,13 @@ def collect_pending_reviews(environment=None):
             'since': approved_at,
             'labels': merge_labels(info),
         })
+        approved[-1]['relevance'] = approved_relevance(approved[-1]['labels'])
 
-    pending.sort(key=lambda row: row['since'])
-    contributors.sort(key=lambda row: row['since'])
-    approved.sort(key=lambda row: row['since'])
+    # Longest waiting first, but PRs already waiting on their author (changes requested) go last.
+    pending.sort(key=lambda row: (row['changes_requested'], row['since']))
+    contributors.sort(key=lambda row: (-row['relevance'], row['since']))
+    # Approved PRs that can be merged right now come first, then the ones with the fewest blockers.
+    approved.sort(key=lambda row: (-row['relevance'], row['since']))
     return {
         'pending': pending,
         'contributors': contributors,
@@ -183,8 +208,39 @@ def collect_pending_reviews(environment=None):
         'stale_count': stale,
         'repository': repository,
         'team': team,
+        'members': members,
         'max_age_days': max_age_days,
     }
+
+
+FALLBACK_GREETING = 'Good morning, team! :sunrise:'
+
+
+def pick_intro(environment):
+    """Greeting and call to action written by the agent: findings of kind greeting / nudge."""
+    greeting, nudge = environment.get('GREETING'), ''
+    raw = (environment.get('INTRO_JSON') or '').strip()
+    try:
+        findings = json.loads(raw) if raw else []
+    except ValueError:
+        findings = []
+    for finding in findings if isinstance(findings, list) else []:
+        if isinstance(finding, dict) and finding.get('kind') == 'greeting':
+            greeting = finding.get('comment')
+        elif isinstance(finding, dict) and finding.get('kind') == 'nudge':
+            nudge = finding.get('comment')
+    return greeting, nudge
+
+
+def clean_greeting(raw, limit=220, fallback=FALLBACK_GREETING):
+    """Makes generated text safe for the channel: one line, no markup, no pings, bounded length."""
+    text = re.sub(r'<[^>]*>', ' ', str(raw or ''))          # no <!channel>, <@user> or links
+    text = re.sub(r'[`*_~>@]', '', text)                    # no Slack/Markdown formatting or mentions
+    text = re.sub(r'^#+\s+', '', text)                       # no leading Markdown heading (but keep #123)
+    text = re.sub(r'\s+', ' ', text).strip().strip('"\'\u201c\u201d')
+    if len(text) < 5:
+        return fallback
+    return escape(text if len(text) <= limit else text[:limit - 1].rstrip() + '\u2026')
 
 
 def days_since(value, current):
@@ -195,64 +251,114 @@ def age_text(days):
     return 'today' if days == 0 else f'{days}d'
 
 
-def pr_line(row, detail):
-    handle = link('https://github.com/' + row['author'], '@' + row['author'])
-    return f"• <{escape(row['url'])}|#{row['number']} {escape(one_line(row['title'], 90))}> by {handle} - {detail}"
+def pr_line(row, parts):
+    """One compact line: linked title, author, then only the short facts worth reading."""
+    title = f"<{escape(row['url'])}|#{row['number']} {escape(one_line(row['title'], 60))}>"
+    return ' \u00b7 '.join([f"\u2022 {title}", '@' + row['author']] + parts)
 
 
 def format_review_digest(environment=None):
     environment = os.environ if environment is None else environment
     data = json.loads(environment['DIGEST_JSON'])
-    max_listed = max(1, int(environment.get('MAX_LISTED') or 30))
+    max_team = max(1, int(environment.get('MAX_TEAM_PRS') or 10))
+    max_approved = max(1, int(environment.get('MAX_APPROVED_PRS') or 5))
+    max_contributors = max(1, int(environment.get('MAX_CONTRIBUTOR_PRS') or 5))
     current = now(environment)
     repository, team = data['repository'], data['team']
     search = f"https://github.com/{repository}/pulls?q=" + urllib.parse.quote(
         f'is:pr is:open draft:false team-review-requested:{team}')
+    approved_search = f"https://github.com/{repository}/pulls?q=" + urllib.parse.quote(
+        'is:pr is:open review:approved ' + ' '.join('author:' + member for member in data.get('members', [])))
 
-    def section(title, rows, empty, detail):
-        lines = [title]
+    def age(since, prefix=''):
+        days = days_since(since, current)
+        text = prefix + age_text(days) if days == 0 else f"{prefix}{days}d"
+        return f"*{text}*" if days > OVER_A_WEEK else text
+
+    def section(title, rows, limit, empty, parts, more_url):
+        count = len(rows)
+        lines = [f"{title} ({limit} of {count})" if count > limit else f"{title} ({count})"]
         if not rows:
             return lines + [empty]
-        lines += [pr_line(row, detail(row)) for row in rows[:max_listed]]
-        if len(rows) > max_listed:
-            lines.append(f"• ...and {len(rows) - max_listed} more")
+        lines += [pr_line(row, parts(row)) for row in rows[:limit]]
+        if count > limit:
+            lines.append(f"_+{count - limit} more on {link(more_url, 'GitHub')}_")
         return lines
 
-    def pending_detail(row):
-        days = days_since(row['since'], current)
-        parts = [f"waiting {age_text(days)}" + (' :warning:' if days > OVER_A_WEEK else '')]
-        parts.append(f"{row['approvals']} approval{'s' if row['approvals'] != 1 else ''}")
-        if row['changes_requested']:
-            parts.append('changes requested')
-        return ', '.join(parts)
+    def team_parts(row):
+        return [age(row['since'])] + (['changes requested'] if row['changes_requested'] else [])
 
-    def approved_detail(row):
-        days = days_since(row['since'], current)
-        return ', '.join([f"approved {age_text(days)}{'' if days == 0 else ' ago'}"] + row['labels'])
+    def contributor_parts(row):
+        parts = [age(row['since'])]
+        if row['approvals']:
+            parts.append(f"{row['approvals']} approval{'s' if row['approvals'] != 1 else ''}")
+        if row.get('checks') in {'FAILURE', 'ERROR'}:
+            parts.append('checks failing')
+        if row.get('merge_state') == 'DIRTY':
+            parts.append('conflicts')
+        return parts
 
-    team_name = team.split('/', 1)[1]
-    lines = section(
-        f":eyes: *Team PRs pending review ({len(data['pending'])})*",
-        data['pending'], '_Nothing is waiting for review._', pending_detail)
+    def approved_parts(row):
+        days = days_since(row['since'], current)
+        parts = ['approved ' + ('today' if days == 0 else f'{days}d ago')]
+        # Only what stops a merge is worth mentioning; ready-to-merge PRs need no note.
+        parts += [label for label in row['labels'] if label in {'merge conflicts', 'checks failing', 'branch behind'}]
+        return parts
+
+    greeting_raw, nudge_raw = pick_intro(environment)
+    lines = [clean_greeting(greeting_raw)]
+    nudge = clean_greeting(nudge_raw, 200, '') if nudge_raw else ''
+    if nudge:
+        lines.append(nudge)
     lines += [''] + section(
-        f":handshake: *Contributor PRs needing {team_name} code owner review ({len(data['contributors'])})*",
-        data['contributors'], '_No contributor PRs need our review._', pending_detail)
+        ':eyes: *Team PRs waiting for review*', data['pending'], max_team,
+        '_Nothing is waiting for review._', team_parts, search)
+    lines += [''] + section(
+        ':handshake: *Contributor PRs for our code owner review*', data['contributors'], max_contributors,
+        '_No contributor PRs need our review._', contributor_parts, search)
+    lines += [''] + section(
+        ':white_check_mark: *Approved, ready for merge*', data['approved'], max_approved,
+        '_No approved PRs are waiting to merge._', approved_parts, approved_search)
     notes = []
     if data['bot_count']:
-        notes.append(f"{data['bot_count']} automated PRs ({link(search, 'view on GitHub')})")
+        notes.append(f"{data['bot_count']} bot PRs")
     if data['stale_count']:
-        notes.append(f"{data['stale_count']} with no activity for {data['max_age_days']}+ days")
+        notes.append(f"{data['stale_count']} inactive for {data['max_age_days']}+ days")
     if notes:
-        lines.append('_Not shown: ' + ', '.join(notes) + '._')
-    lines += [''] + section(
-        f":white_check_mark: *Approved, not merged yet ({len(data['approved'])})*",
-        data['approved'], '_No approved PRs are waiting to merge._', approved_detail)
+        lines += ['', '_Not shown: ' + ', '.join(notes) + '._']
     return {
         'message': '\n'.join(lines),
         'pending_count': len(data['pending']),
         'contributor_count': len(data['contributors']),
         'approved_count': len(data['approved']),
     }
+
+
+def digest_stats(data, current):
+    """Facts about the digest that the intro writer may use; nothing else is available to it."""
+    # A PR with changes requested waits on its author, not on reviewers, so it is not the longest wait.
+    waiting = [row for row in data['pending'] + data['contributors'] if not row['changes_requested']]
+    oldest = min(waiting, key=lambda row: row['since'], default=None)
+    ready = [row for row in data['approved'] if 'ready to merge' in row['labels']]
+    easy = data['contributors'][0] if data['contributors'] and data['contributors'][0]['relevance'] >= 4 else None
+    return {
+        'weekday': current.strftime('%A'),
+        'team_prs_waiting': len(data['pending']),
+        'contributor_prs_waiting': len(data['contributors']),
+        'approved_not_merged': len(data['approved']),
+        'ready_to_merge': len(ready),
+        'longest_wait_days': days_since(oldest['since'], current) if oldest else 0,
+        'longest_wait_pr': oldest['number'] if oldest else None,
+        'easy_win_pr': easy['number'] if easy else None,
+        'easy_win_approvals': easy['approvals'] if easy else None,
+    }
+
+
+def collect_digest(environment=None):
+    """Collects both groups and the facts used for the intro."""
+    environment = os.environ if environment is None else environment
+    data = collect_pending_reviews(environment)
+    return {'data': data, 'stats': digest_stats(data, now(environment))}
 
 
 def run_review_digest(environment=None):
