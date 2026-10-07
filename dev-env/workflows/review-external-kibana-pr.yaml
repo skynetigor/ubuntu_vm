@@ -37,6 +37,23 @@ triggers:
           description: >-
             When the review ran on production code and found nothing, ask in Slack whether to approve
             the PR with a short message. Nothing is approved without a click there. Needs dry_run false.
+        publish_severities:
+          type: array
+          default:
+            - critical
+            - high
+            - medium
+            - low
+          items:
+            type: string
+            enum:
+              - critical
+              - high
+              - medium
+              - low
+              - nit
+              - opinionated
+          description: Severities included in the published review; critical and high are always included.
 
 # Same literal key as review-kibana-pr and review-and-fix-kibana-pr: they share /opt/kibana-review.
 settings:

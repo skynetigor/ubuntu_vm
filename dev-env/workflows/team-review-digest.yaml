@@ -1,0 +1,129 @@
+version: '1'
+name: Team Review Digest
+description: >-
+  Every weekday morning, posts one message to the team channel with three groups:
+  the team's own PRs still waiting for review, contributor PRs (authors outside
+  the team) that need the workflows-eng code owner review, and the team's own
+  approved PRs that are not merged yet. Automated PRs and PRs with no activity
+  for a long time are only counted.
+enabled: false
+tags:
+  - kibana
+  - review
+  - scheduled
+
+triggers:
+  - type: scheduled
+    with:
+      rrule:
+        freq: WEEKLY
+        interval: 1
+        byweekday: [MO, TU, WE, TH, FR]
+        byhour: [9]
+        byminute: [0]
+        tzid: Europe/Rome
+  - type: manual
+    inputs:
+      additionalProperties: false
+      properties:
+        max_age_days:
+          type: integer
+          default: 60
+          minimum: 1
+          description: Pending PRs with no activity for this long are counted, not listed.
+        max_listed:
+          type: integer
+          default: 30
+          minimum: 1
+          description: Most PRs listed per group.
+        post:
+          type: boolean
+          default: true
+          description: False only builds the message and returns it in the output.
+        test_channel:
+          type: boolean
+          default: false
+          description: Post through the Slack bot to the private #ihor-reviews channel instead of the team webhook.
+
+# A run still going when the next one starts makes that one a no-op.
+settings:
+  timeout: 30m
+  concurrency:
+    key: '{{ workflow.id }}'
+    strategy: drop
+    max: 1
+
+consts:
+  REPOSITORY: elastic/kibana
+  # GitHub team whose pending reviews are listed; it owns the workflows packages in CODEOWNERS.
+  TEAM: elastic/workflows-eng
+  # Members of that team: their approved-but-unmerged PRs are the second group.
+  TEAM_MEMBERS:
+    - dej611
+    - yngrdyn
+    - Kiryous
+    - h88
+    - shahargl
+    - semd
+    - skynetigor
+    - tinnytintin10
+    - rosomri
+    - talboren
+  BOT_AUTHORS:
+    - kibanamachine
+
+steps:
+  - name: build_digest
+    type: ssh.python
+    connector-id: dev-vm
+    timeout: 15m
+    with:
+      env:
+        REPOSITORY: '{{ consts.REPOSITORY }}'
+        TEAM: '{{ consts.TEAM }}'
+        AUTHORS_JSON: '{{ consts.TEAM_MEMBERS | json }}'
+        BOT_AUTHORS_JSON: '{{ consts.BOT_AUTHORS | json }}'
+        MAX_AGE_DAYS: '{{ inputs.max_age_days | default: 60 }}'
+        MAX_LISTED: '{{ inputs.max_listed | default: 30 }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from team_review_digest import run_review_digest
+        return run_review_digest()
+
+  - name: post_digest
+    type: if
+    condition: "${{ inputs.post != false }}"
+    steps:
+      - name: choose_channel
+        type: if
+        condition: "${{ inputs.test_channel == true }}"
+        steps:
+          # Test runs go to the private #ihor-reviews channel through the bot.
+          - name: post_to_test_channel
+            type: slack_api.postMessage
+            connector-id: slack-bot
+            on-failure:
+              continue: true
+            with:
+              channelIds:
+                - C0C76UDRLJ2 # #ihor-reviews
+              text: '{{ steps.build_digest.output.message }}'
+        else:
+          - name: post_to_team_channel
+            type: slack
+            connector-id: one-workflow-eng
+            on-failure:
+              continue: true
+            with:
+              message: '{{ steps.build_digest.output.message }}'
+
+  - name: output
+    type: workflow.output
+    with:
+      pending_count: ${{ steps.build_digest.output.pending_count }}
+      contributor_count: ${{ steps.build_digest.output.contributor_count }}
+      approved_count: ${{ steps.build_digest.output.approved_count }}
+      bot_count: ${{ steps.build_digest.output.bot_count }}
+      stale_count: ${{ steps.build_digest.output.stale_count }}
+      message: '{{ steps.build_digest.output.message }}'

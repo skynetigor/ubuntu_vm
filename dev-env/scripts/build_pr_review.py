@@ -57,7 +57,8 @@ def is_already_posted(finding, existing_comments, existing_review_bodies):
 def build_pr_review(environment=None):
     environment = os.environ if environment is None else environment
     findings = json.loads(environment.get('FINDINGS_JSON') or '[]') or []
-    publish_severities = set(json.loads(environment['PUBLISH_SEVERITIES']))
+    # An empty value (input not passed by a caller) falls back to every severity worth publishing.
+    publish_severities = set(json.loads(environment.get('PUBLISH_SEVERITIES') or '["critical", "high", "medium", "low"]'))
     merge_base = environment['MERGE_BASE']
     head_commit = environment['HEAD_COMMIT']
     for sha in (merge_base, head_commit):

@@ -6,7 +6,7 @@ import subprocess
 
 def gh_api(environment, *args, payload=None, allow_status=()):
     result = subprocess.run(
-        ['gh', 'api', *args], text=True,
+        ['gh', 'api', *args, *(['--input', '-'] if payload is not None else [])], text=True,
         input=None if payload is None else json.dumps(payload),
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90,
         env={**os.environ, **environment},

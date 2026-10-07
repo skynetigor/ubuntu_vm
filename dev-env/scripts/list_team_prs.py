@@ -17,21 +17,33 @@ def read_state():
         return {}
 
 
+def fetch_reviews(environment, repository, number):
+    """All reviews of a PR, oldest first."""
+    reviews, page = [], 1
+    while True:
+        batch = github(environment, f'/repos/{repository}/pulls/{number}/reviews?per_page=100&page={page}')
+        reviews.extend(batch)
+        if len(batch) < 100:
+            return reviews
+        page += 1
+
+
+def latest_verdicts(reviews):
+    """Each reviewer's latest approve / request-changes / dismiss verdict, keyed by lowercase login.
+
+    Plain comments and pending drafts never change a verdict.
+    """
+    verdicts = {}
+    for review in reviews:
+        login = (review.get('user') or {}).get('login', '').lower()
+        if login and review.get('state') in {'APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'}:
+            verdicts[login] = review['state']
+    return verdicts
+
+
 def approved_by(environment, repository, number, login):
     """True when the user's latest approve/request-changes/dismiss verdict on the PR is an approval."""
-    verdict = ''
-    page = 1
-    while True:
-        reviews = github(environment, f'/repos/{repository}/pulls/{number}/reviews?per_page=100&page={page}')
-        # Reviews come oldest first; plain comments and pending drafts never change the verdict.
-        for review in reviews:
-            if (review.get('user') or {}).get('login', '').lower() == login.lower() \
-                    and review.get('state') in {'APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'}:
-                verdict = review['state']
-        if len(reviews) < 100:
-            break
-        page += 1
-    return verdict == 'APPROVED'
+    return latest_verdicts(fetch_reviews(environment, repository, number)).get(login.lower()) == 'APPROVED'
 
 
 def list_team_prs(environment=None):

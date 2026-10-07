@@ -15,6 +15,8 @@ if [ ! -d "$KIBANA_SRC" ]; then
   exit 1
 fi
 
+source "$(dirname "$0")/node_modules_cache.sh"
+
 CURRENT_COMMIT=$(git -C "$KIBANA_SRC" rev-parse HEAD)
 STORED_COMMIT=$(cat "$COMMIT_FILE" 2>/dev/null || echo "")
 
@@ -39,6 +41,7 @@ CACHE_DIR="${BOOTSTRAP_CACHE_ROOT:+$BOOTSTRAP_CACHE_ROOT/$CURRENT_COMMIT}"
 if [ -n "$CACHE_DIR" ] && [ -d "$CACHE_DIR/node_modules" ] && { [ ! -e node_modules ] || [ -L node_modules ]; }; then
   echo "=== Cache hit — symlinking node_modules ($CURRENT_COMMIT) ==="
   ln -sfn "$CACHE_DIR/node_modules" node_modules
+  touch "$CACHE_DIR"
   report_status cache_linked
   exit 0
 fi
@@ -123,9 +126,13 @@ fi
 
 echo "$CURRENT_COMMIT" > "$COMMIT_FILE"
 if [ -n "$CACHE_DIR" ] && [ ! -d "$CACHE_DIR/node_modules" ] && [ -d node_modules ] && [ ! -L node_modules ]; then
-  mkdir -p "$CACHE_DIR"
-  cp -al node_modules "$CACHE_DIR/node_modules"
-  echo "=== Cached node_modules for $CURRENT_COMMIT ==="
+  # A cache problem must never fail a bootstrap that itself succeeded.
+  if cache_node_modules node_modules "$CACHE_DIR"; then
+    echo "=== Cached node_modules for $CURRENT_COMMIT ==="
+  else
+    echo "=== Could not cache node_modules for $CURRENT_COMMIT; continuing without a cache ==="
+  fi
+  prune_node_modules_caches "$BOOTSTRAP_CACHE_ROOT" "${BOOTSTRAP_MAX_CACHES:-24}"
 fi
 report_status bootstrapped
 echo "=== Bootstrap done at $CURRENT_COMMIT ==="
