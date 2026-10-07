@@ -1,0 +1,186 @@
+version: '1'
+name: Run Kibana Type Check
+description: >-
+  Runs the TypeScript type check (scripts/type_check) on the given Kibana
+  projects on dev-vm, one project at a time, and reports which projects pass and
+  which have type errors. Projects without a tsconfig.json are reported as passed
+  with the reason no_tsconfig.
+enabled: true
+tags:
+  - kibana
+  - types
+
+triggers:
+  - type: manual
+    inputs:
+      additionalProperties: false
+      required:
+        - source_dir
+        - projects
+      properties:
+        source_dir:
+          type: string
+          description: Kibana source root on dev-vm, e.g. /opt/<project>/kibana/src.
+        projects:
+          type: array
+          description: Projects to check; the tsconfig.json in each source_root is used.
+          items:
+            type: object
+            required:
+              - id
+              - source_root
+            properties:
+              id:
+                type: string
+              source_root:
+                type: string
+        timeout_seconds:
+          type: integer
+          default: 3600
+          minimum: 60
+        diagnostic_chars:
+          type: integer
+          default: 12000
+          minimum: 500
+
+# Same literal key as checkout-kibana-project, run-kibana-unit-tests and run-kibana-eslint: one heavy Node job at a time on dev-vm.
+settings:
+  timeout: 4h
+  concurrency:
+    key: dev-vm-node-heavy
+    strategy: queue
+    max: 1
+
+steps:
+  - name: initialize_results
+    type: data.set
+    with:
+      results: []
+
+  - name: prepare_runner
+    type: ssh.run
+    connector-id: dev-vm
+    with:
+      cwd: '{{ inputs.source_dir }}'
+      env:
+        SOURCE_ROOTS: '{{ inputs.projects | map: "source_root" | join: " " }}'
+      command: |
+        set -euo pipefail
+        for root in $SOURCE_ROOTS; do
+          case "$root" in
+            /*|*..*|*[!A-Za-z0-9_./-]*) echo "Invalid source root: $root" >&2; exit 1 ;;
+          esac
+        done
+
+        [ -f node_modules/.workflow-runner-acl ] || setfacl -R -m u:workflow-runner:rwx node_modules/
+        for root in $SOURCE_ROOTS; do
+          [ -d "$root" ] || continue
+          setfacl -R -m u:workflow-runner:rwx "$root" || echo "warning: could not grant access to $root" >&2
+          setfacl -R -d -m u:workflow-runner:rwx "$root" 2>/dev/null || true
+        done
+
+        runner=(sudo -n -u workflow-runner env -i HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin)
+        "${runner[@]}" git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$PWD" \
+          || "${runner[@]}" git config --global --add safe.directory "$PWD"
+
+        log_dir=$(mktemp -d /tmp/kbn-typecheck-XXXXXX)
+        echo "Logs: $log_dir"
+        printf '{"log_dir":"%s"}' "$log_dir" > "$STEP_OUTPUT"
+
+  - name: check_projects
+    type: foreach
+    foreach: ${{ inputs.projects }}
+    max-iterations:
+      limit: 50
+      on-limit: fail
+    steps:
+      - name: run_type_check
+        type: ssh.run
+        connector-id: dev-vm
+        with:
+          cwd: '{{ inputs.source_dir }}'
+          env:
+            PROJECT_ID: '{{ foreach.item.id }}'
+            SOURCE_ROOT: '{{ foreach.item.source_root }}'
+            LOG_DIR: '{{ steps.prepare_runner.output.log_dir }}'
+            TIMEOUT_SECONDS: '{{ inputs.timeout_seconds }}'
+            DIAGNOSTIC_CHARS: '{{ inputs.diagnostic_chars }}'
+          command: |
+            set -uo pipefail
+            case "$SOURCE_ROOT" in
+              /*|*..*|*[!A-Za-z0-9_./-]*) echo "Invalid source root: $SOURCE_ROOT" >&2; exit 1 ;;
+            esac
+            root="${SOURCE_ROOT%/}"
+            tsconfig="$root/tsconfig.json"
+            base="$LOG_DIR/$(printf '%s' "$PROJECT_ID" | tr -c 'A-Za-z0-9_.-' '_')"
+            log="$base-type-check.log"
+            command=(node scripts/type_check --project "$tsconfig")
+            started=$(date +%s)
+
+            if [ ! -d "$root" ]; then
+              echo "Missing project directory $root" > "$log"
+              exit_code=127
+              status=failed; reason=missing_project
+            elif [ ! -f "$tsconfig" ]; then
+              echo "No tsconfig.json in $root" > "$log"
+              exit_code=0
+              status=passed; reason=no_tsconfig
+            else
+              # timeout runs as workflow-runner so it can kill the whole tsc process group.
+              sudo -n -u workflow-runner env -i \
+                HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
+                NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
+                CI=true NODE_OPTIONS=--max-old-space-size=8192 \
+                timeout -k 30 "$TIMEOUT_SECONDS" "${command[@]}" > "$log" 2>&1
+              exit_code=$?
+              if [ "$exit_code" -eq 0 ]; then
+                status=passed; reason=''
+              elif [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; then
+                status=failed; reason=timeout
+              elif grep -qE 'error TS[0-9]+' "$log"; then
+                status=failed; reason=type_errors
+              else
+                status=failed; reason=crashed
+              fi
+            fi
+
+            echo "[$PROJECT_ID] $status${reason:+ ($reason)} exit=$exit_code in $(( $(date +%s) - started ))s"
+
+            export STATUS="$status" REASON="$reason" EXIT_CODE="$exit_code" LOG="$log" COMMAND="${command[*]}"
+            python3 -c '
+            import json, os, re
+            e = os.environ
+            text = re.sub(r"\x1b\[[0-9;]*m", "", open(e["LOG"], errors="replace").read())
+            errors = re.findall(r"^(\S+?)\(\d+,\d+\): error (TS\d+)", text, re.M)
+            json.dump({
+                "project": e["PROJECT_ID"],
+                "source_root": e["SOURCE_ROOT"],
+                "status": e["STATUS"],
+                "reason": e["REASON"],
+                "exit_code": int(e["EXIT_CODE"]),
+                "command": e["COMMAND"],
+                "files_with_errors": sorted({path.removeprefix(os.getcwd() + "/") for path, _ in errors}),
+                "diagnostic": text[-int(e["DIAGNOSTIC_CHARS"]):],
+                "log_path": e["LOG"],
+            }, open(e["STEP_OUTPUT"], "w"))
+            '
+
+      - name: record_result
+        type: data.set
+        with:
+          results: "${{ variables.results | push: steps.run_type_check.output }}"
+
+  - name: classify_results
+    type: data.set
+    with:
+      passed: "${{ variables.results | where: 'status', 'passed' }}"
+      failed: "${{ variables.results | where: 'status', 'failed' }}"
+
+  - name: output
+    type: workflow.output
+    with:
+      results: ${{ variables.results }}
+      passed: ${{ variables.passed }}
+      failed: ${{ variables.failed }}
+      all_passed: ${{ variables.failed.size == 0 }}
+      log_dir: '{{ steps.prepare_runner.output.log_dir }}'

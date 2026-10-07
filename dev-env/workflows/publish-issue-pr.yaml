@@ -1,0 +1,184 @@
+version: '1'
+name: Publish Issue PR
+description: >-
+  Opens a draft pull request in the upstream repository (elastic/kibana) from
+  the branch pushed to my fork, then asks in Slack whether to open it for
+  review. Approving marks the draft ready for review; rejecting or no answer
+  leaves it as a draft.
+enabled: true
+tags:
+  - kibana
+  - github
+  - automation
+
+triggers:
+  - type: manual
+    inputs:
+      additionalProperties: false
+      required:
+        - issue
+        - branch
+        - pr_title
+        - pr_body
+      properties:
+        issue:
+          type: object
+          description: Issue the branch implements (number, title, url).
+        branch:
+          type: string
+          description: Branch already pushed to the fork.
+        pr_title:
+          type: string
+        pr_body:
+          type: string
+        upstream_repository:
+          type: string
+          default: elastic/kibana
+        fork_repository:
+          type: string
+          default: skynetigor/kibana
+        base_branch:
+          type: string
+          default: main
+        labels:
+          type: array
+          default: []
+          items:
+            type: string
+          description: Labels to add; only the ones that exist in the upstream repository are applied.
+        media:
+          type: array
+          default: []
+          description: Before/after videos as [{label, caption, path}] on dev-vm, uploaded with gh --attach.
+        parent_workflow_id:
+          type: string
+          default: ''
+        parent_execution_id:
+          type: string
+          default: ''
+
+# No checkout is held while waiting for the answer.
+settings:
+  timeout: 48h
+
+consts:
+  PUBLIC_URL: https://wf.skynetapp.dev
+  # Slack member ID pinged when a PR is ready for review.
+  SLACK_USER_ID: U0C6Y3EQPBM
+  # Slack channel ID of #ihor-issues-implementation (channels are addressed by ID, see the other workflows).
+  SLACK_CHANNEL_ID: REPLACE_WITH_CHANNEL_ID
+
+steps:
+  - name: initialize_state
+    type: data.set
+    with:
+      pr_url: ''
+      approval_status: not_requested
+      approved_by: ''
+      status: draft_not_created
+
+  # gh CLI on dev-vm. The title gets the [One Workflow] prefix, labels are added only if they exist in the
+  # upstream repository, and the before/after videos are uploaded with --attach (gh 2.99 or newer).
+  - name: create_draft_pull_request
+    type: ssh.python
+    connector-id: dev-vm
+    timeout: 3m
+    with:
+      env:
+        OP: create_draft
+        FORK_REPOSITORY: '{{ inputs.fork_repository }}'
+        UPSTREAM_REPOSITORY: '{{ inputs.upstream_repository }}'
+        BRANCH: '{{ inputs.branch }}'
+        BASE_BRANCH: '{{ inputs.base_branch }}'
+        PR_TITLE: '{{ inputs.pr_title }}'
+        PR_BODY: '{{ inputs.pr_body }}'
+        MEDIA_JSON: '{{ inputs.media | json }}'
+        ISSUE_NUMBER: '{{ inputs.issue.number }}'
+        LABELS_JSON: '{{ inputs.labels | json }}'
+      code: |
+        import sys
+        sys.path.insert(0, '/etc/dev-env-scripts')
+        from issue_pr_gh import issue_pr_gh
+        return issue_pr_gh()
+
+  - name: save_draft_pull_request
+    type: data.set
+    with:
+      pr_url: '{{ steps.create_draft_pull_request.output.url }}'
+      status: "{% if steps.create_draft_pull_request.output.status == 'created' %}awaiting_approval{% else %}draft_failed{% endif %}"
+
+  # Nothing to approve when the draft could not be created.
+  - name: approval_flow
+    type: if
+    condition: "${{ variables.status == 'awaiting_approval' }}"
+    steps:
+      - name: approve_ready_for_review
+        type: waitForApproval
+        timeout: 24h
+        on-failure:
+          continue: true
+        with:
+          approveLabel: Open for review
+          rejectLabel: Keep as draft
+          channels:
+            slack_api:
+              connector-id: slack-bot
+              channels:
+                - '{{ consts.SLACK_CHANNEL_ID }}'
+          message: |
+            <@{{ consts.SLACK_USER_ID }}> ## Review draft PR for issue #{{ inputs.issue.number }}
+
+            **Issue:** {{ inputs.issue.url }}
+            **Draft PR:** {{ variables.pr_url }}
+            **Labels:** {{ steps.create_draft_pull_request.output.labels_applied | join: ", " }}{% if steps.create_draft_pull_request.output.labels_missing.size > 0 %} (not in the repository: {{ steps.create_draft_pull_request.output.labels_missing | join: ", " }}){% endif %}
+            **Videos:** {% if steps.create_draft_pull_request.output.media_attached.size > 0 %}before and after attached{% else %}none{% endif %}
+
+            Approving marks the draft ready for review in {{ inputs.upstream_repository }}. Rejecting leaves it as a draft.
+
+            ---
+
+            {{ inputs.pr_title }}
+
+            {{ inputs.pr_body | truncate: 1200 }}
+
+      - name: save_approval
+        type: data.set
+        with:
+          approval_status: "{% if steps.approve_ready_for_review.output.response.approved == true %}approved{% elsif steps.approve_ready_for_review.output.response.approved == false %}rejected{% else %}no_response{% endif %}"
+          approved_by: '{{ steps.approve_ready_for_review.output.respondedBy }}'
+
+      - name: open_when_approved
+        type: if
+        condition: "${{ variables.approval_status == 'approved' }}"
+        steps:
+          - name: mark_ready
+            type: ssh.python
+            connector-id: dev-vm
+            timeout: 2m
+            with:
+              env:
+                OP: ready
+                UPSTREAM_REPOSITORY: '{{ inputs.upstream_repository }}'
+                PR_URL: '{{ variables.pr_url }}'
+              code: |
+                import sys
+                sys.path.insert(0, '/etc/dev-env-scripts')
+                from issue_pr_gh import issue_pr_gh
+                return issue_pr_gh()
+
+          - name: save_ready
+            type: data.set
+            with:
+              status: "{% if steps.mark_ready.output.status == 'ready' %}ready_for_review{% else %}ready_failed{% endif %}"
+
+  - name: output
+    type: workflow.output
+    with:
+      status: '{{ variables.status }}'
+      pr_url: '{{ variables.pr_url }}'
+      labels_applied: ${{ steps.create_draft_pull_request.output.labels_applied }}
+      labels_missing: ${{ steps.create_draft_pull_request.output.labels_missing }}
+      media_attached: ${{ steps.create_draft_pull_request.output.media_attached }}
+      approval_status: '{{ variables.approval_status }}'
+      approved_by: '{{ variables.approved_by }}'
+      error: '{{ steps.create_draft_pull_request.output.error }}{{ steps.mark_ready.output.error }}'
