@@ -77,6 +77,19 @@ review.
 `record-kibana-ui-demo.yaml` starts Scout and records one video with agent-browser.
 `run-kibana-type-check.yaml` runs `scripts/type_check` per project.
 
+## Main Kibana Agent
+
+`main-kibana-agent.yaml` is the reusable agent call. `agent` defaults to `claude`
+(Claude Code on dev-vm over SSH). Any other value is an Agent Builder agent id,
+for example `dev-env`, run with the `ai.agent` step in a stored, public
+conversation, so the chat shows up in Agent Builder. Both return the same fields
+(`response`, `run_summary`, `findings`, `changes`, `pull_request`, `session_id`);
+for Agent Builder agents `session_id` is the conversation id, and passing it back
+continues that conversation. `inference_id` picks the model (an inference
+endpoint such as `azure-gpt-5-chat`; empty uses the Agent Builder default).
+`model` is Claude-only, `disallow_shell` is only a request to Agent Builder
+agents, and cached answers (`idempotency_key`) are kept per agent.
+
 ## Sync Kibana Forks
 
 `sync-kibana-forks.yaml` runs every ten minutes and can also be triggered

@@ -84,3 +84,15 @@ Preconfigured and system connectors, and built-in endpoints whose id starts with
 `.`, are kept. Set `PRUNE_EXTRAS=false` to only upsert, or `PRUNE_DRY_RUN=true`
 to print what would be deleted and exit without changing anything. A missing or
 empty file never deletes anything.
+
+## Agent Builder
+
+`agents.yml` is uploaded at startup by `kibana/scripts/upload_agents.js` (agents
+in the file are created or updated, others are left alone). The `dev-env` agent is
+public, is the default agent of the space, and may call the `dev-vm` (`.ssh`) and
+`github-agent` (`.github`) connectors through the connector-discovery skill.
+An agent can only run connectors listed in its `connector_ids`; an unset list
+lets it see connectors but refuses to run them, and the built-in agent cannot be
+edited. Agents can only use connectors that have a connector spec, which is why
+`github-agent` exists next to `github` (`.mcp`, used by the workflows with
+`mcp.callTool`).

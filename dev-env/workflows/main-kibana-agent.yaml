@@ -1,15 +1,20 @@
 version: '1'
 name: Main Kibana Agent
 description: >-
-  Reusable entry point for calling Claude Code on dev-vm over SSH. Pass the
-  returned session_id on later calls to continue the same Claude session.
-  response, run_summary, and pull_request.body are GitHub-flavored Markdown.
-  An optional idempotency_key reuses the complete response stored in key-value
-  without invoking Claude again. Empty keys bypass caching.
+  Reusable entry point for calling an agent. By default (agent: claude) it runs
+  Claude Code on dev-vm over SSH. Any other agent value is the id of an Agent
+  Builder agent (for example dev-env), which is run with the ai.agent step in a
+  stored conversation. Pass the returned session_id on later calls to continue
+  the same Claude session or Agent Builder conversation. Both return the same
+  fields (response, run_summary, findings, changes, pull_request, session_id);
+  response, run_summary, and pull_request.body are GitHub-flavored Markdown. An
+  optional idempotency_key reuses the complete response stored in key-value
+  without invoking the agent again. Empty keys bypass caching.
 enabled: true
 tags:
   - kibana
   - claude
+  - agent-builder
 
 triggers:
   - type: manual
@@ -19,13 +24,24 @@ triggers:
       properties:
         prompt:
           type: string
-          description: Message or instruction to send to Claude Code.
+          description: Message or instruction to send to the agent.
+        agent:
+          type: string
+          default: claude
+          pattern: '^[A-Za-z0-9._-]+$'
+          description: >-
+            claude runs Claude Code on dev-vm. Any other value is an Agent Builder agent id
+            (for example dev-env) run with the ai.agent step.
         session_id:
           type: string
-          description: Claude session ID to resume; omit to start a new session.
+          description: >-
+            Claude session ID, or Agent Builder conversation ID for other agents, to resume;
+            omit to start a new one.
         cwd:
           type: string
-          description: Remote working directory for Claude Code.
+          description: >-
+            Remote working directory for Claude Code. Agent Builder agents get it as a hint in the
+            message when it is not the default.
           default: /opt/ubuntu_vm
         run_summary:
           type: string
@@ -33,12 +49,21 @@ triggers:
         disallow_shell:
           type: boolean
           default: false
-          description: Disable Claude's Bash tool for restricted automation calls.
+          description: >-
+            Disable Claude's Bash tool for restricted automation calls. Agent Builder agents are
+            only told not to run shell commands, which is not enforced.
         model:
           type: string
           default: ''
           pattern: '^[A-Za-z0-9._-]*$'
-          description: Claude model or alias for this call; empty uses the CLI default.
+          description: Claude model or alias for this call; empty uses the CLI default. Not used for Agent Builder agents.
+        inference_id:
+          type: string
+          default: ''
+          pattern: '^[A-Za-z0-9._-]*$'
+          description: >-
+            Inference endpoint or connector id the Agent Builder agent uses as its model, for example
+            azure-gpt-5-chat; empty uses the Agent Builder default. Not used for claude.
         idempotency_key:
           type: string
           default: ''
@@ -53,6 +78,12 @@ settings:
     max: 1
 
 steps:
+  - name: initialize_state
+    type: data.set
+    with:
+      result: {}
+
+  # Claude keeps the original cache ids; other agents get their own so the same key never mixes answers.
   - name: lookup_cached_response
     type: if
     condition: "${{ inputs.idempotency_key != '' }}"
@@ -64,7 +95,7 @@ steps:
           path: /key-value/_mget
           body:
             ids:
-              - 'agent:{{ inputs.idempotency_key }}'
+              - 'agent:{% if inputs.agent != "claude" %}{{ inputs.agent }}:{% endif %}{{ inputs.idempotency_key }}'
 
       - name: return_when_cached
         type: if
@@ -80,24 +111,168 @@ steps:
               pull_request: '${{ steps.get_cached_response.output.docs[0]._source.value.pull_request }}'
               session_id: '${{ steps.get_cached_response.output.docs[0]._source.value.session_id }}'
 
-  - name: claude
-    type: ssh.python
-    connector-id: dev-vm
-    with:
-      cwd: '{{ inputs.cwd | default: "/opt/ubuntu_vm" }}'
-      env:
-        CLAUDE_PROMPT: '{{ inputs.prompt }}'
-        CLAUDE_SESSION_ID: '{{ inputs.session_id | default: "" }}'
-        CLAUDE_RUN_SUMMARY: '{{ inputs.run_summary | default: "" }}'
-        CLAUDE_DISALLOW_SHELL: '{{ inputs.disallow_shell | default: false }}'
-        CLAUDE_MODEL: '{{ inputs.model | default: "" }}'
-      code: |
-        import sys
+  - name: run_claude
+    type: if
+    condition: "${{ inputs.agent == 'claude' }}"
+    steps:
+      - name: claude
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          cwd: '{{ inputs.cwd | default: "/opt/ubuntu_vm" }}'
+          env:
+            CLAUDE_PROMPT: '{{ inputs.prompt }}'
+            CLAUDE_SESSION_ID: '{{ inputs.session_id | default: "" }}'
+            CLAUDE_RUN_SUMMARY: '{{ inputs.run_summary | default: "" }}'
+            CLAUDE_DISALLOW_SHELL: '{{ inputs.disallow_shell | default: false }}'
+            CLAUDE_MODEL: '{{ inputs.model | default: "" }}'
+          code: |
+            import sys
 
-        sys.path.insert(0, '/etc/dev-env-scripts')
-        from run_claude_agent import run_claude_agent
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from run_claude_agent import run_claude_agent
 
-        return run_claude_agent()
+            return run_claude_agent()
+
+      - name: save_claude_result
+        type: data.set
+        with:
+          result: ${{ steps.claude.output }}
+
+  # Agent Builder agents get the same result fields through a structured output schema, so callers can
+  # use either agent. The conversation is stored (and public) so it shows up in Agent Builder, and its
+  # id comes back as session_id, like Claude's session id.
+  - name: run_agent_builder_agent
+    type: if
+    condition: "${{ inputs.agent != 'claude' }}"
+    steps:
+      - name: build_agent_message
+        type: data.set
+        with:
+          agent_message: |-
+            {% if inputs.run_summary != blank %}Context from the earlier steps of this run:
+            {{ inputs.run_summary }}
+
+            {% endif %}{% if inputs.cwd != '/opt/ubuntu_vm' %}Working directory on dev-vm: {{ inputs.cwd }}
+            {% endif %}{% if inputs.disallow_shell %}Do not run shell commands and do not use the dev-vm connector.
+            {% endif %}{{ inputs.prompt }}
+
+            Fill the structured output like this: response is your answer; run_summary is a short handoff
+            summary for the next phase; findings and changes are lists (empty when there are none);
+            pull_request is only for a drafted pull request.
+
+      - name: start_conversation
+        type: if
+        condition: "${{ inputs.session_id == nil or inputs.session_id == '' }}"
+        steps:
+          - name: agent_builder_new
+            type: ai.agent
+            timeout: 30m
+            agent-id: '{{ inputs.agent }}'
+            inference-id: '{{ inputs.inference_id }}'
+            create-conversation: true
+            public-conversation: true
+            with:
+              message: '{{ variables.agent_message }}'
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                    description: Answer for the user, formatted as GitHub-flavored Markdown.
+                  run_summary:
+                    type: string
+                    description: Handoff summary for the next phase, formatted as GitHub-flavored Markdown.
+                  findings:
+                    type: array
+                  changes:
+                    type: array
+                  pull_request:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      body:
+                        type: string
+                        description: Pull request description, formatted as GitHub-flavored Markdown.
+                    required:
+                      - title
+                      - body
+                    additionalProperties: false
+                required:
+                  - response
+                  - run_summary
+                  - findings
+                  - changes
+                additionalProperties: false
+
+          - name: save_new_result
+            type: data.set
+            with:
+              result:
+                response: '{{ steps.agent_builder_new.output.structured_output.response | default: steps.agent_builder_new.output.message }}'
+                run_summary: '{{ steps.agent_builder_new.output.structured_output.run_summary }}'
+                findings: ${{ steps.agent_builder_new.output.structured_output.findings }}
+                changes: ${{ steps.agent_builder_new.output.structured_output.changes }}
+                pull_request: ${{ steps.agent_builder_new.output.structured_output.pull_request }}
+                session_id: '{{ steps.agent_builder_new.output.conversation_id }}'
+
+      - name: continue_conversation
+        type: if
+        condition: "${{ inputs.session_id != nil and inputs.session_id != '' }}"
+        steps:
+          - name: agent_builder_continue
+            type: ai.agent
+            timeout: 30m
+            agent-id: '{{ inputs.agent }}'
+            inference-id: '{{ inputs.inference_id }}'
+            create-conversation: true
+            public-conversation: true
+            with:
+              conversation_id: '{{ inputs.session_id }}'
+              message: '{{ variables.agent_message }}'
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                    description: Answer for the user, formatted as GitHub-flavored Markdown.
+                  run_summary:
+                    type: string
+                    description: Handoff summary for the next phase, formatted as GitHub-flavored Markdown.
+                  findings:
+                    type: array
+                  changes:
+                    type: array
+                  pull_request:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      body:
+                        type: string
+                        description: Pull request description, formatted as GitHub-flavored Markdown.
+                    required:
+                      - title
+                      - body
+                    additionalProperties: false
+                required:
+                  - response
+                  - run_summary
+                  - findings
+                  - changes
+                additionalProperties: false
+
+          - name: save_continued_result
+            type: data.set
+            with:
+              result:
+                response: '{{ steps.agent_builder_continue.output.structured_output.response | default: steps.agent_builder_continue.output.message }}'
+                run_summary: '{{ steps.agent_builder_continue.output.structured_output.run_summary }}'
+                findings: ${{ steps.agent_builder_continue.output.structured_output.findings }}
+                changes: ${{ steps.agent_builder_continue.output.structured_output.changes }}
+                pull_request: ${{ steps.agent_builder_continue.output.structured_output.pull_request }}
+                session_id: '{{ steps.agent_builder_continue.output.conversation_id }}'
 
   - name: cache_response_when_keyed
     type: if
@@ -107,16 +282,16 @@ steps:
         type: elasticsearch.request
         with:
           method: PUT
-          path: '/key-value/_doc/agent%3A{{ inputs.idempotency_key | url_encode }}'
+          path: '/key-value/_doc/agent%3A{% if inputs.agent != "claude" %}{{ inputs.agent | url_encode }}%3A{% endif %}{{ inputs.idempotency_key | url_encode }}'
           body:
-            value: ${{ steps.claude.output }}
+            value: ${{ variables.result }}
 
   - name: output
     type: workflow.output
     with:
-      response: '{{ steps.claude.output.response }}'
-      run_summary: '{{ steps.claude.output.run_summary }}'
-      findings: ${{ steps.claude.output.findings }}
-      changes: ${{ steps.claude.output.changes }}
-      pull_request: ${{ steps.claude.output.pull_request }}
-      session_id: '{{ steps.claude.output.session_id }}'
+      response: '{{ variables.result.response }}'
+      run_summary: '{{ variables.result.run_summary }}'
+      findings: ${{ variables.result.findings }}
+      changes: ${{ variables.result.changes }}
+      pull_request: ${{ variables.result.pull_request }}
+      session_id: '{{ variables.result.session_id }}'

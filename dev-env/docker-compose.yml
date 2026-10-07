@@ -83,6 +83,7 @@ services:
       - WORKFLOWS_DIR=/opt/kibana/setup/workflows
       - CONNECTORS_FILE=/opt/kibana/setup/env/connectors.yml
       - INFERENCE_ENDPOINTS_FILE=/opt/kibana/setup/env/inference-endpoints.yml
+      - AGENTS_FILE=/opt/kibana/setup/agents.yml
       - DASHBOARDS_DIR=/opt/kibana/setup/dashboards
     ports:
       - "5002:5601"
@@ -96,6 +97,7 @@ services:
       - ./kibana.override.yml:/opt/kibana/config/kibana.override.yml:ro
       - ./env/connectors.yml:/opt/kibana/setup/env/connectors.yml:ro
       - ./env/inference-endpoints.yml:/opt/kibana/setup/env/inference-endpoints.yml:ro
+      - ./agents.yml:/opt/kibana/setup/agents.yml:ro
       - ./workflows:/opt/kibana/setup/workflows:ro
       - ./dashboards:/opt/kibana/setup/dashboards:ro
     healthcheck:
