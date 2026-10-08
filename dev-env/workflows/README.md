@@ -18,6 +18,8 @@ exact SHA and prepares `/opt/<project>/kibana/src`.
 - Shares the `dev-vm-node-heavy` concurrency queue (`max: 1`) with
   `run-kibana-unit-tests` and `run-kibana-eslint`, so bootstrap, Jest, and
   ESLint never run at the same time on dev-vm.
+- Before it touches an existing checkout it removes stale git lock files (for example
+  `.git/shallow.lock` left by a cancelled run), but only when no git process is running at all.
 - Output always includes project, target, commit, repository, source branch,
   deploy/source paths, checkout/skip flags, fetched branch metadata, and
   `bootstrap_status` (`skipped`, `cache_linked`, `bootstrapped`, or

@@ -8,6 +8,28 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+def clear_stale_git_locks(git_dir):
+    """Removes lock files that a killed git command left behind, so the next fetch or reset can run.
+
+    A cancelled or crashed run leaves .git/shallow.lock (or index.lock, HEAD.lock, a ref lock) and every
+    later checkout then fails with "Unable to create ... .lock: File exists". The files are only touched
+    when no git process is running at all, because then none of them can be in use.
+    """
+    if not git_dir.is_dir():
+        return []
+    if subprocess.run(['pgrep', '-x', 'git'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        return []
+    removed = []
+    for lock in [*git_dir.glob('*.lock'), *(git_dir / 'refs').rglob('*.lock')]:
+        try:
+            if lock.is_file():
+                lock.unlink()
+                removed.append(str(lock.relative_to(git_dir)))
+        except OSError:
+            pass
+    return removed
+
+
 def checkout_kibana_project(environment=None):
     environment = os.environ if environment is None else environment
     target = environment['KIBANA_TARGET'].strip()
@@ -109,6 +131,10 @@ def checkout_kibana_project(environment=None):
             ubuntu_vm_repo, str(deploy_dir),
         ])
 
+    cleared_locks = clear_stale_git_locks(source_dir / '.git')
+    if cleared_locks:
+        print('Removed stale git locks: ' + ', '.join(cleared_locks), flush=True)
+
     current_commit = ''
     if (source_dir / '.git').exists():
         current = run(['git', 'rev-parse', 'HEAD'], cwd=source_dir, timeout=30, check=False)
@@ -201,4 +227,5 @@ def checkout_kibana_project(environment=None):
         'checkout_changed': checkout_changed,
         'clone_skipped': not checkout_changed,
         'fetched_branches': fetched_branches,
+        'cleared_locks': cleared_locks,
     }
