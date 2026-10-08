@@ -12,8 +12,17 @@ def summarize_ui_findings(environment=None):
 
     defects = []
     issue_verdicts = []
+    environment_problems = []
     for finding in findings:
         if not isinstance(finding, dict):
+            continue
+        # The test server or browser itself is broken (UI does not load, login fails, Elasticsearch is down).
+        # That says nothing about the change, so it is reported but never handed to a fixing agent.
+        if finding.get('kind') == 'environment':
+            environment_problems.append({
+                'comment': finding.get('comment') or finding.get('evidence') or '',
+                'evidence': finding.get('evidence'),
+            })
             continue
         if finding.get('kind') == 'issue_verdict':
             verdict = finding.get('verdict')
@@ -58,4 +67,5 @@ def summarize_ui_findings(environment=None):
         'ui_findings_to_fix': [defect for defect in defects if defect['severity'] in fixable],
         'other_ui_findings': [defect for defect in defects if defect['severity'] not in fixable],
         'issue_verdicts': issue_verdicts,
+        'environment_problems': environment_problems,
     }

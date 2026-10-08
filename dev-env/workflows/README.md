@@ -47,7 +47,26 @@ that reads the code, and implements the easiest ones up to medium (`max_issues`,
 default 1, at most 5). It skips issues that already have an open PR of mine
 closing them and reports skipped, blocked and unresolved issues in Slack.
 
-`implement-kibana-issue.yaml` does one issue in `/opt/kibana-implement`:
+`implement-kibana-issue.yaml` does one piece of work in `/opt/kibana-implement`, always
+on its own branch, started from the latest upstream main: it first brings the fork's main up
+to the upstream main, checks out the fork's main and refuses to go on unless that commit equals
+the upstream main. An issue always has the same branch, `issue-<n>-<title>` (`issue-<repo>-<n>-<title>`
+for an issue in another repository), looked up by its number on every run. If that branch already exists on
+the fork it is pulled and the work continues from it; otherwise it is created from main. Work without an
+issue gets a new `task-<title>-<id>` branch, unless `branch` names an existing one. The agent session is
+saved in the key-value index under `implement-session:<branch>` after every round and loaded again when a
+branch is continued, so the same branch keeps the same conversation. The relevance check and the "before"
+video run on the clean main, before the branch is switched. The branch is pushed to the fork when the work is clean (a plain push, never forced). It is
+also the entry point to start by hand, and it runs the whole thing: at the end it opens the
+draft PR and asks in Slack whether to open it for review (`publish-issue-pr`). `issue_url` is optional
+(empty by default; for example `https://github.com/elastic/kibana/issues/123`), and
+the title and body are read from GitHub. Issues may be in another repository (for
+example `elastic/security-team`); the PR is still opened in `upstream_repository` and
+closes the issue by its full reference. Without `issue_url` the work comes from
+`user_prompt` (and `plan`) alone: there is no issue to read, no relevance check and no
+`Closes` line, and the branch is `task-<slug>-<id>`. The run fails if none of the three
+is given. `user_prompt` is also extra context when there is an issue. The parent
+workflow passes a link.
 
 0. A relevance check first: the agent reads the issue, its comments, merged PRs that
    mention it and the code. If it is already implemented, fixed elsewhere,
@@ -59,7 +78,9 @@ closing them and reports skipped, blocked and unresolved issues in Slack.
    `review-kibana-pr` reviews the working tree against the issue (no PR
    comments), then `run-kibana-eslint`, `run-kibana-type-check` and
    `run-kibana-unit-tests` on the touched projects.
-3. The loop ends when all of them are clean; otherwise the next round runs one
+3. The loop ends when all of them are clean, or at once with status `check_error` when a
+   check itself crashes, times out or cannot start (that is not a code defect, so no agent is
+   asked to fix it); otherwise the next round runs one
    separate agent call per kind of problem (`fix_review_comments`,
    `fix_type_errors`, `fix_failing_tests`, `fix_lint_errors`, `fix_ui_findings`),
    each only when it has items and all in the same agent session, so every call
@@ -79,16 +100,17 @@ review.
 
 ## Main Kibana Agent
 
-`main-kibana-agent.yaml` is the reusable agent call. `agent` defaults to `claude`
-(Claude Code on dev-vm over SSH). Any other value is an Agent Builder agent id,
-for example `dev-env`, run with the `ai.agent` step in a stored, public
+`main-kibana-agent.yaml` is the reusable agent call. `agent` is `claude` (the default;
+Claude Code on dev-vm over SSH) or `ab`, which runs the Agent Builder agent we created
+(`dev-env`, from `dev-env/agents.yml`) with the `ai.agent` step in a stored, public
 conversation, so the chat shows up in Agent Builder. Both return the same fields
 (`response`, `run_summary`, `findings`, `changes`, `pull_request`, `session_id`);
-for Agent Builder agents `session_id` is the conversation id, and passing it back
-continues that conversation. `inference_id` picks the model (an inference
-endpoint such as `azure-gpt-5-chat`; empty uses the Agent Builder default).
-`model` is Claude-only, `disallow_shell` is only a request to Agent Builder
-agents, and cached answers (`idempotency_key`) are kept per agent.
+for `ab`, `session_id` is the conversation id, and passing it back continues that
+conversation. `inference_id` picks the model for `ab` (an inference endpoint such as
+`azure-gpt-5-chat`; empty uses the Agent Builder default). `model` is Claude-only,
+`disallow_shell` is only a request to the `ab` agent, and cached answers
+(`idempotency_key`) are kept per agent. Existing callers do not pass `agent`, so they
+keep using Claude.
 
 ## Sync Kibana Forks
 

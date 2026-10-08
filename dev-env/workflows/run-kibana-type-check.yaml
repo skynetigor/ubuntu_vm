@@ -126,18 +126,17 @@ steps:
               exit_code=0
               status=passed; reason=no_tsconfig
             else
-              # timeout runs as workflow-runner so it can kill the whole tsc process group.
-              sudo -n -u workflow-runner env -i \
-                HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
-                NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
-                CI=true NODE_OPTIONS=--max-old-space-size=8192 \
-                timeout -k 30 "$TIMEOUT_SECONDS" "${command[@]}" > "$log" 2>&1
+              # tsc runs no project code, but the type_check CLI rewrites tsconfig.refs.json and writes type
+              # outputs into every referenced package, so it runs as the owner of the checkout and not as the
+              # sandboxed workflow-runner that the unit tests use. timeout kills the whole tsc process group.
+              timeout -k 30 "$TIMEOUT_SECONDS" env CI=true NODE_OPTIONS=--max-old-space-size=8192 \
+                "${command[@]}" > "$log" 2>&1
               exit_code=$?
               if [ "$exit_code" -eq 0 ]; then
                 status=passed; reason=''
               elif [ "$exit_code" -eq 124 ] || [ "$exit_code" -eq 137 ]; then
                 status=failed; reason=timeout
-              elif grep -qE 'error TS[0-9]+' "$log"; then
+              elif sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -qE 'error TS[0-9]+'; then
                 status=failed; reason=type_errors
               else
                 status=failed; reason=crashed
@@ -151,7 +150,11 @@ steps:
             import json, os, re
             e = os.environ
             text = re.sub(r"\x1b\[[0-9;]*m", "", open(e["LOG"], errors="replace").read())
-            errors = re.findall(r"^(\S+?)\(\d+,\d+\): error (TS\d+)", text, re.M)
+            # tsc prints either "path(12,5): error TS2322" or, with --pretty, "path:12:5 - error TS2322"; the CLI
+            # prefixes every line of the tsc output with "proc [tsc]".
+            errors = re.findall(
+                r"^\s*(?:\w+ \[tsc\]\s+)?(\S+?)(?:\(\d+,\d+\):|:\d+:\d+ -) error (TS\d+)", text, re.M,
+            )
             json.dump({
                 "project": e["PROJECT_ID"],
                 "source_root": e["SOURCE_ROOT"],

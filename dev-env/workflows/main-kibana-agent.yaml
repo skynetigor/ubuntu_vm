@@ -1,10 +1,9 @@
 version: '1'
 name: Main Kibana Agent
 description: >-
-  Reusable entry point for calling an agent. By default (agent: claude) it runs
-  Claude Code on dev-vm over SSH. Any other agent value is the id of an Agent
-  Builder agent (for example dev-env), which is run with the ai.agent step in a
-  stored conversation. Pass the returned session_id on later calls to continue
+  Reusable entry point for calling an agent. agent: claude (the default) runs Claude
+  Code on dev-vm over SSH. agent: ab runs the Agent Builder agent we created
+  (dev-env, from dev-env/agents.yml) with the ai.agent step, in a stored conversation. Pass the returned session_id on later calls to continue
   the same Claude session or Agent Builder conversation. Both return the same
   fields (response, run_summary, findings, changes, pull_request, session_id);
   response, run_summary, and pull_request.body are GitHub-flavored Markdown. An
@@ -27,15 +26,17 @@ triggers:
           description: Message or instruction to send to the agent.
         agent:
           type: string
+          enum:
+            - claude
+            - ab
           default: claude
-          pattern: '^[A-Za-z0-9._-]+$'
           description: >-
-            claude runs Claude Code on dev-vm. Any other value is an Agent Builder agent id
-            (for example dev-env) run with the ai.agent step.
+            claude runs Claude Code on dev-vm. ab runs the Agent Builder agent we created (consts.AB_AGENT_ID,
+            from dev-env/agents.yml) with the ai.agent step.
         session_id:
           type: string
           description: >-
-            Claude session ID, or Agent Builder conversation ID for other agents, to resume;
+            Claude session ID, or the Agent Builder conversation ID when agent is ab, to resume;
             omit to start a new one.
         cwd:
           type: string
@@ -77,6 +78,10 @@ settings:
     strategy: queue
     max: 1
 
+consts:
+  # The Agent Builder agent that agent: ab runs (created from dev-env/agents.yml).
+  AB_AGENT_ID: dev-env
+
 steps:
   - name: initialize_state
     type: data.set
@@ -95,7 +100,7 @@ steps:
           path: /key-value/_mget
           body:
             ids:
-              - 'agent:{% if inputs.agent != "claude" %}{{ inputs.agent }}:{% endif %}{{ inputs.idempotency_key }}'
+              - 'agent:{% if inputs.agent == "ab" %}ab:{% endif %}{{ inputs.idempotency_key }}'
 
       - name: return_when_cached
         type: if
@@ -144,7 +149,7 @@ steps:
   # id comes back as session_id, like Claude's session id.
   - name: run_agent_builder_agent
     type: if
-    condition: "${{ inputs.agent != 'claude' }}"
+    condition: "${{ inputs.agent == 'ab' }}"
     steps:
       - name: build_agent_message
         type: data.set
@@ -168,7 +173,7 @@ steps:
           - name: agent_builder_new
             type: ai.agent
             timeout: 30m
-            agent-id: '{{ inputs.agent }}'
+            agent-id: '{{ consts.AB_AGENT_ID }}'
             inference-id: '{{ inputs.inference_id }}'
             create-conversation: true
             public-conversation: true
@@ -224,7 +229,7 @@ steps:
           - name: agent_builder_continue
             type: ai.agent
             timeout: 30m
-            agent-id: '{{ inputs.agent }}'
+            agent-id: '{{ consts.AB_AGENT_ID }}'
             inference-id: '{{ inputs.inference_id }}'
             create-conversation: true
             public-conversation: true
@@ -282,7 +287,7 @@ steps:
         type: elasticsearch.request
         with:
           method: PUT
-          path: '/key-value/_doc/agent%3A{% if inputs.agent != "claude" %}{{ inputs.agent | url_encode }}%3A{% endif %}{{ inputs.idempotency_key | url_encode }}'
+          path: '/key-value/_doc/agent%3A{% if inputs.agent == "ab" %}ab%3A{% endif %}{{ inputs.idempotency_key | url_encode }}'
           body:
             value: ${{ variables.result }}
 

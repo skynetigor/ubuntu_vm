@@ -5,8 +5,8 @@ description: >-
   connector, ranks them by complexity (low, medium, high) with an agent that
   reads the code, and implements only those up to medium, easiest first, one at
   a time. Each issue goes through implement-kibana-issue (implement, review, lint,
-  type check and test loop, with before/after videos for UI issues), then publish-issue-pr (draft PR in elastic/kibana, Slack approval, and on
-  approval the draft is opened for review).
+  type check and test loop, with before/after videos for UI issues), which also opens the draft PR in elastic/kibana and asks in
+  Slack whether to open it for review.
 enabled: false
 tags:
   - kibana
@@ -43,11 +43,19 @@ triggers:
         base_branch:
           type: string
           default: main
+        user_prompt:
+          type: string
+          default: ''
+          maxLength: 8000
+          description: >-
+            Optional extra context or instructions from the user, given to the agent for every issue
+            implemented in this run (scope, hints, things to skip). Scheduled runs leave it empty.
 
 # A run waits for Slack answers, so a second run must not start on top of it. Worst case per issue is
-# 4h implementing plus 24h waiting for the answer, so 5 issues need 140h.
+# the 36h limit of implement-kibana-issue (implementing, then up to 24h waiting for the answer), so 5 issues
+# need 180h.
 settings:
-  timeout: 168h
+  timeout: 192h
   concurrency:
     key: '{{ workflow.id }}'
     strategy: drop
@@ -55,7 +63,7 @@ settings:
 
 consts:
   # Slack channel ID of #ihor-issues-implementation (channels are addressed by ID, see the other workflows).
-  SLACK_CHANNEL_ID: REPLACE_WITH_CHANNEL_ID
+  SLACK_CHANNEL_ID: C0C76ARAP8T
   LIGHT_AGENT_MODEL: sonnet
   COMPLEXITY_RUBRIC: >-
     low: a small, well-defined change in one or two files, no design decisions,
@@ -204,34 +212,14 @@ steps:
             with:
               workflow-id: implement-kibana-issue
               inputs:
-                issue: ${{ foreach.item }}
+                issue_url: 'https://github.com/{{ inputs.upstream_repository }}/issues/{{ foreach.item.number }}'
+                plan: '{{ foreach.item.plan }}'
                 upstream_repository: '{{ inputs.upstream_repository }}'
                 fork_repository: '{{ inputs.fork_repository }}'
                 base_branch: '{{ inputs.base_branch }}'
+                user_prompt: '{{ inputs.user_prompt }}'
 
-          # Only a clean result (no review comments, no failing tests) gets a PR.
-          - name: publish_when_ready
-            type: if
-            condition: "${{ steps.implement_issue.output.status == 'ready' }}"
-            steps:
-              - name: publish_issue
-                type: workflow.execute
-                on-failure:
-                  continue: true
-                with:
-                  workflow-id: publish-issue-pr
-                  inputs:
-                    issue: ${{ foreach.item }}
-                    branch: '{{ steps.implement_issue.output.branch }}'
-                    pr_title: '{{ steps.implement_issue.output.pr_title }}'
-                    pr_body: '{{ steps.implement_issue.output.pr_body }}'
-                    labels: ${{ steps.implement_issue.output.labels }}
-                    media: ${{ steps.implement_issue.output.media }}
-                    upstream_repository: '{{ inputs.upstream_repository }}'
-                    fork_repository: '{{ inputs.fork_repository }}'
-                    base_branch: '{{ inputs.base_branch }}'
-                    parent_workflow_id: '{{ workflow.id }}'
-                    parent_execution_id: '{{ execution.id }}'
+          # A clean result is published (draft PR and Slack approval) by implement-kibana-issue itself.
 
           # Anything that did not end in a PR is reported, not left in the execution log.
           - name: report_not_published
@@ -255,6 +243,7 @@ steps:
                     {% endfor %}{% for t in steps.implement_issue.output.remaining_lint_failures %}• lint errors: {{ t.project }}
                     {% endfor %}{% for t in steps.implement_issue.output.remaining_type_failures %}• type errors: {{ t.project }}
                     {% endfor %}{% for f in steps.implement_issue.output.remaining_ui_findings %}• UI: {{ f.comment | truncate: 200 }}
+                    {% endfor %}{% for t in steps.implement_issue.output.tool_failures %}• {{ t.project }}: the check {{ t.reason }}, it never ran to a result
                     {% endfor %}{% endif %}
 
   - name: output

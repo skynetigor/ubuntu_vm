@@ -265,7 +265,12 @@ steps:
                   for every UI problem found, at every severity, with severity,
                   comment (the defect and why it matters), issue (or null),
                   file and line of the likely cause when known (else null), and
-                  evidence.
+                  evidence. If the test server or browser itself is broken, so
+                  that the change cannot be tried at all (the UI does not load
+                  or its bundles return 404, login fails, Elasticsearch is
+                  down), do not report that as a defect: report one entry with
+                  kind `environment`, comment and evidence, and use the verdict
+                  not_verifiable for the issues.
 
           - name: save_ui_test
             type: data.set
@@ -306,5 +311,6 @@ steps:
       issue_verdicts: ${{ steps.summarize_ui_findings.output.issue_verdicts }}
       ui_findings_to_fix: ${{ steps.summarize_ui_findings.output.ui_findings_to_fix }}
       other_ui_findings: ${{ steps.summarize_ui_findings.output.other_ui_findings }}
+      environment_problems: ${{ steps.summarize_ui_findings.output.environment_problems }}
       session_id: '{{ variables.agent_session_id }}'
       run_summary: '{{ variables.run_summary }}'
