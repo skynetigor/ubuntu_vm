@@ -66,6 +66,17 @@ triggers:
           type: array
           default: []
           description: Publishable findings, listed in the Slack message.
+        approvable:
+          type: string
+          default: ''
+          description: "'true' or 'false': the reviewer's verdict on whether the PR can be approved as it is."
+        approval_reason:
+          type: string
+          default: ''
+        open_items:
+          type: array
+          default: []
+          description: Review threads and findings that are still open, listed in the Slack message.
         dropped_count:
           type: integer
           default: 0
@@ -151,6 +162,9 @@ steps:
         FINDINGS_JSON: '{{ inputs.findings | json }}'
         EVENT: '{{ inputs.event }}'
         DROPPED_COUNT: '{{ inputs.dropped_count }}'
+        APPROVABLE: '{{ inputs.approvable }}'
+        APPROVAL_REASON: '{{ inputs.approval_reason }}'
+        OPEN_ITEMS_JSON: '{{ inputs.open_items | json }}'
         PREVIEW_PR_URL: '{{ variables.preview_pr_url }}'
         EXECUTION_URL: '{{ consts.PUBLIC_URL }}/app/workflows/publish-external-review?executionId={{ execution.id }}'
         SLACK_USER_ID: '{{ consts.SLACK_USER_ID }}'

@@ -37,6 +37,51 @@ def comment_line(finding):
     return f"• {severity}{where}{escape(one_line(finding.get('comment', ''), 230))}"
 
 
+def verdict_line(environment):
+    """Whether the PR can be approved, from the reviewer's verdict and what is still open; empty when not given."""
+    approvable = (environment.get('APPROVABLE') or '').strip().lower()
+    if approvable not in ('true', 'false'):
+        return ''
+    reason = escape(one_line(environment.get('APPROVAL_REASON', ''), 320))
+    if approvable == 'true':
+        return f":white_check_mark: *Approvable*{' - ' + reason if reason else ''}"
+    return f":rotating_light: *Not approvable*{' - ' + reason if reason else ''}"
+
+
+def open_item_line(item):
+    where = ''
+    if item.get('file'):
+        where = os.path.basename(str(item['file'])) + (f":{item['line']}" if item.get('line') else '')
+    label = link(item['url'], where or 'thread') if item.get('url') else (f'`{escape(where)}`' if where else '')
+    severity = f"_{escape(str(item.get('severity') or 'unrated'))}_"
+    notes = []
+    if item.get('status') != 'confirmed':
+        notes.append('not re-checked against the code')
+    if item.get('thread_resolved'):
+        notes.append('thread resolved, but the code still has it')
+    suffix = f" ({'; '.join(notes)})" if notes else ''
+    return f"• {severity} {label} {escape(one_line(item.get('note', ''), 170))}{suffix}".replace('  ', ' ')
+
+
+def open_items_block(environment, limit=8):
+    """The unresolved threads that still matter, each with its severity and a link to the thread."""
+    if (environment.get('APPROVABLE') or '').strip().lower() not in ('true', 'false'):
+        return ''
+    items = load(environment, 'OPEN_ITEMS_JSON', [])
+    if not items:
+        return '*Still open*\n• Nothing'
+    lines = [f'*Still open ({len(items)})*']
+    lines += [open_item_line(item) for item in items[:limit]]
+    if len(items) > limit:
+        lines.append(f'• ...and {len(items) - limit} more')
+    return '\n'.join(lines)
+
+
+def with_verdict(environment, about):
+    """The PR summary followed by the verdict and the still-open list, for every kind of review message."""
+    return '\n\n'.join(part for part in (verdict_line(environment), about, open_items_block(environment)) if part)
+
+
 def format_external_review_slack(environment=None):
     environment = os.environ if environment is None else environment
     mode = environment.get('MODE', 'approval')
@@ -47,7 +92,8 @@ def format_external_review_slack(environment=None):
     execution_line = f"\n{link(execution, 'Open the workflow execution')}" if execution else ''
 
     if mode == 'no_comments':
-        message = f":white_check_mark: Reviewed {head} - no comments found.\n\n{about}{dropped_note}{execution_line}"
+        icon = ':rotating_light:' if (environment.get('APPROVABLE') or '').strip().lower() == 'false' else ':white_check_mark:'
+        message = f"{icon} Reviewed {head} - no new comments.\n\n{with_verdict(environment, about)}{dropped_note}{execution_line}"
         return {'message': message}
 
     if mode == 'clean_approval':
@@ -55,7 +101,7 @@ def format_external_review_slack(environment=None):
         mention = f'<@{mention_id}> ' if re.fullmatch(r'[UW][A-Z0-9]+', mention_id) else ''
         approval_message = one_line(re.sub(r'<!--.*?-->', '', environment.get('APPROVAL_MESSAGE', ''), flags=re.S), 300)
         message = (
-            f"{mention}:white_check_mark: Reviewed {head} - *no comments found*.\n\n{about}\n\n"
+            f"{mention}:white_check_mark: Reviewed {head} - *no new comments*.\n\n{with_verdict(environment, about)}\n\n"
             f"Approving posts an approval review on the PR with this message:\n_{escape(approval_message)}_\n"
             f"Skip leaves the PR alone.{dropped_note}{execution_line}"
         )
@@ -84,7 +130,7 @@ def format_external_review_slack(environment=None):
     lines = [
         f"{mention}*Review ready to publish* for {head}",
         '',
-        about,
+        with_verdict(environment, about),
         '',
         f"Approving posts {EVENT_LABEL.get(event, 'a review')} with {len(findings)} comment{'s' if len(findings) != 1 else ''} on the PR.",
         (f"Check the comments first in the {link(preview_url, 'preview PR in your fork')}." if preview_url

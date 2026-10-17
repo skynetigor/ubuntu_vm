@@ -159,6 +159,38 @@ services:
       - elastic
     restart: unless-stopped
 
+  telemetry:
+    build:
+      context: ../telemetry
+    container_name: telemetry
+    env_file:
+      - path: ./env/es.env
+        required: false
+      - path: ./env/cloudflare.env
+        required: false
+      - path: ./env/telemetry.env
+        required: false
+    environment:
+      - ES_URL=http://elasticsearch:9200
+      - KIBANA_URL=http://kibana:5601
+      - CF_SUBDOMAIN=skynetemu-telemetry
+      - CF_SERVICE_URL=http://telemetry:8080
+    ports:
+      - '${TELEMETRY_PORT:-6004}:8080'
+    mem_limit: 200m
+    memswap_limit: 200m
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - telemetry-data:/data
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - elastic
+    restart: unless-stopped
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     env_file:
@@ -181,3 +213,4 @@ volumes:
   es_data:
   dev-vm-docker:
   dev-vm-opt:
+  telemetry-data:

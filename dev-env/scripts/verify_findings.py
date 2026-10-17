@@ -3,7 +3,9 @@ import os
 import re
 import subprocess
 
-PASSTHROUGH_KINDS = {'review_body', 'pr_summary'}
+PASSTHROUGH_KINDS = {'review_body', 'pr_summary', 'approval'}
+# One entry per unresolved review thread: does the problem still exist in the current code?
+THREAD_CHECK_KIND = 'thread_check'
 WINDOW = 4
 SEVERITIES = {'critical', 'high', 'medium', 'low', 'nit', 'opinionated'}
 
@@ -63,6 +65,24 @@ def ground_findings(environment=None):
             continue
         if finding.get('kind') in PASSTHROUGH_KINDS:
             passthrough.append(finding)
+            continue
+        if finding.get('kind') == THREAD_CHECK_KIND:
+            # Never dropped: a thread the agent could not substantiate simply stays unverified and open. A claim
+            # that the problem is still there must quote real code from the PR head.
+            check = {**finding, 'grounded': True}
+            if finding.get('still_a_problem') is True:
+                path = finding.get('file')
+                if path in production_files:
+                    if path not in files:
+                        files[path] = read_head_file(head_commit, path)
+                    check['grounded'] = bool(
+                        files[path] is not None
+                        and len(normalize(finding.get('evidence_quote'))) >= 6
+                        and locate_quote(files[path], finding.get('evidence_quote'), finding.get('line')) is not None
+                    )
+                else:
+                    check['grounded'] = False
+            passthrough.append(check)
             continue
         path = finding.get('file')
         quote = finding.get('evidence_quote')

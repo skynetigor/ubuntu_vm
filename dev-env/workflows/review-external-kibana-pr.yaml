@@ -78,7 +78,7 @@ consts:
     usually enough. Start minor style remarks with "nit:".
   UPSTREAM_KIBANA_REPO: https://github.com/elastic/kibana.git
   # Bump when the review or verification prompts change so cached agent replies are not reused.
-  REVIEW_PROMPT_VERSION: external-review-v4
+  REVIEW_PROMPT_VERSION: external-review-v5
   VERIFY_PROMPT_VERSION: external-verify-v1
   PUBLIC_URL: https://wf.skynetapp.dev
   GROUNDING_RULES: >-
@@ -308,7 +308,22 @@ steps:
               already_raised to true and existing_comment_id to the matching
               comment or review id; it will not be posted again. If a
               discussion there already explains why something is fine, do not
-              report it.
+              report it. Comments with is_resolved true are settled: never raise
+              them again. For EVERY existing comment with is_resolved false that
+              starts a thread (in_reply_to_id is empty), open the code it points
+              at in the head version and add a finding of kind `thread_check`
+              with existing_comment_id (the comment id), still_a_problem (true
+              only when the problem is still present in the current code, false
+              when it was fixed or never was one), severity (by the rubric),
+              comment (one plain sentence for the operator: what is still wrong,
+              or why it is fine now), file, line, and, when still_a_problem is
+              true, evidence_quote copied character for character from the head
+              file. Also add exactly one finding of kind `approval` with
+              approvable (true or false) and reason (one or two plain sentences
+              for the operator). approvable is true only when nothing is left
+              that must be fixed before this PR is merged, counting your new
+              findings, the threads that are still a problem, and anything else
+              you saw at medium severity or higher.
               Review only the diff between merge base
               {{ steps.prepare_review.output.merge_base }} and head
               {{ steps.prepare_review.output.head_commit }}, stored at
@@ -329,7 +344,9 @@ steps:
               at an added or modified line when possible. Also add exactly one
               finding with kind `review_body` whose comment is the short
               top-level review message (one to three sentences, same style, no
-              summary of the PR, empty string if nothing to add). Also add
+              summary of the PR, empty string if nothing to add); it must agree
+              with approvable, so when approvable is false it says what has to
+              be fixed first. Also add
               exactly one finding with kind `pr_summary` whose comment is two
               to four plain sentences saying what this PR does and why, based
               only on its title, description, linked issues and the diff, with
@@ -467,6 +484,9 @@ steps:
                 review: ${{ steps.build_review.output.review }}
                 event: '{{ steps.build_review.output.event }}'
                 marker: '{{ steps.build_review.output.marker }}'
+                approvable: '{{ steps.build_review.output.approvable }}'
+                approval_reason: '{{ steps.build_review.output.approval_reason }}'
+                open_items: ${{ steps.build_review.output.open_items }}
                 findings: ${{ steps.build_review.output.publishable_findings }}
                 dropped_count: ${{ steps.apply_verdicts.output.dropped_count }}
                 parent_workflow_id: review-external-kibana-pr
@@ -486,7 +506,9 @@ steps:
           # in Slack; nothing is approved on GitHub unless a human clicks Approve there.
           - name: offer_clean_approval
             type: if
-            condition: "${{ inputs.approve_when_clean == true and steps.build_review.output.event == 'APPROVE' and steps.prepare_review.output.production_files.size > 0 }}"
+            # Only an approvable PR is offered for approval. One with a confirmed open issue gets a plain notification
+            # that says so (danger icon, what is still open) and is never offered a one-click approval.
+            condition: "${{ inputs.approve_when_clean == true and steps.build_review.output.approvable == true and steps.build_review.output.event == 'APPROVE' and steps.prepare_review.output.production_files.size > 0 }}"
             else:
               - name: format_no_comments
                 type: ssh.python
@@ -503,6 +525,9 @@ steps:
                     PR_AUTHOR: '{{ steps.gather_pr_context.output.pull_request.author }}'
                     PR_SUMMARY: '{{ steps.build_review.output.pr_summary }}'
                     DROPPED_COUNT: '{{ steps.apply_verdicts.output.dropped_count }}'
+                    APPROVABLE: '{{ steps.build_review.output.approvable }}'
+                    APPROVAL_REASON: '{{ steps.build_review.output.approval_reason }}'
+                    OPEN_ITEMS_JSON: '{{ steps.build_review.output.open_items | json }}'
                     EXECUTION_URL: '{{ consts.PUBLIC_URL }}/app/workflows/review-external-kibana-pr?executionId={{ execution.id }}'
                   code: |
                     import sys
@@ -541,6 +566,9 @@ steps:
                     review: ${{ steps.build_review.output.review }}
                     event: '{{ steps.build_review.output.event }}'
                     marker: '{{ steps.build_review.output.marker }}'
+                    approvable: '{{ steps.build_review.output.approvable }}'
+                    approval_reason: '{{ steps.build_review.output.approval_reason }}'
+                    open_items: ${{ steps.build_review.output.open_items }}
                     dropped_count: ${{ steps.apply_verdicts.output.dropped_count }}
                     parent_workflow_id: review-external-kibana-pr
                     parent_execution_id: '{{ execution.id }}'
