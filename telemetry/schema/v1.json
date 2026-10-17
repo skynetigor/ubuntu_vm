@@ -1,0 +1,318 @@
+{
+ "version": 1,
+ "minimumVersion": 1,
+ "required": [
+  "@timestamp",
+  "event.id",
+  "event.dataset",
+  "event.action",
+  "user.id",
+  "session.id",
+  "skynet.telemetry.schema"
+ ],
+ "common": [
+  "@timestamp",
+  "event.id",
+  "event.dataset",
+  "event.action",
+  "event.outcome",
+  "user.id",
+  "session.id",
+  "service.name",
+  "service.version",
+  "skynet.build.type",
+  "host.os.name",
+  "host.os.version",
+  "skynet.android.sdk",
+  "device.manufacturer",
+  "device.model.identifier",
+  "skynet.soc.family",
+  "skynet.soc.model",
+  "skynet.gpu.renderer",
+  "skynet.memory.total_bytes",
+  "skynet.telemetry.schema"
+ ],
+ "fields": {
+  "@timestamp": {
+   "type": "date"
+  },
+  "event.id": {
+   "type": "keyword",
+   "max": 100,
+   "uuid": true
+  },
+  "event.dataset": {
+   "type": "keyword",
+   "max": 100
+  },
+  "event.action": {
+   "type": "keyword",
+   "max": 100
+  },
+  "event.outcome": {
+   "type": "keyword",
+   "enum": [
+    "success",
+    "failure"
+   ]
+  },
+  "event.duration": {
+   "type": "long",
+   "min": 0,
+   "max": 86400000000000
+  },
+  "event.ingested": {
+   "type": "date",
+   "server": true
+  },
+  "user.id": {
+   "type": "keyword",
+   "max": 100,
+   "uuid": true
+  },
+  "session.id": {
+   "type": "keyword",
+   "max": 100,
+   "uuid": true
+  },
+  "service.name": {
+   "type": "keyword",
+   "max": 100
+  },
+  "service.version": {
+   "type": "keyword",
+   "max": 100
+  },
+  "host.os.name": {
+   "type": "keyword",
+   "max": 100
+  },
+  "host.os.version": {
+   "type": "keyword",
+   "max": 100
+  },
+  "device.manufacturer": {
+   "type": "keyword",
+   "max": 100
+  },
+  "device.model.identifier": {
+   "type": "keyword",
+   "max": 100
+  },
+  "error.type": {
+   "type": "keyword",
+   "max": 200
+  },
+  "error.message": {
+   "type": "text",
+   "max": 300,
+   "free_text": true
+  },
+  "error.stack_trace": {
+   "type": "wildcard",
+   "max": 8192,
+   "free_text": true
+  },
+  "skynet.build.type": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.android.sdk": {
+   "type": "integer",
+   "min": 1,
+   "max": 100
+  },
+  "skynet.soc.family": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.soc.model": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.gpu.renderer": {
+   "type": "keyword",
+   "max": 200
+  },
+  "skynet.memory.total_bytes": {
+   "type": "long",
+   "min": 0,
+   "max": 1000000000000
+  },
+  "skynet.memory.peak_used_bytes": {
+   "type": "long",
+   "min": 0,
+   "max": 1000000000000
+  },
+  "skynet.telemetry.schema": {
+   "type": "integer",
+   "min": 0,
+   "max": 1000
+  },
+  "skynet.game.id": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.game.version": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.config.id": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.wine": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.emulator": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.driver": {
+   "type": "keyword",
+   "max": 100
+  },
+  "skynet.file_cache": {
+   "type": "boolean"
+  },
+  "skynet.storage": {
+   "type": "keyword",
+   "max": 40,
+   "pattern": "^[A-Za-z0-9_.-]{1,40}$"
+  },
+  "skynet.time_to_window_ms": {
+   "type": "long",
+   "min": 0,
+   "max": 86400000
+  },
+  "skynet.time_to_renderer_ms": {
+   "type": "long",
+   "min": 0,
+   "max": 86400000
+  },
+  "skynet.fps.avg": {
+   "type": "float",
+   "min": 0,
+   "max": 1000
+  },
+  "skynet.fps.p1_low": {
+   "type": "float",
+   "min": 0,
+   "max": 1000
+  },
+  "skynet.frametime.p99_ms": {
+   "type": "float",
+   "min": 0,
+   "max": 60000
+  },
+  "skynet.cpu.avg_pct": {
+   "type": "float",
+   "min": 0,
+   "max": 100
+  },
+  "skynet.temp.cpu_max_c": {
+   "type": "float",
+   "min": -20,
+   "max": 150
+  },
+  "skynet.temp.battery_max_c": {
+   "type": "float",
+   "min": -20,
+   "max": 150
+  },
+  "skynet.thermal.max_status": {
+   "type": "integer",
+   "min": 0,
+   "max": 10
+  },
+  "skynet.battery.drain_pct": {
+   "type": "float",
+   "min": -100,
+   "max": 100
+  },
+  "skynet.exit.code": {
+   "type": "integer",
+   "min": -1000000,
+   "max": 1000000
+  },
+  "skynet.exit.kind": {
+   "type": "keyword",
+   "max": 40,
+   "pattern": "^[A-Za-z0-9_.-]{1,40}$"
+  },
+  "skynet.error.stage": {
+   "type": "keyword",
+   "max": 40,
+   "pattern": "^[A-Za-z0-9_.-]{1,40}$"
+  },
+  "skynet.client_timestamp": {
+   "type": "date",
+   "server": true
+  },
+  "skynet.timestamp_fixed": {
+   "type": "boolean",
+   "server": true
+  },
+  "skynet.ingest.version": {
+   "type": "keyword",
+   "server": true,
+   "max": 40
+  }
+ },
+ "datasets": {
+  "skynet.session": {
+   "fields": []
+  },
+  "skynet.funnel": {
+   "actions": [
+    "add_game_started",
+    "exe_picked",
+    "game_recognised",
+    "config_chosen",
+    "container_created",
+    "shortcut_created",
+    "game_launched"
+   ],
+   "fields": [
+    "skynet.game.id",
+    "skynet.game.version",
+    "skynet.config.id"
+   ]
+  },
+  "skynet.game_session": {
+   "fields": [
+    "skynet.game.id",
+    "skynet.game.version",
+    "skynet.config.id",
+    "skynet.wine",
+    "skynet.emulator",
+    "skynet.driver",
+    "skynet.file_cache",
+    "skynet.storage",
+    "skynet.time_to_window_ms",
+    "skynet.time_to_renderer_ms",
+    "event.duration",
+    "skynet.fps.avg",
+    "skynet.fps.p1_low",
+    "skynet.frametime.p99_ms",
+    "skynet.cpu.avg_pct",
+    "skynet.temp.cpu_max_c",
+    "skynet.temp.battery_max_c",
+    "skynet.thermal.max_status",
+    "skynet.memory.peak_used_bytes",
+    "skynet.battery.drain_pct",
+    "skynet.exit.code",
+    "skynet.exit.kind"
+   ]
+  },
+  "skynet.error": {
+   "fields": [
+    "error.type",
+    "error.message",
+    "error.stack_trace",
+    "skynet.error.stage"
+   ]
+  }
+ }
+}
