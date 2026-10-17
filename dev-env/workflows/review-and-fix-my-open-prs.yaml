@@ -15,7 +15,13 @@ tags:
 triggers:
   - type: scheduled
     with:
-      every: 1d
+      rrule:
+        freq: WEEKLY
+        interval: 1
+        byweekday: [MO, TU, WE, TH, FR]
+        byhour: [9]
+        byminute: [0]
+        tzid: Europe/Rome
   - type: manual
     inputs:
       additionalProperties: false
