@@ -96,10 +96,3 @@ lets it see connectors but refuses to run them, and the built-in agent cannot be
 edited. Agents can only use connectors that have a connector spec, which is why
 `github-agent` exists next to `github` (`.mcp`, used by the workflows with
 `mcp.callTool`).
-
-## Telemetry ingest (`telemetry` service)
-
-Receives SkyNetEmu telemetry and indexes it into the same Elasticsearch as Kibana (`logs-skynet.*`). Listens on port `6004`
-(`TELEMETRY_PORT`); `GET /healthz`, `POST /v1/events`. It creates its ILM policy, ingest pipeline, index template and the Kibana
-data view on start, and registers itself in the Cloudflare tunnel as `skynetemu-telemetry.$CF_DOMAIN`. Settings (`INGEST_KEYS`, rate limits) go
-in `env/telemetry.env`. See [../telemetry/README.md](../telemetry/README.md).
