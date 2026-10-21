@@ -381,6 +381,8 @@ steps:
           cp -al "$CACHE_DIR/dist" "$DEPLOY_DIR/kibana/dist"
         else
           bash "$DEPLOY_DIR/kibana/scripts/compile.sh"
+          # cp -al into an existing directory nests the copy as dist/dist and leaves the old build in place.
+          rm -rf "$CACHE_DIR/dist" "$DEPLOY_DIR/kibana/dist"
           mkdir -p "$CACHE_DIR"
           cp -al "$KIBANA_SRC/dist" "$CACHE_DIR/dist"
           cp -al "$KIBANA_SRC/dist" "$DEPLOY_DIR/kibana/dist"
