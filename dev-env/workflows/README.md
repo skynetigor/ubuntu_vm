@@ -103,16 +103,36 @@ review.
 ## Main Kibana Agent
 
 `main-kibana-agent.yaml` is the reusable agent call. `agent` is `claude` (the default;
-Claude Code on dev-vm over SSH) or `ab`, which runs the Agent Builder agent we created
+Claude Code on dev-vm over SSH), `copilot` (GitHub Copilot CLI on dev-vm over SSH), or
+`ab`, which runs the Agent Builder agent we created
 (`dev-env`, from `dev-env/agents.yml`) with the `ai.agent` step in a stored, public
-conversation, so the chat shows up in Agent Builder. Both return the same fields
-(`response`, `run_summary`, `findings`, `changes`, `pull_request`, `session_id`);
-for `ab`, `session_id` is the conversation id, and passing it back continues that
+conversation, so the chat shows up in Agent Builder. All return the same fields
+(`response`, `run_summary`, `findings`, `changes`, `pull_request`, `session_id`,
+`agent_used`); for `ab`, `session_id` is the conversation id, and passing it back continues that
 conversation. `inference_id` picks the model for `ab` (an inference endpoint such as
 `azure-gpt-5-chat`; empty uses the Agent Builder default). `model` is Claude-only,
-`disallow_shell` is only a request to the `ab` agent, and cached answers
-(`idempotency_key`) are kept per agent. Existing callers do not pass `agent`, so they
+`copilot_model` is Copilot-only, `disallow_shell` is only a request to the `ab` agent, and cached answers
+(`idempotency_key`) are kept per requested agent. Existing callers do not pass `agent`, so they
 keep using Claude.
+
+With `agent: claude`, the workflow first checks Claude can take the job:
+
+1. `key-value` doc `agent-health:claude` remembers an outage until `value.until_epoch`
+   (Claude's reported reset time, or 1h for auth / 15m for rate limits without one). While it
+   holds, Claude is skipped without a probe.
+2. Otherwise `check_claude_ready.py` sends a one-word Haiku request. A budget/usage limit
+   (HTTP 429, `usage_limit_reached`, rejected rate limit) or an auth failure (401, not logged in)
+   marks Claude unavailable and stores the health doc; other probe errors keep Claude.
+3. If Claude runs and hits budget/auth trouble mid-run, `run_claude_agent.py` reports it instead of
+   failing, the health doc is stored, and the same request goes to Copilot.
+
+Copilot (`run_copilot_agent.py`) gets the same prompt, `run_summary`, and denied commands
+(`sudo`, `docker`, `gh`, `git commit`, `git push`, or all shell with `disallow_shell`), runs
+without the built-in GitHub MCP server, and only sees `COPILOT_GITHUB_TOKEN`. Copilot CLI has no
+JSON schema option, so the schema is part of the prompt and a non-JSON final answer gets one
+repair turn. Its session ids come back as `copilot:<id>`; a session id from the other CLI agent
+starts a new session with `run_summary` as context. Delete `agent-health:claude` from
+`key-value` to retry Claude early (for example after raising its spend limit).
 
 ## Sync Kibana Forks
 

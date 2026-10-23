@@ -7,6 +7,8 @@ import subprocess
 import threading
 import time
 
+from agent_errors import ClaudeUnavailable, classify_event, classify_plain_text
+
 
 OUTPUT_SCHEMA = {
     'type': 'object',
@@ -39,14 +41,17 @@ OUTPUT_SCHEMA = {
 }
 
 
-def run_claude_agent(environment=None):
-    environment = os.environ if environment is None else environment
-    prompt = environment['CLAUDE_PROMPT']
-    session_id = environment.get('CLAUDE_SESSION_ID', '').strip()
-    run_summary = environment.get('CLAUDE_RUN_SUMMARY', '').strip()
+COPILOT_SESSION_PREFIX = 'copilot:'
+
+# Tokens the agents must not see; agents act on GitHub only through the workflow's own steps.
+AGENT_SECRET_NAMES = ('GH_TOKEN', 'GH_UPSTREAM_TOKEN', 'GH_PUBLIC_REPOS_TOKEN', 'GITHUB_TOKEN', 'BUILD_KITE_API_TOKEN')
+
+
+def build_agent_prompt(prompt, run_summary=''):
+    run_summary = (run_summary or '').strip()
     if run_summary:
         prompt = 'Previous workflow phase summary:\n' + run_summary + '\n\n' + prompt
-    prompt += (
+    return prompt + (
         '\n\nReturn the requested structured result. '
         'Format `response` and `run_summary` as '
         'GitHub-flavored Markdown: use headings, bullet lists, and inline code '
@@ -57,6 +62,27 @@ def run_claude_agent(environment=None):
         '`### Next actions` sections (write "None" for empty ones). '
         'Do not include secrets.'
     )
+
+
+def validate_phase_result(phase_result, agent_name):
+    if not isinstance(phase_result, dict):
+        raise RuntimeError(agent_name + ' did not return structured output')
+    if not isinstance(phase_result.get('run_summary'), str):
+        raise RuntimeError(agent_name + ' structured output is missing run_summary')
+    if not isinstance(phase_result.get('findings'), list):
+        raise RuntimeError(agent_name + ' structured output is missing findings')
+    if not isinstance(phase_result.get('changes'), list):
+        raise RuntimeError(agent_name + ' structured output is missing changes')
+
+
+def run_claude_agent(environment=None):
+    environment = os.environ if environment is None else environment
+    session_id = environment.get('CLAUDE_SESSION_ID', '').strip()
+    # A Copilot fallback session cannot be resumed by Claude; the run summary carries the context.
+    if session_id.startswith(COPILOT_SESSION_PREFIX):
+        print('Claude: previous session ran on Copilot, starting a new Claude session', flush=True)
+        session_id = ''
+    prompt = build_agent_prompt(environment['CLAUDE_PROMPT'], environment.get('CLAUDE_RUN_SUMMARY', ''))
     disallowed_tools = [
         'Bash(sudo *)',
         'Bash(docker *)',
@@ -88,7 +114,7 @@ def run_claude_agent(environment=None):
         command.extend(['--model', model])
     command.append(prompt)
     agent_env = environment.copy()
-    for secret_name in ('GH_TOKEN', 'GH_UPSTREAM_TOKEN', 'GH_PUBLIC_REPOS_TOKEN', 'GITHUB_TOKEN', 'BUILD_KITE_API_TOKEN'):
+    for secret_name in AGENT_SECRET_NAMES + ('COPILOT_GITHUB_TOKEN',):
         agent_env.pop(secret_name, None)
     timeout_seconds = int(environment.get('CLAUDE_TIMEOUT_SECONDS', '3600'))
 
@@ -111,6 +137,7 @@ def run_claude_agent(environment=None):
 
     threading.Thread(target=read_output, daemon=True).start()
     result = None
+    unavailable = None
     plain_lines = []
     deadline = time.monotonic() + timeout_seconds
 
@@ -150,6 +177,7 @@ def run_claude_agent(environment=None):
             plain_lines.append(line.rstrip())
             continue
 
+        unavailable = unavailable or classify_event(event)
         if event.get('type') == 'assistant':
             message = event.get('message', {})
             for block in message.get('content', []):
@@ -163,8 +191,16 @@ def run_claude_agent(environment=None):
     except subprocess.TimeoutExpired as error:
         terminate_process_group()
         raise RuntimeError(f'Claude CLI timed out after {timeout_seconds} seconds') from error
+    unavailable = unavailable or (classify_plain_text(plain_lines) if exit_code != 0 else None)
+    if unavailable and (exit_code != 0 or result is None or result.get('is_error')):
+        reason, message, resets_at = unavailable
+        print('Claude: unavailable (' + reason + '): ' + message, flush=True)
+        raise ClaudeUnavailable(reason, message, resets_at)
     if exit_code != 0:
         output_tail = '\n'.join(plain_lines)[-1500:]
+        # stream-json errors arrive as a result event, not as plain text.
+        if not output_tail and result is not None and isinstance(result.get('result'), str):
+            output_tail = result['result'][-1500:]
         # Sessions live in the VM's home directory and are lost when it is recreated or when a
         # cached response replays an old id; the run summary already carries the context.
         if session_id and 'No conversation found' in output_tail:
@@ -175,17 +211,11 @@ def run_claude_agent(environment=None):
         raise RuntimeError('Claude CLI did not return a result event')
 
     phase_result = result.get('structured_output')
-    if not isinstance(phase_result, dict):
-        raise RuntimeError('Claude CLI did not return structured output')
-    if not isinstance(phase_result.get('run_summary'), str):
-        raise RuntimeError('Claude structured output is missing run_summary')
-    if not isinstance(phase_result.get('findings'), list):
-        raise RuntimeError('Claude structured output is missing findings')
-    if not isinstance(phase_result.get('changes'), list):
-        raise RuntimeError('Claude structured output is missing changes')
+    validate_phase_result(phase_result, 'Claude')
 
     print('Claude: response complete', flush=True)
     return {
+        'agent_used': 'claude',
         'response': phase_result.get('response', ''),
         'run_summary': phase_result['run_summary'],
         'findings': phase_result.get('findings', []),

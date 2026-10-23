@@ -61,6 +61,18 @@ Create a `kibana/.env` file (see `kibana/README.md`). The compose file also read
 | `CF_HOSTNAME` | _(required for register-tunnel.sh)_ | Public hostname to register, e.g. `wf.skynetapp.dev` |
 | `CF_SERVICE_URL` | _(required for register-tunnel.sh)_ | Backend URL, e.g. `http://kibana:5601` |
 
+### Agent CLIs on dev-vm
+
+`env/claude.env` and `env/copilot.env` (both optional, gitignored) are loaded into dev-vm and
+written to `/etc/environment`, so SSH sessions (the workflows' `ssh.*` steps) see them. Recreate
+dev-vm after changing them.
+
+| Variable | File | Description |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | `env/claude.env` | Claude Code token used by `main-kibana-agent` (`agent: claude`) |
+| `COPILOT_GITHUB_TOKEN` | `env/copilot.env` | Fine-grained PAT (`github_pat_…`) owned by your user with the **Copilot Requests** account permission; classic `ghp_` PATs do not work. Used by `agent: copilot` and the Claude fallback |
+| `COPILOT_MODEL` | `env/copilot.env` | Optional Copilot CLI model (default `claude-sonnet-5.5`) |
+
 ## AI models
 
 Kibana deprecated the `.gen-ai`, `.bedrock`, `.gemini` and `.inference` connector
