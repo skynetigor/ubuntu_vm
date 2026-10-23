@@ -10,10 +10,10 @@ if [ -n "${SSH_KEYS_BASE64:-}" ]; then
   chown -R kibana:kibana /home/kibana/.ssh
 fi
 
-# Expose Cloudflare and Claude Code vars to SSH sessions via PAM /etc/environment
-if [ -f /etc/dev-env/cloudflare.env ] || [ -f /etc/dev-env/claude.env ]; then
+# Expose Cloudflare, Claude Code and Copilot CLI vars to SSH sessions via PAM /etc/environment
+if [ -f /etc/dev-env/cloudflare.env ] || [ -f /etc/dev-env/claude.env ] || [ -f /etc/dev-env/copilot.env ]; then
   {
-    for env_file in /etc/dev-env/cloudflare.env /etc/dev-env/claude.env; do
+    for env_file in /etc/dev-env/cloudflare.env /etc/dev-env/claude.env /etc/dev-env/copilot.env; do
       if [ -f "$env_file" ]; then
         grep -v '^#' "$env_file" | grep -v '^$' || true
       fi

@@ -54,9 +54,13 @@ def summarize_review(environment=None):
         (agent_comments_to_fix if severity in fixable else other_agent_comments).append(item)
 
     comments_by_id = {str(comment['id']): comment for comment in pr_comments}
+    classified_ids = set()
     for analysis in pr_analysis:
         comment_id = str(analysis.get('comment_id', ''))
         original = comments_by_id.get(comment_id, {})
+        if not original or original.get('in_reply_to_id') or comment_id in classified_ids:
+            continue
+        classified_ids.add(comment_id)
         severity = analysis.get('severity', 'low')
         status = analysis.get('status') or ('fixed_in_pr' if analysis.get('already_fixed') is True else 'open')
         comment_url = original.get('comment_url') or original.get('url')
@@ -72,19 +76,34 @@ def summarize_review(environment=None):
             'status': status,
             'already_fixed': status != 'open',
             'rationale': analysis.get('rationale'),
+            'reply': str(analysis.get('reply') or '').strip(),
+            'is_resolved': original.get('is_resolved', False),
+            'replies': [
+                reply for reply in pr_comments
+                if str(reply.get('in_reply_to_id')) == comment_id
+            ],
         }
-        if severity in fixable and status == 'open':
+        if original.get('is_resolved') is True:
+            item['exclusion_reason'] = 'Thread is already resolved.'
+            other_pr_comments.append(item)
+        elif severity in fixable and status == 'open':
             pr_comments_to_fix.append(item)
         elif severity in fixable and status == 'fixed_locally':
             pr_comments_fixed_locally.append(item)
         else:
+            if status == 'fixed_in_pr':
+                item['exclusion_reason'] = 'Already fixed in the PR.'
+            elif status not in {'open', 'fixed_locally'}:
+                item['status'] = 'unclassified'
+                item['exclusion_reason'] = 'Invalid classification; manual review is required.'
+            else:
+                item['exclusion_reason'] = f'{severity} is outside the high/medium automatic-fix policy.'
             other_pr_comments.append(item)
 
-    # The agent typically folds thread replies into the parent comment; keep them visible.
-    classified_ids = {str(analysis.get('comment_id', '')) for analysis in pr_analysis}
+    # Replies remain attached to the root instead of becoming requests to answer the author.
     for comment in pr_comments:
         comment_id = str(comment['id'])
-        if comment_id in classified_ids:
+        if comment_id in classified_ids or comment.get('in_reply_to_id'):
             continue
         comment_url = comment.get('comment_url') or comment.get('url')
         other_pr_comments.append({
@@ -100,6 +119,13 @@ def summarize_review(environment=None):
             'status': 'unclassified',
             'already_fixed': False,
             'rationale': None,
+            'reply': '',
+            'is_resolved': comment.get('is_resolved', False),
+            'exclusion_reason': 'No classification was returned; manual review is required.',
+            'replies': [
+                reply for reply in pr_comments
+                if str(reply.get('in_reply_to_id')) == comment_id
+            ],
         })
 
     failed_tests = []

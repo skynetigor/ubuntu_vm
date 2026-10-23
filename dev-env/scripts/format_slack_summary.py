@@ -114,18 +114,45 @@ def format_slack_summary(environment=None):
         'dry_run': environment.get('DRY_RUN', '').lower() == 'true',
     }
     needs_work = environment.get('NEEDS_WORK', '').lower() == 'true' or open_total > 0
-    headline = ':warning: Needs work' if needs_work else ':white_check_mark: Clean'
+    excluded_comments = load(environment, 'EXCLUDED_PR_COMMENTS_JSON', [])
+    new_comments = load(environment, 'NEW_PR_COMMENTS_JSON', [])
+    needs_work = needs_work or bool(new_comments)
+    headline = (
+        ':warning: Needs work' if needs_work
+        else ':warning: Completed with excluded PR comments' if excluded_comments
+        else ':white_check_mark: Clean'
+    )
     user_id = environment.get('SLACK_USER_ID', '').strip()
     # Only a run that left work behind needs an action from the reviewer, so only then is the reviewer pinged.
-    mention = f'<@{user_id}> ' if needs_work and re.fullmatch(r'[UW][A-Z0-9]+', user_id) else ''
+    mention = f'<@{user_id}> ' if (needs_work or excluded_comments) and re.fullmatch(r'[UW][A-Z0-9]+', user_id) else ''
 
     lines = [
         f"{mention}*Review and fix finished* for {link(pr_url, pr_label)} - {headline}",
         f"{link(execution_url, 'Open the execution')}"
         f" | rounds: {escape(environment.get('ROUNDS', '?'))}"
         f" | test rounds: {escape(environment.get('TEST_ROUNDS', '?'))}",
-        '',
-        '*Fixed*',
+    ]
+    if new_comments or excluded_comments:
+        lines += [
+            '',
+            f'*PR comment follow-up:* {len(excluded_comments)} excluded, '
+            f'{len(new_comments)} arrived after analysis.',
+            'Automatic fixes cover high/medium defects only. '
+            f"{link(execution_url, 'Full comment list, reasons and reply outcomes in the execution output')}.",
+        ]
+        for item in new_comments[:MAX_LISTED_ITEMS]:
+            lines.append('• New, not analyzed: ' + describe(item))
+        if len(new_comments) > MAX_LISTED_ITEMS:
+            lines.append(f'• {len(new_comments) - MAX_LISTED_ITEMS} more new comments; see the full list.')
+        for item in excluded_comments[:MAX_LISTED_ITEMS]:
+            url = item.get('comment_url') or item.get('url')
+            label = f'{item.get("severity") or "unclassified"} comment {item["comment_id"]}'
+            reason = item.get('rationale') or item.get('exclusion_reason') or 'Manual review required.'
+            lines.append(f'• Excluded: {link(url, label)} - {escape(one_line(reason, 120))}')
+        if len(excluded_comments) > MAX_LISTED_ITEMS:
+            lines.append(f'• {len(excluded_comments) - MAX_LISTED_ITEMS} more exclusions; see the full list.')
+    lines += [
+        '', '*Fixed*',
         f"• review findings: {len(lists['fixed_agent_comments'])} | PR comments: {len(lists['fixed_pr_comments'])}"
         f" | failing test projects: {len(fixed_tests)} | UI findings: {len(lists['fixed_ui_findings'])}"
         f" | files auto-fixed by lint: {len(lists['lint_fixed_files'])}",
@@ -133,7 +160,7 @@ def format_slack_summary(environment=None):
     detail = lists['fixed_agent_comments'] + lists['fixed_pr_comments'] + fixed_tests + lists['fixed_ui_findings']
     lines += bullets(detail)
 
-    lines += ['', '*Still open*']
+    lines += ['', '*Remaining automatic fixes*']
     if open_total:
         for label, items in remaining.items():
             if items:
@@ -147,7 +174,11 @@ def format_slack_summary(environment=None):
     counts = (load(environment, 'COMMENT_RESOLUTION_RESULT_JSON', {}) or {}).get('counts') or {}
     if resolution and resolution != 'not_created':
         replied = counts.get('replied_and_resolved', 0)
-        lines.append(f"• PR comment replies: {escape(resolution)} ({replied} replied and resolved)")
+        explained = counts.get('replied_only', 0)
+        lines.append(
+            f"• PR comment replies: {escape(resolution)} "
+            f"({replied} replied and resolved, {explained} explanations; threads left open)"
+        )
     test_publish = environment.get('TEST_FIX_PUBLISH_STATUS', '')
     test_pr_url = environment.get('TEST_FIX_PR_URL', '').strip()
     if test_pr_url:

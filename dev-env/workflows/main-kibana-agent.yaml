@@ -2,10 +2,13 @@ version: '1'
 name: Main Kibana Agent
 description: >-
   Reusable entry point for calling an agent. agent: claude (the default) runs Claude
-  Code on dev-vm over SSH. agent: ab runs the Agent Builder agent we created
+  Code on dev-vm over SSH, and falls back to GitHub Copilot CLI on dev-vm when Claude
+  is out of budget or cannot authenticate (checked up front, remembered in key-value
+  until Claude's reset time, and detected again if it happens mid-run). agent: copilot
+  runs Copilot CLI directly. agent: ab runs the Agent Builder agent we created
   (dev-env, from dev-env/agents.yml) with the ai.agent step, in a stored conversation. Pass the returned session_id on later calls to continue
-  the same Claude session or Agent Builder conversation. Both return the same
-  fields (response, run_summary, findings, changes, pull_request, session_id);
+  the same Claude/Copilot session or Agent Builder conversation. All return the same
+  fields (response, run_summary, findings, changes, pull_request, session_id, agent_used);
   response, run_summary, and pull_request.body are GitHub-flavored Markdown. An
   optional idempotency_key reuses the complete response stored in key-value
   without invoking the agent again. Empty keys bypass caching.
@@ -13,6 +16,7 @@ enabled: true
 tags:
   - kibana
   - claude
+  - copilot
   - agent-builder
 
 triggers:
@@ -28,16 +32,19 @@ triggers:
           type: string
           enum:
             - claude
+            - copilot
             - ab
           default: claude
           description: >-
-            claude runs Claude Code on dev-vm. ab runs the Agent Builder agent we created (consts.AB_AGENT_ID,
-            from dev-env/agents.yml) with the ai.agent step.
+            claude runs Claude Code on dev-vm (falling back to Copilot when Claude is out of budget or
+            unauthenticated). copilot runs GitHub Copilot CLI on dev-vm. ab runs the Agent Builder agent
+            we created (consts.AB_AGENT_ID, from dev-env/agents.yml) with the ai.agent step.
         session_id:
           type: string
           description: >-
-            Claude session ID, or the Agent Builder conversation ID when agent is ab, to resume;
-            omit to start a new one.
+            Claude or Copilot (copilot:<id>) session ID, or the Agent Builder conversation ID when agent
+            is ab, to resume; omit to start a new one. A session from the other CLI agent starts a new
+            session that gets run_summary as context.
         cwd:
           type: string
           description: >-
@@ -57,7 +64,14 @@ triggers:
           type: string
           default: ''
           pattern: '^[A-Za-z0-9._-]*$'
-          description: Claude model or alias for this call; empty uses the CLI default. Not used for Agent Builder agents.
+          description: Claude model or alias for this call; empty uses the CLI default. Not used for Copilot or Agent Builder agents.
+        copilot_model:
+          type: string
+          default: ''
+          pattern: '^[A-Za-z0-9._-]*$'
+          description: >-
+            Copilot CLI model for agent copilot and for the Claude fallback; empty uses COPILOT_MODEL on
+            dev-vm, then claude-sonnet-5.5.
         inference_id:
           type: string
           default: ''
@@ -81,12 +95,16 @@ settings:
 consts:
   # The Agent Builder agent that agent: ab runs (created from dev-env/agents.yml).
   AB_AGENT_ID: dev-env
+  # key-value doc that remembers Claude is out of budget / unauthenticated until value.until_epoch.
+  CLAUDE_HEALTH_DOC: 'agent-health%3Aclaude'
 
 steps:
   - name: initialize_state
     type: data.set
     with:
       result: {}
+      use_copilot: ${{ inputs.agent == 'copilot' }}
+      claude_ready: false
 
   # Claude keeps the original cache ids; other agents get their own so the same key never mixes answers.
   - name: lookup_cached_response
@@ -100,7 +118,7 @@ steps:
           path: /key-value/_mget
           body:
             ids:
-              - 'agent:{% if inputs.agent == "ab" %}ab:{% endif %}{{ inputs.idempotency_key }}'
+              - 'agent:{% if inputs.agent == "ab" %}ab:{% elsif inputs.agent == "copilot" %}copilot:{% endif %}{{ inputs.idempotency_key }}'
 
       - name: return_when_cached
         type: if
@@ -115,10 +133,82 @@ steps:
               changes: '${{ steps.get_cached_response.output.docs[0]._source.value.changes }}'
               pull_request: '${{ steps.get_cached_response.output.docs[0]._source.value.pull_request }}'
               session_id: '${{ steps.get_cached_response.output.docs[0]._source.value.session_id }}'
+              agent_used: '${{ steps.get_cached_response.output.docs[0]._source.value.agent_used | default: inputs.agent }}'
+
+  # Decide whether Claude can take the job: a remembered outage skips the probe until Claude's reset
+  # time; otherwise a tiny Haiku call checks budget and auth. Only budget/auth problems route to Copilot.
+  - name: check_claude_ready
+    type: if
+    condition: "${{ inputs.agent == 'claude' }}"
+    steps:
+      - name: get_claude_health
+        type: elasticsearch.request
+        with:
+          method: POST
+          path: /key-value/_mget
+          body:
+            ids:
+              - 'agent-health:claude'
+
+      - name: evaluate_claude_health
+        type: code.javascript
+        with:
+          code: |
+            const doc = {{ steps.get_claude_health.output.docs[0] | json }};
+            const value = doc && doc.found ? doc._source.value || {} : {};
+            const untilEpoch = Number(value.until_epoch || 0);
+            return {
+              known_unavailable: untilEpoch * 1000 > Date.now(),
+              reason: value.reason || '',
+              until: untilEpoch ? new Date(untilEpoch * 1000).toISOString() : '',
+            };
+
+      - name: route_on_claude_health
+        type: if
+        condition: "${{ steps.evaluate_claude_health.output.known_unavailable == true }}"
+        steps:
+          - name: skip_claude_while_unavailable
+            type: data.set
+            with:
+              use_copilot: true
+        else:
+          - name: probe_claude
+            type: ssh.python
+            connector-id: dev-vm
+            with:
+              code: |
+                import sys
+
+                sys.path.insert(0, '/etc/dev-env-scripts')
+                from check_claude_ready import check_claude_ready
+
+                return check_claude_ready()
+
+          - name: save_claude_readiness
+            type: data.set
+            with:
+              claude_ready: ${{ steps.probe_claude.output.ready }}
+              use_copilot: ${{ steps.probe_claude.output.ready == false }}
+
+          - name: remember_claude_unavailable
+            type: if
+            condition: "${{ steps.probe_claude.output.ready == false }}"
+            steps:
+              - name: save_claude_health_from_probe
+                type: elasticsearch.request
+                with:
+                  method: PUT
+                  path: '/key-value/_doc/{{ consts.CLAUDE_HEALTH_DOC }}'
+                  body:
+                    value:
+                      reason: '{{ steps.probe_claude.output.reason }}'
+                      message: '{{ steps.probe_claude.output.message }}'
+                      until_epoch: ${{ steps.probe_claude.output.until_epoch }}
+                      updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
 
   - name: run_claude
     type: if
-    condition: "${{ inputs.agent == 'claude' }}"
+    condition: "${{ inputs.agent == 'claude' and variables.claude_ready == true }}"
     steps:
       - name: claude
         type: ssh.python
@@ -135,14 +225,73 @@ steps:
             import sys
 
             sys.path.insert(0, '/etc/dev-env-scripts')
+            from agent_errors import ClaudeUnavailable
             from run_claude_agent import run_claude_agent
 
-            return run_claude_agent()
+            # Budget or auth trouble that starts mid-run hands the job to Copilot instead of failing.
+            try:
+                return run_claude_agent()
+            except ClaudeUnavailable as error:
+                return error.to_output()
 
-      - name: save_claude_result
+      - name: route_on_claude_result
+        type: if
+        condition: "${{ steps.claude.output.claude_unavailable == true }}"
+        steps:
+          - name: fall_back_to_copilot
+            type: data.set
+            with:
+              use_copilot: true
+
+          - name: save_claude_health_from_run
+            type: elasticsearch.request
+            with:
+              method: PUT
+              path: '/key-value/_doc/{{ consts.CLAUDE_HEALTH_DOC }}'
+              body:
+                value:
+                  reason: '{{ steps.claude.output.reason }}'
+                  message: '{{ steps.claude.output.message }}'
+                  until_epoch: ${{ steps.claude.output.until_epoch }}
+                  updated_at: '{{ "now" | date: "%Y-%m-%dT%H:%M:%S%:z" }}'
+        else:
+          - name: save_claude_result
+            type: data.set
+            with:
+              result: ${{ steps.claude.output }}
+
+  - name: run_copilot
+    type: if
+    condition: "${{ variables.use_copilot == true }}"
+    steps:
+      - name: copilot
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          cwd: '{{ inputs.cwd | default: "/opt/ubuntu_vm" }}'
+          env:
+            AGENT_PROMPT: '{{ inputs.prompt }}'
+            AGENT_SESSION_ID: '{{ inputs.session_id | default: "" }}'
+            AGENT_RUN_SUMMARY: '{{ inputs.run_summary | default: "" }}'
+            AGENT_DISALLOW_SHELL: '{{ inputs.disallow_shell | default: false }}'
+            AGENT_CWD: '{{ inputs.cwd | default: "/opt/ubuntu_vm" }}'
+            COPILOT_MODEL_OVERRIDE: '{{ inputs.copilot_model | default: "" }}'
+          code: |
+            import os
+            import sys
+
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from run_copilot_agent import run_copilot_agent
+
+            environment = dict(os.environ)
+            if environment.get('COPILOT_MODEL_OVERRIDE', '').strip():
+                environment['COPILOT_MODEL'] = environment['COPILOT_MODEL_OVERRIDE']
+            return run_copilot_agent(environment)
+
+      - name: save_copilot_result
         type: data.set
         with:
-          result: ${{ steps.claude.output }}
+          result: ${{ steps.copilot.output }}
 
   # Agent Builder agents get the same result fields through a structured output schema, so callers can
   # use either agent. The conversation is stored (and public) so it shows up in Agent Builder, and its
@@ -287,7 +436,7 @@ steps:
         type: elasticsearch.request
         with:
           method: PUT
-          path: '/key-value/_doc/agent%3A{% if inputs.agent == "ab" %}ab%3A{% endif %}{{ inputs.idempotency_key | url_encode }}'
+          path: '/key-value/_doc/agent%3A{% if inputs.agent == "ab" %}ab%3A{% elsif inputs.agent == "copilot" %}copilot%3A{% endif %}{{ inputs.idempotency_key | url_encode }}'
           body:
             value: ${{ variables.result }}
 
@@ -300,3 +449,4 @@ steps:
       changes: ${{ variables.result.changes }}
       pull_request: ${{ variables.result.pull_request }}
       session_id: '{{ variables.result.session_id }}'
+      agent_used: '{{ variables.result.agent_used | default: inputs.agent }}'

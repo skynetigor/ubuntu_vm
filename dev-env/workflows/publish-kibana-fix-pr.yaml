@@ -25,6 +25,18 @@ triggers:
         pr_context:
           type: object
           description: PR context from fetch_pr_context (owner, repo, number, head_repo, head_ref, head_sha).
+          additionalProperties: true
+          required:
+            - owner
+            - repo
+            - number
+          properties:
+            owner:
+              type: string
+            repo:
+              type: string
+            number:
+              type: integer
         production_files:
           type: array
           default: []
@@ -43,6 +55,10 @@ triggers:
           type: string
           default: ''
           description: What was fixed; used to draft the PR title and body.
+        comment_review:
+          type: string
+          default: ''
+          description: Exact proposed replies and excluded requests appended verbatim to the approval PR.
         approval_note:
           type: string
           default: Approving squash-merges the fix PR into the original PR branch. Rejecting leaves it open.
@@ -152,6 +168,7 @@ steps:
           env:
             PUBLISH_RESULT_JSON: '{{ variables.publish_result | json }}'
             PR_DRAFT_JSON: '{{ steps.draft_fix_pull_request.output.pull_request | json }}'
+            COMMENT_REVIEW: '{{ inputs.comment_review }}'
           code: |
             import sys
             sys.path.insert(0, '/etc/dev-env-scripts')
@@ -164,7 +181,7 @@ steps:
           fix_pr_status: '{{ steps.open_fix_pull_request.output.status }}'
           fix_pr_result: ${{ steps.open_fix_pull_request.output }}
           fix_pr_url: '{{ steps.open_fix_pull_request.output.url }}'
-          fix_pr_body: '{{ steps.draft_fix_pull_request.output.pull_request.body }}'
+          fix_pr_body: '{{ steps.open_fix_pull_request.output.body }}'
 
   - name: approve_and_merge
     type: if

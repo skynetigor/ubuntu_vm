@@ -8,6 +8,8 @@ services:
         required: false
       - path: ./env/claude.env
         required: false
+      - path: ./env/copilot.env
+        required: false
     container_name: elastic-dev-vm
     privileged: true
     # 24 GiB is the remaining whole-GiB budget after the other services' caps on a 31 GiB host.
