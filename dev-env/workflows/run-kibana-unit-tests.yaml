@@ -129,6 +129,13 @@ steps:
             DIAGNOSTIC_CHARS: '{{ inputs.diagnostic_chars }}'
           command: |
             set -uo pipefail
+            # Run Node at the version the checked-out project pins; /usr/local/bin/node is just whatever nvm installed last.
+            node_version=$(tr -d '[:space:]' < .nvmrc 2>/dev/null) || node_version=""
+            node_dir="/home/kibana/.nvm/versions/node/v${node_version#v}"
+            if [ -z "$node_version" ] || [ ! -x "$node_dir/bin/node" ]; then
+              echo "Node ${node_version:-<missing .nvmrc>} from .nvmrc is not installed under /home/kibana/.nvm/versions/node" >&2
+              exit 1
+            fi
             case "$SOURCE_ROOT" in
               /*|*..*|*[!A-Za-z0-9_./-]*) echo "Invalid source root: $SOURCE_ROOT" >&2; exit 1 ;;
             esac
@@ -150,8 +157,8 @@ steps:
               jest_args=(scripts/jest.js --config "$wrapper" --passWithNoTests "--maxWorkers=$workers")
               # timeout runs as workflow-runner so it can kill the whole Jest worker group.
               sudo -n -u workflow-runner env -i \
-                HOME=/home/workflow-runner PATH=/usr/local/bin:/usr/bin:/bin \
-                NODE_PATH=/home/kibana/.nvm/versions/node/current/lib/node_modules \
+                HOME=/home/workflow-runner PATH="$node_dir/bin:/usr/bin:/bin" \
+                NODE_PATH="$node_dir/lib/node_modules" \
                 NODE_OPTIONS="--max-old-space-size=$WORKER_HEAP_MB" \
                 CI=true DISABLE_SWC_REGISTER_CACHE=1 \
                 timeout -k 30 "$budget" node "${jest_args[@]}" > "$log" 2>&1

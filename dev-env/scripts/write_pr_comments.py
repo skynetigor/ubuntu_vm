@@ -50,10 +50,15 @@ def write_pr_comments(environment=None):
         comment_id = str(fix.get('comment_id', ''))
         decision = analysis_by_id.get(comment_id, {})
         status = decision.get('status') or ('fixed_in_pr' if decision.get('already_fixed') is True else 'open')
-        # Comments already fixed by the PR author were not fixed by this run.
+        is_fix = fix.get('fixed') is True
+        is_explanation = (
+            fix.get('fixed') is False and status == 'open'
+            and decision.get('severity') not in eligible
+            and bool(str(fix.get('reply') or '').strip())
+        )
         if (not comment_id or status not in {'open', 'fixed_locally'}
-                or decision.get('severity') not in eligible
-                or fix.get('fixed') is not True):
+                or not (is_explanation or (is_fix and decision.get('severity') in eligible))):
+            outcomes.append({'comment_id': comment_id, 'status': 'skipped_ineligible_action'})
             continue
         original = comments_by_id.get(comment_id)
         thread = threads_by_comment.get(comment_id)
@@ -76,30 +81,46 @@ def write_pr_comments(environment=None):
             continue
 
         marker = '<!-- workflow-review-comment:' + comment_id + ' -->'
+        body = (fix.get('reply') or 'Fixed.').strip()
+        if is_fix:
+            body += f'\n\nFix: {fix_pr_url}' if fix_pr_url else f' ({commit_sha[:10]})'
+        body += '\n\n' + marker
         existing_reply = any(
-            str(item.get('in_reply_to_id')) == comment_id and marker in (item.get('body') or '')
+            str(item.get('in_reply_to_id')) == comment_id and item.get('body') == body
             for item in fresh_comments
         )
+        known_ids = {str(item['id']) for item in pr.get('comments', [])}
+        if any(
+            str(item.get('in_reply_to_id')) == comment_id
+            and str(item['id']) not in known_ids
+            and item.get('body') != body
+            for item in fresh_comments
+        ):
+            outcomes.append({'comment_id': comment_id, 'status': 'skipped_new_thread_reply'})
+            continue
         if not existing_reply:
-            body = (fix.get('reply') or 'Fixed.').strip()
-            body += f'\n\nFix: {fix_pr_url}' if fix_pr_url else f' ({commit_sha[:10]})'
-            body += '\n\n' + marker
             gh_api(
                 '--method', 'POST', f'repos/{owner}/{repo}/pulls/{number}/comments',
                 '-f', 'body=' + body, '-F', 'in_reply_to=' + comment_id,
             )
 
-        if node.get('isResolved') is not True:
+        if is_fix:
             mutation = (
                 'mutation($threadId:ID!) { resolveReviewThread(input:{threadId:$threadId}) '
                 '{ thread { isResolved } } }'
             )
-            gh_api('graphql', '-f', 'query=' + mutation, '-F', 'threadId=' + thread_id)
+            resolved = gh_api('graphql', '-f', 'query=' + mutation, '-F', 'threadId=' + thread_id)
+            if not resolved.get('data', {}).get('resolveReviewThread', {}).get('thread', {}).get('isResolved'):
+                raise RuntimeError(f'GitHub did not confirm resolution of thread {thread_id}')
         outcomes.append({
             'comment_id': comment_id,
-            'status': 'replied_and_resolved' if not existing_reply else 'reply_exists_resolved',
+            'status': (
+                ('replied_and_resolved' if not existing_reply else 'reply_exists_resolved')
+                if is_fix else ('replied_only' if not existing_reply else 'reply_exists')
+            ),
         })
-        summary_items.append((original, (fix.get('reply') or 'Fixed.').strip()))
+        if is_fix:
+            summary_items.append((original, (fix.get('reply') or 'Fixed.').strip()))
 
     # Replies sit in resolved threads, which GitHub folds away, so also post a visible summary.
     summary_posted = False

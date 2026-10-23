@@ -41,6 +41,37 @@ disabled, it pushes validated fixes to a separate branch on the PR fork, asks
 the agent to draft the follow-up PR title/body, creates that PR against the
 original branch, and returns its URL.
 
+Automatic code fixes remain limited to high/medium defects. PR-comment analysis
+can inspect referenced tests to evaluate a reviewer's request, but a test request
+is not automatically promoted to a high/medium defect. Thread replies are context
+for their root comment, including the author's existing answers and decisions.
+
+Before approval, the fix PR description lists the exact proposed replies and every
+excluded open request with its severity and rationale. Approval authorizes those
+replies after the fix PR is merged. Explanations for leaving code unchanged are
+posted without resolving the thread or claiming a fix. If there are no code
+changes, a separate reply-only approval links to the full proposed replies in the
+`build_pr_comment_actions` step output. Rejection, missing approval, and dry runs
+never send replies. New conversation replies invalidate a stale proposed reply.
+
+The workflow refreshes PR comments after publishing and testing. Comments arriving
+after the initial analysis are returned in `new_pr_comments` and require another
+run; they are not silently considered reviewed. `excluded_pr_comments` contains
+every still-unresolved excluded root with its reason, conversation, and reply
+outcome. `proposed_comment_replies` and `comment_review_details` retain the approval
+preview. `review_status` distinguishes `completed`, `completed_with_exclusions`,
+`new_comments_need_review`, `replies_need_attention`, and `needs_work` (`not_pr`
+for non-PR targets). Skipped replies are listed in `unposted_comment_replies`.
+Slack reports exclusions and late
+comments instead of calling those runs clean; the execution output has the full
+list if the Slack message is shortened.
+
+Run the comment-handling regression tests on dev-vm with:
+
+```bash
+python3 -B -m unittest discover -s /etc/dev-env-scripts/tests -p 'test_pr_comment_handling.py' -v
+```
+
 ## Implement My Issues
 
 `implement-my-issues.yaml` (disabled by default) lists my open `elastic/kibana`

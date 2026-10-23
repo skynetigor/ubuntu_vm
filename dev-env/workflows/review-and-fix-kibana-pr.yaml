@@ -120,6 +120,12 @@ steps:
       merge_result: {}
       comment_resolution_status: not_pr
       comment_resolution_result: {}
+      comment_reply_approval_status: not_requested
+      final_comment_report:
+        excluded_comments: []
+        new_comments: []
+        unposted_replies: []
+        status: not_pr
       test_initial_failed: []
       test_remaining_failed: []
       test_fixed: []
@@ -491,6 +497,7 @@ steps:
         PR_COMMENTS_TO_FIX_JSON: '{{ variables.initial_pr_comments | json }}'
         PR_COMMENTS_FIXED_LOCALLY_JSON: '{{ variables.pr_comments_fixed_locally | json }}'
         PR_FIX_RESULTS_JSON: '{{ variables.pr_fix_results | json }}'
+        OTHER_PR_COMMENTS_JSON: '{{ variables.current_other_pr_comments | json }}'
       code: |
         import sys
         sys.path.insert(0, '/etc/dev-env-scripts')
@@ -517,13 +524,18 @@ steps:
               inputs:
                 source_dir: '/opt/{{ variables.current_project }}/kibana/src'
                 pr_context: ${{ variables.initial_pr_context }}
+                comment_review: '{{ steps.build_pr_comment_actions.output.review_details }}'
+                approval_note: >-
+                  Approving squash-merges the fix PR and authorizes the exact
+                  proposed review replies in its description. Explanations for
+                  unchanged code leave those threads open. Rejecting leaves the
+                  fix PR open and sends no review replies.
                 production_files: ${{ variables.current_production_files }}
                 changed_projects: ${{ variables.current_changed_projects }}
                 fix_branch_suffix: '{{ execution.id }}'
                 parent_workflow_id: review-and-fix-kibana-pr
                 parent_execution_id: '{{ execution.id }}'
                 run_summary: '{{ variables.run_summary }}'
-                approval_note: Approving squash-merges the fix PR, then replies to and resolves the fixed review comments on the original PR. Rejecting leaves the fix PR open and posts nothing.
                 draft_details: >-
                   Fixed agent comments: {{ steps.summarize_fixed_items.output.fixed_agent_comments | json }}.
                   Fixed PR comments: {{ steps.build_pr_comment_actions.output.fixed_comments | json }}.
@@ -545,18 +557,54 @@ steps:
               merge_status: '{{ steps.publish_review_fixes.output.merge_status }}'
               merge_result: ${{ steps.publish_review_fixes.output.merge_result }}
 
+  - name: approve_replies_without_code_changes
+    type: if
+    condition: "${{ variables.needs_work == false and variables.is_pr == true and inputs.dry_run == false and variables.publish_status == 'no_changes' and steps.build_pr_comment_actions.output.replies.size > 0 }}"
+    steps:
+      - name: approve_comment_replies
+        type: waitForApproval
+        timeout: 72h
+        on-failure:
+          continue: true
+        with:
+          approveLabel: Send proposed replies
+          rejectLabel: Reject
+          channels:
+            slack_api:
+              connector-id: slack-bot
+              channels:
+                - C0C72LP1FBM
+          message: |
+            Review replies for {{ variables.initial_pr_context.owner }}/{{ variables.initial_pr_context.repo }}#{{ variables.initial_pr_context.number }}.
+
+            There are no code changes to publish. Approving sends only the
+            proposed replies below. Explanations leave their threads open.
+            Rejecting sends no replies.
+
+            Full proposed replies and exclusion reasons are saved in the
+            build_pr_comment_actions step output. Read the full list before approving:
+            {{ consts.PUBLIC_URL }}/app/workflows/review-and-fix-kibana-pr?executionId={{ execution.id }}
+
+            Preview (may be shortened; the full list above is authoritative):
+            {{ steps.build_pr_comment_actions.output.review_details | truncate: 1800 }}
+
+      - name: save_comment_reply_approval
+        type: data.set
+        with:
+          comment_reply_approval_status: "{% if steps.approve_comment_replies.output.response.approved == true %}approved{% elsif steps.approve_comment_replies.output.response.approved == false %}rejected{% else %}no_response{% endif %}"
+
   - name: resolve_fixed_pr_comments
     type: if
     condition: "${{ variables.is_pr == true }}"
     steps:
       - name: resolve_when_merged
         type: if
-        condition: "${{ variables.merge_status == 'merged' }}"
+        condition: "${{ variables.merge_status == 'merged' or variables.comment_reply_approval_status == 'approved' }}"
         else:
           - name: save_skipped_resolution_status
             type: data.set
             with:
-              comment_resolution_status: "{% if variables.fix_pr_url == '' %}{{ variables.fix_pr_status }}{% elsif variables.approval_status != 'approved' %}{{ variables.approval_status }}{% else %}merge_{{ variables.merge_status }}{% endif %}"
+              comment_resolution_status: "{% if variables.comment_reply_approval_status != 'not_requested' %}{{ variables.comment_reply_approval_status }}{% elsif variables.fix_pr_url == '' %}{{ variables.fix_pr_status }}{% elsif variables.approval_status != 'approved' %}{{ variables.approval_status }}{% else %}merge_{{ variables.merge_status }}{% endif %}"
         steps:
           - name: write_fixed_comment_replies
             type: ssh.python
@@ -566,9 +614,9 @@ steps:
               env:
                 PR_CONTEXT_JSON: '{{ variables.initial_pr_context | json }}'
                 COMMENT_ANALYSIS_JSON: '{{ variables.initial_pr_comment_analysis | json }}'
-                COMMENT_FIXES_JSON: '{{ steps.build_pr_comment_actions.output.fixes | json }}'
+                COMMENT_FIXES_JSON: '{{ steps.build_pr_comment_actions.output.replies | json }}'
                 FIXABLE_SEVERITIES: '["high", "medium"]'
-                COMMIT_SHA: '{{ variables.merge_result.merge_commit_sha }}'
+                COMMIT_SHA: '{{ variables.merge_result.merge_commit_sha | default: variables.initial_pr_context.head_sha }}'
                 FIX_PR_URL: '{{ variables.fix_pr_url }}'
               code: |
                 import sys
@@ -663,6 +711,45 @@ steps:
           test_fix_approval_status: '{{ steps.publish_test_fix_pr.output.approval_status }}'
           test_fix_merge_status: '{{ steps.publish_test_fix_pr.output.merge_status }}'
 
+  - name: refresh_final_pr_comments
+    type: if
+    condition: "${{ variables.is_pr == true }}"
+    steps:
+      - name: fetch_final_pr_context
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          env:
+            PR_OWNER: '{{ variables.initial_pr_context.owner }}'
+            PR_REPO: '{{ variables.initial_pr_context.repo }}'
+            PR_NUMBER: '{{ variables.initial_pr_context.number }}'
+            MAX_PR_COMMENTS: '300'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from fetch_pr_context import fetch_pr_context
+            return fetch_pr_context()
+
+      - name: summarize_final_pr_comments
+        type: ssh.python
+        connector-id: dev-vm
+        with:
+          env:
+            INITIAL_PR_CONTEXT_JSON: '{{ variables.initial_pr_context | json }}'
+            FINAL_PR_CONTEXT_JSON: '{{ steps.fetch_final_pr_context.output | json }}'
+            EXCLUDED_PR_COMMENTS_JSON: '{{ steps.build_pr_comment_actions.output.excluded_comments | json }}'
+            COMMENT_RESOLUTION_RESULT_JSON: '{{ variables.comment_resolution_result | json }}'
+          code: |
+            import sys
+            sys.path.insert(0, '/etc/dev-env-scripts')
+            from build_fixed_pr_comment_actions import summarize_pr_comment_followup
+            return summarize_pr_comment_followup()
+
+      - name: save_final_pr_comment_report
+        type: data.set
+        with:
+          final_comment_report: ${{ steps.summarize_final_pr_comments.output }}
+
   # Posts what this run did to #ihor-pr-fixes through the Slack bot; a Slack problem must not fail the run.
   - name: build_slack_summary
     type: ssh.python
@@ -679,7 +766,9 @@ steps:
         DRY_RUN: '{{ inputs.dry_run }}'
         PR_CONTEXT_JSON: '{{ variables.initial_pr_context | json }}'
         ROUNDS: '{{ variables.round_count }}'
-        NEEDS_WORK: '{{ variables.needs_work }}'
+        NEEDS_WORK: "{% if variables.needs_work or variables.final_comment_report.new_comments.size > 0 or variables.final_comment_report.unposted_replies.size > 0 %}true{% else %}false{% endif %}"
+        EXCLUDED_PR_COMMENTS_JSON: '{{ variables.final_comment_report.excluded_comments | json }}'
+        NEW_PR_COMMENTS_JSON: '{{ variables.final_comment_report.new_comments | json }}'
         PUBLISH_STATUS: '{{ variables.publish_status }}'
         FIX_PR_URL: '{{ variables.fix_pr_url }}'
         APPROVAL_STATUS: '{{ variables.approval_status }}'
@@ -731,6 +820,13 @@ steps:
       other_agent_comments: ${{ variables.current_other_agent_comments }}
       remaining_pr_comments: ${{ steps.build_pr_comment_actions.output.remaining_comments }}
       other_pr_comments: ${{ variables.current_other_pr_comments }}
+      excluded_pr_comments: ${{ variables.final_comment_report.excluded_comments }}
+      new_pr_comments: ${{ variables.final_comment_report.new_comments }}
+      unposted_comment_replies: ${{ variables.final_comment_report.unposted_replies }}
+      proposed_comment_replies: ${{ steps.build_pr_comment_actions.output.replies }}
+      comment_review_details: '{{ steps.build_pr_comment_actions.output.review_details }}'
+      review_status: "{% if variables.needs_work %}needs_work{% else %}{{ variables.final_comment_report.status }}{% endif %}"
+      comment_reply_approval_status: '{{ variables.comment_reply_approval_status }}'
       pr_comments_analyzed: ${{ variables.pr_comments_analyzed }}
       remaining_tests: ${{ variables.current_failed_tests }}
       lint_fixed_files: ${{ variables.lint_fixed_files }}
@@ -742,7 +838,7 @@ steps:
       fixed_ui_findings: ${{ steps.summarize_fixed_items.output.fixed_ui_findings }}
       remaining_ui_findings: ${{ variables.current_ui_findings_to_fix }}
       other_ui_findings: ${{ variables.other_ui_findings }}
-      needs_work: ${{ variables.needs_work }}
+      needs_work: ${{ variables.needs_work or variables.final_comment_report.new_comments.size > 0 or variables.final_comment_report.unposted_replies.size > 0 }}
       rounds: ${{ variables.round_count }}
       publish_status: '{{ variables.publish_status }}'
       publish_result: ${{ variables.publish_result }}

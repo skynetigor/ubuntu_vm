@@ -22,6 +22,11 @@ def create_fix_pull_request(environment=None):
         raise RuntimeError('Published branch metadata is incomplete')
     if not title or not body:
         raise RuntimeError('Agent PR draft must include title and body')
+    comment_review = environment.get('COMMENT_REVIEW', '').strip()
+    if comment_review:
+        body += '\n\n' + comment_review
+    if len(body) > 65536:
+        raise RuntimeError('Fix PR body and proposed review replies exceed the GitHub body limit')
 
     owner = repository.split('/', 1)[0]
     headers = {
@@ -49,6 +54,18 @@ def create_fix_pull_request(environment=None):
 
     if existing:
         pull_request = existing[0]
+        if comment_review and pull_request.get('body') != body:
+            update_request = urllib.request.Request(
+                f'https://api.github.com/repos/{repository}/pulls/{pull_request["number"]}',
+                data=json.dumps({'body': body}).encode(),
+                method='PATCH',
+                headers=headers,
+            )
+            try:
+                with urllib.request.urlopen(update_request, timeout=90) as response:
+                    pull_request = json.load(response)
+            except (urllib.error.HTTPError, urllib.error.URLError) as error:
+                raise RuntimeError('Unable to update the fix PR with proposed comment replies') from error
         return {
             'status': 'existing',
             'created': False,
@@ -57,6 +74,7 @@ def create_fix_pull_request(environment=None):
             'repository': repository,
             'head_branch': head_branch,
             'base_branch': base_branch,
+            'body': pull_request.get('body') or body,
         }
 
     request = urllib.request.Request(
@@ -93,4 +111,5 @@ def create_fix_pull_request(environment=None):
         'repository': repository,
         'head_branch': head_branch,
         'base_branch': base_branch,
+        'body': body,
     }

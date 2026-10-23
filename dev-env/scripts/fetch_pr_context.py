@@ -123,6 +123,7 @@ def fetch_pr_context(environment=None):
         'owner': owner,
         'repo': repo,
         'number': int(number),
+        'author': pr['user']['login'],
         'head_repo': pr['head']['repo']['full_name'] if pr.get('head', {}).get('repo') else None,
         'head_ref': pr['head']['ref'],
         'head_sha': pr['head']['sha'],
